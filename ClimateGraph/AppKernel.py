@@ -1,13 +1,16 @@
-from .Utils.InputReader import InputReader
+from Data.Data import Data
+
+from pathlib import Path
 
 
 class AppKernel:
-    @staticmethod
-    def run(file):
-        input_data = InputReader.read(file)
+    def __init__(self):
+        self.output_path = None
+        self.control_path = None
 
-        figures = input_data.get_figures()
-        data = input_data.get_data()
+        self.data = dict()
+        self.plots = dict()
+        # self.domains = dict() #TODO: replace placeholder with actual domain handling
 
-        # TODO: Define if this function should receive the files and read them or receive just
-        # an instance of the definition file
+    def run(self, control_path: Path):
+        self.control_path = control_path

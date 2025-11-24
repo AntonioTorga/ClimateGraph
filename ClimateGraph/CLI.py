@@ -24,4 +24,5 @@ def run(
         ),
     ],
 ):
+    appK = AppKernel()
     AppKernel.run(file)
