@@ -13,9 +13,8 @@ class Data(ABC):
         self.path = path
         self.obj = None
         self.geom = None
-        self.crs = None
+        # self.crs = None # Not sure if necessary, because it doesn't really exist in many cases
         domain_cache = dict()
-        collection = dict()
 
         # Might be that vars is also required when creating a Data object. If not, add a add_vars function
         # that checks if the added vars exist. Actually, yeah TODO: that because when the parser runs through the yaml
@@ -25,7 +24,7 @@ class Data(ABC):
             self._scan_obj(vars=self.vars)
 
     @abstractmethod
-    def read_obj(self, vars: list[str] | None = None):
+    def load_obj(self, vars: list[str] | None = None):
         pass
 
     @abstractmethod
@@ -36,10 +35,10 @@ class Data(ABC):
         glimpse_path = self.path
         if isinstance(glimpse_path, list):
             glimpse_path = glimpse_path[0]
-        glimpse = xr.open_dataset(glimpse_path)
-        for var_name in vars:
-            if not var_name in glimpse.data_vars.keys():
-                raise KeyError(f"Variable {var_name} not in {self.name} dataset.")
+        with xr.open_dataset(glimpse_path) as glimpse:
+            for var_name in vars:
+                if not var_name in glimpse.data_vars.keys():
+                    raise KeyError(f"Variable {var_name} not in {self.name} dataset.")
 
     def get_obj(self) -> xr.Dataset:
         if self.obj == None:
@@ -92,6 +91,3 @@ class Data(ABC):
         if len(coords) == 1:
             coords = list(coords.values())[0]
         return coords
-
-    def add_to_collection(self, other: Data):
-        pass

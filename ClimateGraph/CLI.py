@@ -13,16 +13,26 @@ app = typer.Typer(
 
 @app.command()
 def run(
-    file: Annotated[
+    control_file: Annotated[
         Path,
         typer.Argument(
             exists=True,
             dir_okay=False,
             file_okay=True,
             resolve_path=True,
-            help="File defining the graphs.",
+            help="File defining the analysis.",
+        ),
+    ],
+    output_path: Annotated[
+        Path,
+        typer.Argument(
+            exists=True,
+            dir_okay=True,
+            file_okay=False,
+            resolve_path=True,
+            help="Analysis output directory",
         ),
     ],
 ):
-    appK = AppKernel()
-    AppKernel.run(file)
+    appK = AppKernel(output_path=output_path)
+    AppKernel.run(control_file)
