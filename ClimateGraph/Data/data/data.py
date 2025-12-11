@@ -1,27 +1,39 @@
 from abc import ABC, abstractmethod
-from __future__ import annotations
 from pathlib import Path
 import numpy as np
 import xarray as xr
 
 
 class Data(ABC):
+    registry: dict[str, type["Data"]] = {}
+    type_aliases: list[str] = list()
+
+    # Allows for self registering, and alias registering, for then looking up the right Data Class.
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        Data.registry[cls.__name__.lower()] = cls
+
+        for alias in getattr(cls, "type_aliases", []):
+            Data.registry[alias.lower()] = cls
+        print(f"Registry: \n{Data.registry}")
+
     def __init__(
-        self, name: str, path: Path | list[Path], vars: str | list[str] = None
+        self, name: str, path: Path | list[Path], vars: str | list[str] | None = None
     ):
         self.name = name
         self.path = path
+
+        self.reader = None
         self.obj = None
         self.geom = None
-        # self.crs = None # Not sure if necessary, because it doesn't really exist in many cases
+        self.bbox = None  # minlon, minlat, maxlon, maxlat
+        self.crs = (
+            None  # Not sure if necessary, because it doesn't really exist in many cases
+        )
+
         domain_cache = dict()
 
-        # Might be that vars is also required when creating a Data object. If not, add a add_vars function
-        # that checks if the added vars exist. Actually, yeah TODO: that because when the parser runs through the yaml
-        # it may need to add the vars.
         self.vars = vars
-        if self.vars is not None:
-            self._scan_obj(vars=self.vars)
 
     @abstractmethod
     def load_obj(self, vars: list[str] | None = None):
@@ -40,23 +52,34 @@ class Data(ABC):
                 if not var_name in glimpse.data_vars.keys():
                     raise KeyError(f"Variable {var_name} not in {self.name} dataset.")
 
-    def get_obj(self) -> xr.Dataset:
+    @property
+    def obj(self) -> xr.Dataset:
         if self.obj == None:
             self.load_obj(vars=self.vars)
+        lons, lats = self.get_coordinates(["longitude", "latitude"])
+        self.bbox = (lons.min(), lats.min(), lons.max(), lats.max())
         return self.obj
 
-    def get_geom(self):
+    @property
+    def geom(self):
         if self.geom == None:
             self._set_geom()
         return self.geom
 
+    @property
+    def vars(self):
+        return self.vars
+
+    @vars.setter
+    def vars(self, vars):
+        self._scan_obj(vars=self.vars)
+        self.vars = vars
+
     def get_var(
         self, var_names: list[str] | str, as_array: bool = False
-    ) -> dict[str, xr.DataArray] | xr.DataArray | dict[str, np.array] | np.array:
+    ) -> list[xr.DataArray] | xr.DataArray | list[np.ndarray] | np.ndarray:
         obj = self.get_obj()
 
-        if isinstance(var_names, str):
-            var_names = [var_names]
         missing_vars = [i for i in var_names if i not in obj.data_vars.keys()]
         if len(missing_vars) > 0:
             raise KeyError(f"Variables {missing_vars} not in {self.name} dataset.")
@@ -74,7 +97,7 @@ class Data(ABC):
 
     def get_coordinates(
         self, coord_names: list[str] | str, as_array: bool = False
-    ) -> dict[str, xr.DataArray] | xr.DataArray | dict[str, np.array] | np.array:
+    ) -> list[xr.DataArray] | xr.DataArray | list[np.ndarray] | np.ndarray:
         obj = self.get_obj()
         if isinstance(coord_names, str):
             coord_names = [coord_names]
@@ -83,11 +106,11 @@ class Data(ABC):
             raise KeyError(f"Coordinates {missing_coords} not in {self.name} dataset.")
 
         # Keeps the initial coord_names because if one is missing function gets interrupted, and will never reach here.
-        coords = {coord: obj.coords[coord] for coord in coord_names}
+        coords = [obj.coords[coord] for coord in coord_names]
         if as_array:
-            coords = {coord: array.as_numpy() for coord, array in coords.items()}
+            coords = [array.as_numpy() for array in coords]
 
         # If only one coord required return directly. Maybe not a great choice could lead to Runtime errors.
         if len(coords) == 1:
-            coords = list(coords.values())[0]
+            coords = coords[0]
         return coords

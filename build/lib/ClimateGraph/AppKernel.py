@@ -1,5 +1,4 @@
-from data import Data, Reader, Collection
-from plot import Plot
+from Data.Data import Data
 from Utils.Parser import Parser
 from pathlib import Path
 
@@ -7,18 +6,19 @@ from pathlib import Path
 class AppKernel:
     def __init__(self, output_path: Path):
         self.output_path = None
-        self.data = dict[str:Data]  # name : Data
-        self.plots = dict[str:Plot]  # name : Plot
-        self.collections = dict[str:Collection]  # base_name : Collection #TODO: add
+
+        self.datas = dict()  # name : Data
+        self.plots = dict()  # name : Plot
+        self.collections = dict()  # base_name : Collection
         # self.domains = dict() #TODO: replace placeholder with actual domain handling
         # self.stats = dict()
 
     def read_control(self):
-        data, plots, collections = Parser.parse_control(self.control_path)
-        return data, plots, collections
+        datas, plots = Parser.parse_control(self.control_path)
+        return datas, plots
 
     def load_data(self):
-        for name, data in self.data.items():
+        for name, data in self.datas.items():
             print(f"Loading '{name}' dataset.")
             data.load_obj()
 
@@ -28,10 +28,10 @@ class AppKernel:
 
     def creating_collections(self):
         for collection in self.collections:
-            collection.gather(self.data)
+            collection.gather(self.datas)
 
     def run(self, control_path: Path):
-        self.data, self.plots, self.collections = self.read_control(control_path)
+        datas, plots = self.read_control(control_path)
 
         self.load_data()
         # self.create_domains() TODO: when i add domains
@@ -39,4 +39,4 @@ class AppKernel:
         self.plot()
         # self.stats() TODO: add a module for stats
 
-        self.data, self.plots, self.collections = dict(), dict(), dict()
+        self.datas, self.plots, self.collections = dict(), dict(), dict()

@@ -5,5 +5,4 @@ for module in pkgutil.iter_modules(__path__):
     print(f"Importing {__name__}.{module.name}")
     importlib.import_module(f"{__name__}.{module.name}")
 
-from .data import Data
-from .reader import Reader
+from .default import DefaultRegularGridReader

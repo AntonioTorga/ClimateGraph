@@ -17,6 +17,9 @@ dependencies = [
         "numpy",
         "matplotlib",
         "pyyaml",
+        "pyresample",
+        "cartopy",
+        
 ]
 
 [project.optional-dependencies]
