@@ -1,4 +1,4 @@
-from ClimateGraph.Data.DataReader.RegularGrid.DefaultRG import DefaultRegularGridReader
+from .default import DefaultRegularGridReader
 
 
 class Chimere(DefaultRegularGridReader):

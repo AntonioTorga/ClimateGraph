@@ -1,4 +1,4 @@
-from ClimateGraph.Data.DataReader.Reader import Reader
+from ..reader import Reader
 
 from pathlib import Path
 import xarray as xr

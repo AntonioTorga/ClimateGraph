@@ -19,7 +19,6 @@ dependencies = [
         "pyyaml",
         "pyresample",
         "cartopy",
-        
 ]
 
 [project.optional-dependencies]
@@ -27,5 +26,8 @@ dev = [
         "black"
 ]
 
+test= [
+        "pytest"
+]
 [project.scripts]
 ClimateGraph= "ClimateGraph.CLI:app"

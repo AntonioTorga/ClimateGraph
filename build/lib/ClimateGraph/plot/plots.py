@@ -4,16 +4,7 @@ import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 
-AVAILABLE_PLOTS= {}
 
-def register(name):
-    def decorator(func):
-        AVAILABLE_PLOTS[name] = func
-        return func
-    return decorator
-
-
-@register("contourf")
 def contourf(data: RegularGrid, var:str, dims: tuple[str, str], reduction_func , **kwargs):
     print(f"Creating countourf based on {data.name}.")
 
@@ -24,16 +15,15 @@ def contourf(data: RegularGrid, var:str, dims: tuple[str, str], reduction_func ,
     lons, lats = data.get_coords(["longitude","latitude"], as_numpy = True)
     plot_data = data.get_var(var=var, reduction_func)
 
+
+    
     ax.contourf(lons, lats, plot_data, levels=kwargs.get("levels", 10), transform= data.crs)
 
     ax.coastlines()
     ax.add_feature(cfeature.BORDERS)
 
     fig.show()
-
-@register("scatter")
-def scatter(data:PointSurface, var:str, coords: tuple[str, str]=("latitude", "longitude")):
-
+    
 
 def timeseries(data: Data):
     print(f"Creating timeseries based on {data.name}")

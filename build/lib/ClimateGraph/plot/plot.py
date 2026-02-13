@@ -1,6 +1,3 @@
-import Plots
-
-
 class Plot:
     def __init__(self, type, datas, **kwargs):
         self.type = type
