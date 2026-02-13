@@ -1,13 +1,32 @@
 from pathlib import Path
 from pydantic import BaseModel, field_validator, model_validator
+from datetime import datetime
+from enum import Enum
 
-from data import Data, Reader
+from data import Data
 from plot import Plot
 
 
-class CollectionModel(BaseModel):
-    main_dataset: str
-    datasets: list[str]
+class FruitEnum(str, Enum):
+    business_day = "B" 
+    calendar_day = "D" 
+    weekly = "W" 
+    monthly = "M" 
+    quarterly = "Q"
+    yearly = "Y" 
+    hourly = "h" 
+    minutely  = "min"
+    secondly = "s"
+    milliseconds = "ms"
+    microseconds = "us" 
+    nanoseconds = "ns"
+
+
+class AnalysisModel(BaseModel):
+    timestep: FruitEnum = FruitEnum.hourly
+    start: datetime
+    end: datetime
+    results_path: Path
 
 class PlotModel(BaseModel):
     type: str
@@ -20,7 +39,7 @@ class DataModel(BaseModel):
     type: str
     subtype: str
     path: Path
-    mapping: dict[str:str] | None = None
+    vars: dict[str:dict] | None = None
     reader_kwargs: dict[str:any] | None = None
 
     @field_validator("type")
@@ -48,3 +67,9 @@ class DataModel(BaseModel):
         elif not v.exists():
             raise ValueError(f"No valid files found in path {v}.")
         return v
+
+class ControlFile(BaseModel):
+    # domains
+    data: dict[str:DataModel]
+    plots: dict[str:PlotModel]
+    # stats

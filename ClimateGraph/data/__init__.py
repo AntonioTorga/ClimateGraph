@@ -5,4 +5,4 @@ for module in pkgutil.iter_modules(__path__):
     print(f"Importing {__name__}.{module.name}")
     importlib.import_module(f"{__name__}.{module.name}")
 
-from .default import DefaultRegularGridReader
+from .data import Data, PointSurface, RegularGrid, SatelliteSwath

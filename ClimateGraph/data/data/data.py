@@ -4,7 +4,7 @@ import numpy as np
 import xarray as xr
 import cartopy.crs as ccrs
 
-from data.reader import Reader
+from reader import Reader
 
 
 class Data(ABC):
