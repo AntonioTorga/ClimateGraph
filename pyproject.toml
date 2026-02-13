@@ -17,6 +17,7 @@ dependencies = [
         "numpy",
         "matplotlib",
         "pyyaml",
+        "pydantic",
 ]
 
 [project.scripts]

@@ -12,6 +12,14 @@ app = typer.Typer(
 
 
 @app.command()
+def version():
+    """
+    Print the version of ClimateGraph.
+    """
+    typer.echo("ClimateGraph version 0.1.0")
+
+
+@app.command()
 def run(
     file: Annotated[
         Path,
@@ -25,3 +33,7 @@ def run(
     ],
 ):
     AppKernel.run(file)
+
+
+if __name__ == "__main__":
+    app()

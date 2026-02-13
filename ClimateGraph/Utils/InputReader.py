@@ -2,6 +2,7 @@ from pathlib import Path
 from abc import abstractmethod
 import json
 import yaml
+from .Models import ConfigModel
 
 
 class InputReader:
@@ -9,22 +10,17 @@ class InputReader:
     def read(file: Path):
         if file.suffix == ".json":
             data = JsonReader.read(file)
-        elif file.suffix == ".yaml":
-            pass
+        elif file.suffix in [".yaml", ".yml"]:
+            data = YamlReader.read(file)
         else:
             raise IOError(f"File type {file.suffix} isn't handled.")
 
-        InputReader.check_input_data(data)
-
-        return data
-
-    def check_input_data(data):
-        pass  # TODO: define data structure
+        return ConfigModel.model_validate(data)
 
 
 class Reader:
-    @abstractmethod
     @staticmethod
+    @abstractmethod
     def read(file: Path):
         pass
 
@@ -41,5 +37,5 @@ class YamlReader(Reader):
     @staticmethod
     def read(file: Path):
         with open(file) as fp:
-            data = yaml.load(fp)
+            data = yaml.safe_load(fp)
         return data
