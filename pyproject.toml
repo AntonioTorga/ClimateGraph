@@ -31,4 +31,4 @@ test= [
         "pytest"
 ]
 [project.scripts]
-ClimateGraph= "ClimateGraph.CLI:app"
+ClimateGraph= "ClimateGraph.cli:app"

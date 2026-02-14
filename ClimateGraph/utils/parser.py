@@ -3,35 +3,32 @@ from abc import abstractmethod
 import json
 import yaml
 
-from data import Data, Reader
-from plot import Plot
+from ClimateGraph.data import Data
+from ClimateGraph.reader import Reader
+from ClimateGraph.plot import Plot
 
 FILE_READERS = {
     ".json": json.load,
-    ".yaml": yaml.load
+    ".yaml": yaml.safe_load,
+    ".yml": yaml.safe_load
 }
-
-class ControlFile(BaseModel):
-    # domains
-    data: dict[str:DataModel]
-    plots: dict[str:PlotModel]
-    collections: dict[str:CollectionModel]
-    # stats
 
 class Parser:
     @staticmethod
     def parse_control(control_path: Path, check_structure:bool = False) -> dict[str:Data]:
         control_dict = Parser.read_control(control_path)
         
-        if check_structure: ControlFile.model_validate(control_dict)
+        if check_structure: 
+            try: control_dict.model_validate(control_dict)
+            except Exception as e:
+                print(e.errors())
+                raise ValueError(f"Control file doesn't meet the input structure. Check the pydantic model in control_model.py to meet the necessary requirements.")
 
-        # TODO: Here actually construct everything
+        analysis = control_dict.get("analysis")
 
         data = None
         plots = None
 
-        # TODO: manage time intervals and resolution
-        analysis = control_dict.get("analysis")
         
         for data_name, data_block in control_dict["data"].items():
             _name = data_name
@@ -41,8 +38,8 @@ class Parser:
             _vars = data_block.pop("vars", {})
             kwargs = data_block
 
-            data_class = Data.registry.get(_type)
-            reader = Data.registry.get(_subtype)
+            data_class = Data.registry[_type]
+            reader_class = Reader.registry[_subtype]
 
             data_instance = data_class(_name, _path, _vars, **kwargs)
 
@@ -61,7 +58,7 @@ class Parser:
         control_path = control_path.resolve()
         if not (control_path.exists() and control_path.is_file()):
             raise FileNotFoundError(f"File {control_path} not found.")
-        if reader:= FILE_READERS.get(control_path.suffix) is None:
+        if (reader:= FILE_READERS.get(control_path.suffix)) is None:
             raise ValueError(f"File type {control_path.suffix} not supported.")
 
         with open(control_path, mode="r") as fp:

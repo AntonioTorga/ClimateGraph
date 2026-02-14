@@ -4,7 +4,7 @@ import numpy as np
 import xarray as xr
 import cartopy.crs as ccrs
 
-from reader import Reader
+from ClimateGraph.reader import Reader
 
 
 class Data(ABC):
@@ -88,6 +88,7 @@ class Data(ABC):
         self._scan_obj(vars=self.vars)
         self.vars = vars
 
+    #TODO: add reduction_func to reduce the var in any dim by a func
     def get_var(
         self, var_names: list[str] | str, as_array: bool = False
     ) -> list[xr.DataArray] | xr.DataArray | list[np.ndarray] | np.ndarray:

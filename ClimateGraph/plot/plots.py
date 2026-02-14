@@ -1,4 +1,4 @@
-from data import Data, PointSurface, RegularGrid, SatelliteSwath
+from ClimateGraph.data import Data, PointSurface, RegularGrid, SatelliteSwath
 
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
@@ -6,9 +6,11 @@ import cartopy.feature as cfeature
 
 AVAILABLE_PLOTS= {}
 
-def register(name):
+def register(name:str|list[str]):
+    names = [name] if isinstance(name, str) else name
     def decorator(func):
-        AVAILABLE_PLOTS[name] = func
+        for alias in names:
+            AVAILABLE_PLOTS[alias] = func
         return func
     return decorator
 
@@ -22,7 +24,7 @@ def contourf(data: RegularGrid, var:str, dims: tuple[str, str], reduction_func ,
     ax = fig.add_subplot(1, 1, 1, projection= kwargs.get("projection", ccrs.PlateCarree()))
 
     lons, lats = data.get_coords(["longitude","latitude"], as_numpy = True)
-    plot_data = data.get_var(var=var, reduction_func)
+    plot_data = data.get_var(var, reduction_func = reduction_func)
 
     ax.contourf(lons, lats, plot_data, levels=kwargs.get("levels", 10), transform= data.crs)
 
@@ -32,8 +34,12 @@ def contourf(data: RegularGrid, var:str, dims: tuple[str, str], reduction_func ,
     fig.show()
 
 @register("scatter")
-def scatter(data:PointSurface, var:str, coords: tuple[str, str]=("latitude", "longitude")):
+def scatter(data:PointSurface, var:str|list[str], coords: tuple[str, str]=("latitude", "longitude")):
+    pass
 
+@register(["spatial_overlay", "spatial-overlay"])
+def spatial_overlay(over: PointSurface, under: RegularGrid, vars: str|list[str]):
+    pass
 
 def timeseries(data: Data):
     print(f"Creating timeseries based on {data.name}")

@@ -1,5 +1,5 @@
 import logging
-import plots
+from . import plots
 logging.basicConfig(level=logging.INFO) #TODO: make this settable from yaml file.
 
 class Plot:
@@ -7,7 +7,7 @@ class Plot:
     def __init__(self, name, type, data, **kwargs):
         self.name = name
         self.type = type
-        self.data = data
+        self.data = data if isinstance(data, list) else [data]
         
         # self.domains = domains TODO: when i add domains
         self.kwargs = kwargs
@@ -27,5 +27,5 @@ class Plot:
             logging.debug(f"Plot {self.name} was already created.")
             return self.figure
         logging.info(f"Plotting: {self.type} of {[data.name for data in self.datas]}.")
-        
+        # TODO: find the plot functions and give the kwargs correctly
         return self.figure

@@ -12,7 +12,8 @@ class RegularGrid(Data):
                 vars: str | list[str] | None = None,
                 crs: ccrs.CRS | None = None,
                 **kwargs):
-        super().__init__(name, path)
+        self.crs = crs
+        super().__init__(name, path, vars=vars, **kwargs)
 
     def _set_geom(self):
         self.geom = AreaDefinition(

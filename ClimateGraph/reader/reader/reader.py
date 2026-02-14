@@ -16,8 +16,8 @@ class Reader(ABC):
             Reader.registry[alias.lower()] = cls
         print(f"Registry: \n{Reader.registry}")
 
-    @abstractmethod
     @staticmethod
+    @abstractmethod
     def open_mfdataset(
         files: list[Path] | Path, var_list: list[str] = None, **kwargs
     ) -> xr.Dataset:

@@ -33,7 +33,7 @@ class DefaultRegularGridReader(Reader):
         xrds = xrds.reset_coords()
         xrds = xrds.set_coords(["latitude", "longitude"])
 
-        if variable_aggregation_dict := kwargs.get("variable_aggregation") is not None:
+        if (variable_aggregation_dict := kwargs.get("variable_aggregation")) is not None:
             xrds = DefaultRegularGridReader.variable_aggregation(
                 xrds, variable_aggregation_dict
             )
@@ -51,7 +51,7 @@ class DefaultRegularGridReader(Reader):
             xa = None
             for name_var, ponderation in ponderations.items():
                 if xa is None:
-                    xa = ds[name_var].copy * ponderation
+                    xa = ds[name_var].copy() * ponderation
                 else:
                     xa += ds[name_var] * ponderation
 
