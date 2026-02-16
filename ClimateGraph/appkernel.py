@@ -4,7 +4,9 @@ from ClimateGraph.utils import Parser
 
 from pathlib import Path
 import logging
+
 logging.basicConfig(level=logging.INFO)
+
 
 class AppKernel:
     def __init__(self):
@@ -18,11 +20,15 @@ class AppKernel:
         self.timestep = None
         self.start = None
         self.end = None
-        
+
         # self.domains = dict() #TODO: replace placeholder with actual domain handling
 
     def read_control(self, control_path: Path):
-        analysis, data, plots,= Parser.parse_control(self.control_path)
+        (
+            analysis,
+            data,
+            plots,
+        ) = Parser.parse_control(control_path)
         return analysis, data, plots
 
     def load_data(self):
@@ -35,16 +41,19 @@ class AppKernel:
             logging.info(f"Plotting '{name}'.")
             plot_obj.plot()
 
-    def set_analysis_data(self):
-        self.debug = self.analysis.get("debug")
-        self.output_path = self.analysis.get("output_path")
-        self.start = self.analysis.get("start")
-        self.end = self.analysis.get("end")
-        self.timestep = self.analysis.get("timestep")
+    def set_analysis_data(self, analysis: dict = None):
+        if analysis is None:
+            analysis = self.analysis
+
+        self.debug = analysis.get("debug", False)
+        self.output_path = analysis.get("output_path", Path("./"))
+        self.start = analysis.get("start")
+        self.end = analysis.get("end")
+        self.timestep = analysis.get("timestep", "H")
 
     def run(self, control_path: Path):
-        self.analysis, self.data, self.plots= self.read_control(control_path)
-        
+        self.analysis, self.data, self.plots = self.read_control(control_path)
+
         self.set_analysis_data()
         self.load_data()
         # self.create_domains() TODO: when i add domains

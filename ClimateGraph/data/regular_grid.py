@@ -6,12 +6,16 @@ import cartopy.crs as ccrs
 
 
 class RegularGrid(Data):
-    def __init__(self,
-                name: str,
-                path: Path | list[Path],
-                vars: str | list[str] | None = None,
-                crs: ccrs.CRS | None = None,
-                **kwargs):
+    type_aliases = ["regular_grid", "grid", "regulargrid"]
+
+    def __init__(
+        self,
+        name: str,
+        path: Path | list[Path],
+        vars: str | list[str] | None = None,
+        crs: ccrs.CRS | None = None,
+        **kwargs,
+    ):
         self.crs = crs
         super().__init__(name, path, vars=vars, **kwargs)
 

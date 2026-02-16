@@ -1,7 +1,13 @@
 from .default import DefaultRegularGridReader
+from ClimateGraph.data import RegularGrid
+
+from typing import Dict, Any
+from pathlib import Path
+import xarray as xr
 
 
 class Wrf(DefaultRegularGridReader):
+    main_type = RegularGrid
     rename = {
         "Time": "time",
         "south_north": "y",
@@ -57,11 +63,11 @@ class Wrf(DefaultRegularGridReader):
     }
 
     @staticmethod
-    def open_mfdataset(files, var_list=None, **kwargs):
+    def open_mfdataset(
+        files: Path | list[Path], vars: Dict[str, Any] = None, **kwargs
+    ) -> xr.Dataset:
         return super().open_mfdataset(
             files,
-            var_list,
+            vars,
             rename=Wrf.rename,
-            variable_aggregation=Wrf.variable_aggregation,
-            **kwargs,
         )

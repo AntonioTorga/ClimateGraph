@@ -21,14 +21,16 @@ plots:
     vars: ["Temperatura"] 
 """
 
+
 def test_run_command(tmp_path):
     f = tmp_path / "config.yaml"
     f.write_text(SAMPLE_YAML)
-    
+
     result = runner.invoke(app, ["run", str(f)])
     print(result.stdout)
     assert result.exit_code == 0
     # Since AppKernel.run doesn't print anything yet, we just check exit code.
+
 
 def test_run_command_nonexistent_file():
     result = runner.invoke(app, ["run", "nonexistent.yaml"])

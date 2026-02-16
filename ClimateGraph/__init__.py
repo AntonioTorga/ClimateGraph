@@ -6,8 +6,7 @@ for module in pkgutil.iter_modules(__path__):
 
 from .data import Data
 from .appkernel import AppKernel
-from .reader import Reader #, Downloader
+from .reader import Reader  # , Downloader
 from .plot import Plot
-
 
 __all__ = ["AppKernel", "Data", "Reader", "Plot"]

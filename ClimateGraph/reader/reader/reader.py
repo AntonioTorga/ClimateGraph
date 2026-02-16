@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
 import xarray as xr
+from typing import Dict, Any
 
 
 class Reader(ABC):
@@ -14,15 +15,21 @@ class Reader(ABC):
 
         for alias in getattr(cls, "type_aliases", []):
             Reader.registry[alias.lower()] = cls
-        print(f"Registry: \n{Reader.registry}")
+
+    @classmethod
+    def get_reader_subclass(cls, name: str):
+        _name = name.lower()
+        try:
+            reader_class = cls.registry[_name]
+        except KeyError:
+            raise ValueError(
+                f"No type named {name} recognized. Options are {cls.registry.keys()} (case insensitive)."
+            )
+        return reader_class
 
     @staticmethod
     @abstractmethod
     def open_mfdataset(
-        files: list[Path] | Path, var_list: list[str] = None, **kwargs
+        files: Path | list[Path], vars: Dict[str, Any] = None, **kwargs
     ) -> xr.Dataset:
-        pass
-
-    @abstractmethod
-    def postprocessing():
         pass

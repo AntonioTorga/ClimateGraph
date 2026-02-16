@@ -1,14 +1,17 @@
 import logging
 from . import plots
-logging.basicConfig(level=logging.INFO) #TODO: make this settable from yaml file.
+
+logging.basicConfig(level=logging.INFO)  # TODO: make this settable from yaml file.
+
 
 class Plot:
     plot_functions = plots.AVAILABLE_PLOTS
+
     def __init__(self, name, type, data, **kwargs):
         self.name = name
         self.type = type
         self.data = data if isinstance(data, list) else [data]
-        
+
         # self.domains = domains TODO: when i add domains
         self.kwargs = kwargs
         self.done = False

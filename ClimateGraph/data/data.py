@@ -3,8 +3,13 @@ from pathlib import Path
 import numpy as np
 import xarray as xr
 import cartopy.crs as ccrs
+from typing import Dict
+import pint_xarray
+from pint import Quantity
 
 from ClimateGraph.reader import Reader
+
+REDUCTION_FUNCS = {"min": np.nanmin, "max": np.nanmax, "mean": np.nanmean}
 
 
 class Data(ABC):
@@ -18,34 +23,48 @@ class Data(ABC):
 
         for alias in getattr(cls, "type_aliases", []):
             Data.registry[alias.lower()] = cls
-        print(f"Registry: \n{Data.registry}")
+
+    @classmethod
+    def get_data_subclass(cls, name: str):
+        _name = name.lower()
+        try:
+            data_class = cls.registry[_name]
+        except KeyError:
+            raise ValueError(
+                f"No type named {name} recognized. Options are {Data.registry.keys()} (case insensitive)."
+            )
+        return data_class
 
     def __init__(
         self,
         name: str,
         path: Path | list[Path],
-        vars: str | list[str] | None = None,
+        vars: Dict[str, dict],
+        reader: Reader,
+        reader_kwargs: dict | None = None,
         crs: ccrs.CRS = ccrs.PlateCarree(),
-        **kwargs
-    ):  
+        **kwargs,
+    ):
+        # This seems weird and unnecesary, but i'll keep it for now
+        self.reader = reader
+        self.reader_kwargs = reader_kwargs
+
+        # Going to be set later
+        self._obj = None
+        self._geom = None
+        self._vars = None
+        self._path = None
+        self.bbox = None  # minlon, minlat, maxlon, maxlat
+        self.dims = None
+        self.resampled = None
+
         # Provided by user
         self.name = name
         self.path = path
-        self.vars = vars if isinstance(vars, list) else [vars]
-        self.crs = crs # Not sure if necessary, because it doesn't really exist in many cases
-
-        # This seems weird and unnecesary, but i'll keep it for now
-        self.reader = None
-        self.reader_kwargs = None
-
-        # Going to be set later
-        self.obj = None
-        self.geom = None
-        self.bbox = None  # minlon, minlat, maxlon, maxlat
-        self.dims = None
-
-        # MMM i dont know if necessary.
-        self.domain_cache = dict()
+        self.crs = (
+            crs  # Not sure if necessary, because it doesn't really exist in many cases
+        )
+        self.vars = vars
 
     @abstractmethod
     def _set_geom(self):
@@ -53,29 +72,29 @@ class Data(ABC):
 
     @property
     def obj(self) -> xr.Dataset:
-        if self.obj == None:
+        if self._obj == None:
             self.load_obj(vars=self.vars)
         lons, lats = self.get_coordinates(["longitude", "latitude"])
         self.bbox = (lons.min(), lats.min(), lons.max(), lats.max())
-        self.dims = dict(self.obj.dims)
-        return self.obj
+        self.dims = dict(self._obj.dims)
+        return self._obj
 
     @property
     def geom(self):
-        if self.geom == None:
+        if self._geom == None:
             self._set_geom()
-        return self.geom
+        return self._geom
 
     @property
     def vars(self):
-        return self.vars
+        return self._vars
 
     def load_obj(self):
-        self.obj = self.reader.open_mfdataset(self.path, self.reader_kwargs)
+        self.obj = self.reader.open_mfdataset(self.path, self.vars, self.reader_kwargs)
         return self.obj
-        
+
     def _scan_obj(self, vars: list | str) -> bool:
-        glimpse_path = self.path
+        glimpse_path = self.path[0] if isinstance(self.path, list) else self.path
         if isinstance(glimpse_path, list):
             glimpse_path = glimpse_path[0]
         with xr.open_dataset(glimpse_path) as glimpse:
@@ -85,29 +104,45 @@ class Data(ABC):
 
     @vars.setter
     def vars(self, vars):
-        self._scan_obj(vars=self.vars)
-        self.vars = vars
+        var_names = [var.get("name") for _, var in vars.items()]
+        self._scan_obj(vars=var_names)
+        self._vars = vars
 
-    #TODO: add reduction_func to reduce the var in any dim by a func
+    # The reduction kwarg is in the following structure: str(name of reduction func in REDUCTION_FUNCS), str | list[str] (dims to reduce))
+    # The var_name is the variable name not native to the file but as how it is referred in vars
     def get_var(
-        self, var_names: list[str] | str, as_array: bool = False
-    ) -> list[xr.DataArray] | xr.DataArray | list[np.ndarray] | np.ndarray:
-        obj = self.get_obj()
+        self,
+        var_name: str,
+        in_unit: str | None = None,
+        reduction_func: str | None = None,
+        reduction_dims: str | list[str] | None = None,
+        as_array: bool = False,
+    ):
+        if var_name not in self.vars:
+            raise KeyError(f"Variable {var_name} not defined for dataset {self.name}.")
+        obj_var_name, obj_var_unit = (
+            self.vars[var_name]["name"],
+            self.vars[var_name]["unit"],
+        )
+        xa = self.obj.data_vars[obj_var_name]
 
-        missing_vars = [i for i in var_names if i not in obj.data_vars.keys()]
-        if len(missing_vars) > 0:
-            raise KeyError(f"Variables {missing_vars} not in {self.name} dataset.")
+        if (reduction_func is not None) and (reduction_dims is not None):
+            reduction_func = REDUCTION_FUNCS[reduction_func]
+            xa = xa.reduce(reduction_func, reduction_dims)
 
-        # Keeps the initial var_names because if one is missing function gets interrupted, and will never reach here.
-        vars = {var: obj.data_vars[var] for var in var_names}
+        if in_unit is not None:
+
+            xa_coords = list(xa.coords.keys())
+            xa = xa.reset_coords(drop=False)
+            xa = xa.pint.quantify(obj_var_unit)
+            xa = xa.pint.to(in_unit)
+            xa = xa.pint.dequantify()
+            xa = xa.set_coords(xa_coords)
+
         if as_array:
-            vars = {var: array.as_numpy() for var, array in vars.items()}
+            xa = xa.values
 
-        # If only one var required return directly. Maybe not a great choice could lead to Runtime errors.
-        if len(vars) == 1:
-            vars = list(vars.values())[0]
-
-        return vars
+        return xa
 
     def get_coordinates(
         self, coord_names: list[str] | str, as_array: bool = False
@@ -128,3 +163,6 @@ class Data(ABC):
         if len(coords) == 1:
             coords = coords[0]
         return coords
+
+    def resample_var(self, other: "Data", var: str, method: str = "nn"):
+        var_1 = self.get_var(var)

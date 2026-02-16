@@ -6,5 +6,6 @@ for module in pkgutil.iter_modules(__path__):
 
 from .reader import Reader
 
-
-__all__ = ["Reader", ]
+__all__ = [
+    "Reader",
+]

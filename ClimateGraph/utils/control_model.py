@@ -10,17 +10,17 @@ from ClimateGraph.plot import Plot
 
 
 class FruitEnum(str, Enum):
-    business_day = "B" 
-    calendar_day = "D" 
-    weekly = "W" 
-    monthly = "M" 
+    business_day = "B"
+    calendar_day = "D"
+    weekly = "W"
+    monthly = "M"
     quarterly = "Q"
-    yearly = "Y" 
-    hourly = "h" 
-    minutely  = "min"
+    yearly = "Y"
+    hourly = "h"
+    minutely = "min"
     secondly = "s"
     milliseconds = "ms"
-    microseconds = "us" 
+    microseconds = "us"
     nanoseconds = "ns"
 
 
@@ -30,6 +30,7 @@ class AnalysisModel(BaseModel):
     end: datetime
     output_path: Path
     debug: bool
+
 
 class PlotModel(BaseModel):
     model_config = ConfigDict(extra="allow")
@@ -46,11 +47,13 @@ class PlotModel(BaseModel):
             )
         return v
 
-class VarModel(BaseModel):
-        model_config = ConfigDict(extra="forbid")
 
-        name: str
-        unit: str
+class VarModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    unit: str
+
 
 class DataModel(BaseModel):
     type: str
@@ -76,7 +79,7 @@ class DataModel(BaseModel):
                 f"Data subtype {v} doesn't have dedicated reader. Choose 'default' subtype to use the default reader.\nPossible subtypes are: {Data.registry}"
             )
         return v
-    
+
     # TODO: enable this check at deployment
     # @field_validator("path")
     # @classmethod
@@ -86,6 +89,7 @@ class DataModel(BaseModel):
     #     elif not v.exists():
     #         raise ValueError(f"No valid files found in path {v}.")
     #     return v
+
 
 class ControlFile(BaseModel):
     # domains
