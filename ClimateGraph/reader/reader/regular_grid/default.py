@@ -1,12 +1,10 @@
-from ClimateGraph.reader import Reader
-from ClimateGraph.data import RegularGrid
+from ..reader import Reader
 from pathlib import Path
 import xarray as xr
 
 
 class DefaultRegularGridReader(Reader):
     type_aliases = ["DefaultRegularGrid", "DefaultGrid"]
-    main_type = RegularGrid
 
     @staticmethod
     def open_mfdataset(

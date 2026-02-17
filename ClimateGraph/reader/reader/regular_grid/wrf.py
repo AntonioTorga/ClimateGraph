@@ -1,5 +1,4 @@
 from .default import DefaultRegularGridReader
-from ClimateGraph.data import RegularGrid
 
 from typing import Dict, Any
 from pathlib import Path
@@ -7,7 +6,6 @@ import xarray as xr
 
 
 class Wrf(DefaultRegularGridReader):
-    main_type = RegularGrid
     rename = {
         "Time": "time",
         "south_north": "y",

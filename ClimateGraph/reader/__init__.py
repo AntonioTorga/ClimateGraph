@@ -9,3 +9,5 @@ from .reader import Reader
 __all__ = [
     "Reader",
 ]
+
+# Eventually add downloaders

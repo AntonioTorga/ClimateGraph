@@ -20,6 +20,8 @@ dependencies = [
         "pyresample",
         "cartopy",
         "pydantic",
+        "pint",
+        "pint_xarray"
 ]
 
 [project.optional-dependencies]

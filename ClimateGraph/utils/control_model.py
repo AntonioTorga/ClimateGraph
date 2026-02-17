@@ -9,7 +9,7 @@ from ClimateGraph.reader import Reader
 from ClimateGraph.plot import Plot
 
 
-class FruitEnum(str, Enum):
+class TimestepEnum(str, Enum):
     business_day = "B"
     calendar_day = "D"
     weekly = "W"
@@ -25,7 +25,7 @@ class FruitEnum(str, Enum):
 
 
 class AnalysisModel(BaseModel):
-    timestep: FruitEnum = FruitEnum.hourly
+    timestep: TimestepEnum = TimestepEnum.hourly
     start: datetime
     end: datetime
     output_path: Path
@@ -50,35 +50,34 @@ class PlotModel(BaseModel):
 
 class VarModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
     name: str
     unit: str
 
 
 class DataModel(BaseModel):
-    type: str
-    subtype: str
+    model_config = ConfigDict(extra="allow")
+
+    topology: str
+    reader: str
     path: Path | List[Path]
     vars: Dict[str, VarModel]
-    kwargs: Dict[str, Any] | None = None
 
     @field_validator("type")
     @classmethod
     def val_data_type(cls, v: str):
-        if (v := v.lower()) not in Data.registry:
+        if not Data.check_topology_type(v):
             raise ValueError(
-                f"Data type {v} not listed as possible data type.\nPossible data types are: {Data.registry}"
+                f"Topology type {v} not listed as possible data type.\nPossible data types are: {list(Data.registry.keys())}"
             )
         return v
 
-    @field_validator("subtype")
-    @classmethod
-    def val_subtype(cls, v: str):
-        if (v := v.lower()) not in Reader.registry:
+    @model_validator(mode="after")
+    def check_type_and_subtype_are_consistent(self):
+        if not (Reader.check_reader_type(self.topology, self.reader)):
             raise ValueError(
-                f"Data subtype {v} doesn't have dedicated reader. Choose 'default' subtype to use the default reader.\nPossible subtypes are: {Data.registry}"
+                f"Topology {self.topology} doesn't have reader of type {self.reader}."
             )
-        return v
+        return self
 
     # TODO: enable this check at deployment
     # @field_validator("path")

@@ -6,6 +6,7 @@ import yaml
 from ClimateGraph.data import Data
 from ClimateGraph.reader import Reader
 from ClimateGraph.plot import Plot
+from ClimateGraph.utils.general_utils import manage_path, manage_crs
 
 FILE_READERS = {".json": json.load, ".yaml": yaml.safe_load, ".yml": yaml.safe_load}
 
@@ -16,37 +17,38 @@ class Parser:
         control_path: Path, check_structure: bool = False
     ) -> dict[str:Data]:
         control_dict = Parser.read_control(control_path)
-
         if check_structure:
             try:
                 control_dict.model_validate(control_dict)
             except Exception as e:
-                print(e.errors())
                 raise ValueError(
                     f"Control file doesn't meet the input structure. Check the pydantic model in control_model.py to meet the necessary requirements."
                 )
 
         analysis = control_dict.get("analysis")
-
         data = dict()
         plots = dict()
 
         for data_name, data_block in control_dict["data"].items():
             _name = data_name
-            _type, _subtype, _path = (
+            _type, _subtype, _path, _crs, _vars = (
                 data_block.pop("type", None),
                 data_block.pop("subtype", None),
                 data_block.pop("path", None),
+                data_block.pop("crs", None),
+                data_block.pop("vars", {}),
             )
-            # TODO: manage ccrs with get attr or get class from cartopy
 
-            _vars = data_block.pop("vars", {})
-            kwargs = data_block
+            _crs = manage_crs(_crs)
+            _path = manage_path(_path)
+            reader_kwargs = (
+                data_block  # what remains unpopped will go to the reader as args
+            )
 
             data_class = Data.get_data_subclass(_type)
-            reader_class = Reader.get_reader_subclass(_subtype)
+            reader_class = Reader.get_reader_subclass(_type, _subtype)
 
-            data_instance = data_class(_name, _path, _vars, **kwargs)
+            data_instance = data_class(_name, _path, _vars, reader_class, reader_kwargs)
 
             data[_name] = data_instance
 

@@ -1,5 +1,4 @@
 from .default import DefaultRegularGridReader
-from ClimateGraph.data import RegularGrid
 
 from typing import Dict, Any
 from pathlib import Path
@@ -7,7 +6,6 @@ import xarray as xr
 
 
 class Chimere(DefaultRegularGridReader):
-    main_type = RegularGrid
     rename = {
         "nav_lat": "latitude",
         "nav_lon": "longitude",

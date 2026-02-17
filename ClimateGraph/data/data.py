@@ -6,6 +6,7 @@ import cartopy.crs as ccrs
 from typing import Dict
 import pint_xarray
 from pint import Quantity
+from typing import Callable
 
 from ClimateGraph.reader import Reader
 
@@ -35,19 +36,22 @@ class Data(ABC):
             )
         return data_class
 
+    @classmethod
+    def check_topology_type(cls, type: str):
+        return type in cls.registry
+
     def __init__(
         self,
         name: str,
         path: Path | list[Path],
         vars: Dict[str, dict],
         reader: Reader,
+        crs: ccrs.CRS,
         reader_kwargs: dict | None = None,
-        crs: ccrs.CRS = ccrs.PlateCarree(),
-        **kwargs,
     ):
         # This seems weird and unnecesary, but i'll keep it for now
         self.reader = reader
-        self.reader_kwargs = reader_kwargs
+        self.reader_kwargs = {} if reader_kwargs is None else reader_kwargs
 
         # Going to be set later
         self._obj = None
@@ -114,7 +118,7 @@ class Data(ABC):
         self,
         var_name: str,
         in_unit: str | None = None,
-        reduction_func: str | None = None,
+        reduction_func: str | Callable | None = None,
         reduction_dims: str | list[str] | None = None,
         as_array: bool = False,
     ):
@@ -127,7 +131,11 @@ class Data(ABC):
         xa = self.obj.data_vars[obj_var_name]
 
         if (reduction_func is not None) and (reduction_dims is not None):
-            reduction_func = REDUCTION_FUNCS[reduction_func]
+            reduction_func = (
+                REDUCTION_FUNCS[reduction_func]
+                if isinstance(reduction_func, str)
+                else reduction_func
+            )
             xa = xa.reduce(reduction_func, reduction_dims)
 
         if in_unit is not None:
