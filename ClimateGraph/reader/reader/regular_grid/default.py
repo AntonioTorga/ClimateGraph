@@ -5,6 +5,7 @@ import xarray as xr
 
 class DefaultRegularGridReader(Reader):
     type_aliases = ["DefaultRegularGrid", "DefaultGrid"]
+    topology = "RegularGrid"
 
     @staticmethod
     def open_mfdataset(

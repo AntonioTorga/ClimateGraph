@@ -1,41 +1,71 @@
+from typing import List
 from pathlib import Path
 import logging
 import cartopy.crs as ccrs
+import re
+from dateutil import parser
+import glob
+from enum import Enum
 
 logging.basicConfig(level=logging.INFO)
 
 CRS_TYPES = {"platecarree": ccrs.PlateCarree}
+TIME_INTERVAL_FORMAT = r"^(.+?)\s*(?:-|to)\s*(.+)$"  # Accepts "date - date" or "date to date" and a date should be in dayfirst format.
 
 
-def manage_path(paths: str | list[str]) -> list[Path]:
+class TimestepEnum(str, Enum):
+    business_day = "B"
+    calendar_day = "D"
+    weekly = "W"
+    monthly = "M"
+    quarterly = "Q"
+    yearly = "Y"
+    hourly = "h"
+    minutely = "min"
+    secondly = "s"
+    milliseconds = "ms"
+    microseconds = "us"
+    nanoseconds = "ns"
 
-    if isinstance(paths, str):
+
+def manage_path(paths: str | Path | List[str] | List[Path]) -> List[Path]:
+    if isinstance(paths, (str, Path)):
         paths = [paths]
 
     result: list[Path] = []
 
     for raw in paths:
-        p = Path(raw)
+        p = Path(raw) if isinstance(raw, str) else raw
+        p = p.resolve() if not p.is_absolute() else p
 
         # Detect glob pattern
-        has_glob = any(char in raw for char in "*?[]")
 
-        if has_glob:
-            matches = list(Path().glob(raw))
-            if not matches:
-                logging.debug(f"No files match pattern: {raw}")
-            result.extend(m.resolve() for m in matches if m.exists())
-        else:
-            if not p.exists():
-                logging.debug(f"Path does not exist: {raw}")
-            result.append(p.resolve())
+        matches = glob.glob(str(p))
+        if not matches:  # is empty
+            logging.debug(f"No files match pattern: {raw}")
+        result.extend(m.resolve() for m in matches if m.exists())
+
+    if not result:  # is empty
+        logging.debug(f"No files exist for paths: {paths}")
 
     return result
 
 
 def manage_crs(crs: str | None):
-    if crs is None:
-        crs = "platecarree"
+    crs = "platecarree" if crs is None else crs
     if crs not in CRS_TYPES:
         raise ValueError(f"CRS type {crs} not supported.")
     return CRS_TYPES[crs]
+
+
+def manage_time_interval(time_interval: str):
+    time_interval = time_interval.strip()
+    if (match := re.match(TIME_INTERVAL_FORMAT, time_interval)) is None:
+        raise ValueError(
+            f"String {time_interval} could not be formatted into start and end times for a time interval.\nTime interval string must meet this format: {TIME_INTERVAL_FORMAT}"
+        )
+
+    start = parser.parse(match.group(1), dayfirst=True)
+    end = parser.parse(match.group(2), dayfirst=True)
+
+    return start, end

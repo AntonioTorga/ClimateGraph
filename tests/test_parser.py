@@ -6,17 +6,14 @@ from ClimateGraph.utils.control_model import ControlFile
 
 SAMPLE_YAML = """
 analysis:
-  timestep: D
-  start: 2001-01-20
-  end: 2001-01-30
   output_path: /home/ato/results
   debug: False
 
 data: 
   WRF_D02: 
     path: "/home/atorga/Melodies-Proyecto-MMA/Encargo-Nicolas/data/wrf-2/wrf-d02-20*.nc" 
-    type: RegularGrid 
-    subtype: wrf 
+    topology: RegularGrid 
+    reader: wrf 
     vars:  
       Temperatura: 
         name: T2 
@@ -26,10 +23,10 @@ data:
         unit: "pascal" 
   DMC: 
     path: "/home/atorga/Melodies-Proyecto-MMA/Encargo-Nicolas/data/dmc-2/dmc-full.nc" 
-    type: PointSurface 
-    subtype: default
-    vars: 
-      Temperatura: 
+    topology: PointSurface 
+    reader: dmc
+    vars:
+      Temperatura:
         name: temperatura 
         unit: "degC" 
       Presion: 
@@ -38,7 +35,7 @@ data:
  
 plots: 
   plt1: 
-    type: spatial-overlay 
+    type: timeseries
     over: "DMC" 
     under: "WRF_D02" 
     vars: ["Temperatura", "Presion"] 

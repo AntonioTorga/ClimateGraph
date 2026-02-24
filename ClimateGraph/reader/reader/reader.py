@@ -30,6 +30,9 @@ class Reader(ABC):
 
     @classmethod
     def get_reader_subclass(cls, type: str, sub_type: str):
+        type = type.lower()
+        sub_type = sub_type.lower()
+
         if type not in cls.registry:
             raise ValueError(
                 f"No topology type named {type}. Please use one of the following: {list(cls.registry.keys())}"

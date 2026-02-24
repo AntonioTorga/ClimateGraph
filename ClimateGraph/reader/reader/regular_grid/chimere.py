@@ -17,4 +17,6 @@ class Chimere(DefaultRegularGridReader):
     def open_mfdataset(
         files: Path | list[Path], vars: Dict[str, Any] = None, **kwargs
     ) -> xr.Dataset:
-        return super().open_mfdataset(files, vars, rename=Chimere.rename)
+        rename = kwargs.get("rename", {})
+        rename.extend(Chimere.rename)
+        return super().open_mfdataset(files, vars, rename=rename)

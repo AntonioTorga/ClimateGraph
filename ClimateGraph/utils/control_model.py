@@ -1,51 +1,28 @@
 from pathlib import Path
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
-from datetime import datetime
-from enum import Enum
-from typing import Any, Dict, List
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from typing import Dict, List, Optional
+
 
 from ClimateGraph.data import Data
 from ClimateGraph.reader import Reader
 from ClimateGraph.plot import Plot
-
-
-class TimestepEnum(str, Enum):
-    business_day = "B"
-    calendar_day = "D"
-    weekly = "W"
-    monthly = "M"
-    quarterly = "Q"
-    yearly = "Y"
-    hourly = "h"
-    minutely = "min"
-    secondly = "s"
-    milliseconds = "ms"
-    microseconds = "us"
-    nanoseconds = "ns"
+from ClimateGraph.utils.general_utils import manage_path, manage_crs
 
 
 class AnalysisModel(BaseModel):
-    timestep: TimestepEnum = TimestepEnum.hourly
-    start: datetime
-    end: datetime
     output_path: Path
     debug: bool
 
-
-class PlotModel(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    type: str
-    vars: str | List[str]
-
-    @field_validator("type")
+    @field_validator("output_path")
     @classmethod
-    def val_plot_type(cls, v: str):
-        if (v := v.lower()) not in Plot.plot_functions:
-            raise ValueError(
-                f"Data type {v} not listed as possible data type.\nPossible data types are: {Plot.plot_functions}"
-            )
+    def val_output_path(cls, v: Path):
+        v = v.resolve()
+        if not v.exists():
+            raise ValueError(f"No control file found in {v}")
         return v
+
+
+PlotModel = Plot.build_config_union()
 
 
 class VarModel(BaseModel):
@@ -61,6 +38,7 @@ class DataModel(BaseModel):
     reader: str
     path: Path | List[Path]
     vars: Dict[str, VarModel]
+    crs: Optional[str] = Field(default=None)
 
     @field_validator("type")
     @classmethod
@@ -71,6 +49,18 @@ class DataModel(BaseModel):
             )
         return v
 
+    @field_validator("crs")
+    @classmethod
+    def val_crs_path(cls, v):
+        crs = manage_crs(v)
+        return crs
+
+    @field_validator("path")
+    @classmethod
+    def val_file_path(cls, v):
+        path = manage_path(v)
+        return path
+
     @model_validator(mode="after")
     def check_type_and_subtype_are_consistent(self):
         if not (Reader.check_reader_type(self.topology, self.reader)):
@@ -78,16 +68,6 @@ class DataModel(BaseModel):
                 f"Topology {self.topology} doesn't have reader of type {self.reader}."
             )
         return self
-
-    # TODO: enable this check at deployment
-    # @field_validator("path")
-    # @classmethod
-    # def val_file_path(cls, v: Path):
-    #     if "*" in v.name and not any(v.parent.glob(v.name)):
-    #         raise ValueError(f"No valid files found in path {v}.")
-    #     elif not v.exists():
-    #         raise ValueError(f"No valid files found in path {v}.")
-    #     return v
 
 
 class ControlFile(BaseModel):

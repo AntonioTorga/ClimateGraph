@@ -56,8 +56,9 @@ class AppKernel:
 
         self.set_analysis_data()
         self.load_data()
-        # self.create_domains() TODO: when i add domains
         self.plot()
+
+        # self.create_domains() TODO: when i add domains
         # self.stats() TODO: add a module for stats
 
-        self.data, self.plots, self.collections = dict(), dict(), dict()
+        self.data, self.plots = dict(), dict()

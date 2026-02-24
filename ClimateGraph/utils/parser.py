@@ -7,55 +7,53 @@ from ClimateGraph.data import Data
 from ClimateGraph.reader import Reader
 from ClimateGraph.plot import Plot
 from ClimateGraph.utils.general_utils import manage_path, manage_crs
+from ClimateGraph.utils.control_model import ControlFile
 
 FILE_READERS = {".json": json.load, ".yaml": yaml.safe_load, ".yml": yaml.safe_load}
 
 
 class Parser:
     @staticmethod
-    def parse_control(
-        control_path: Path, check_structure: bool = False
-    ) -> dict[str:Data]:
+    def parse_control(control_path: Path):
         control_dict = Parser.read_control(control_path)
-        if check_structure:
-            try:
-                control_dict.model_validate(control_dict)
-            except Exception as e:
-                raise ValueError(
-                    f"Control file doesn't meet the input structure. Check the pydantic model in control_model.py to meet the necessary requirements."
-                )
 
-        analysis = control_dict.get("analysis")
+        try:
+            valid = ControlFile.model_validate(control_dict)
+        except Exception as e:
+            raise ValueError(
+                f"Control file doesn't meet the input structure. Check the pydantic model in control_model.py to meet the necessary requirements."
+            )
+
+        analysis = valid.analysis.model_dump()
         data = dict()
         plots = dict()
 
-        for data_name, data_block in control_dict["data"].items():
+        for data_name, data_model in valid.data.items():
             _name = data_name
-            _type, _subtype, _path, _crs, _vars = (
-                data_block.pop("type", None),
-                data_block.pop("subtype", None),
-                data_block.pop("path", None),
-                data_block.pop("crs", None),
-                data_block.pop("vars", {}),
+            _topology, _reader, _path, _vars, _crs = (
+                data_model.topology,
+                data_model.reader,
+                data_model.path,
+                data_model.vars,
+                data_model.crs,
             )
+            _vars = {var: var_model.model_dump() for var, var_model in _vars.items()}
 
-            _crs = manage_crs(_crs)
-            _path = manage_path(_path)
             reader_kwargs = (
-                data_block  # what remains unpopped will go to the reader as args
+                data_model.model_extra
+            )  # Everything other than the required arguments will pass onto the reader
+
+            data_instance = Data.create(
+                _name, _topology, _reader, _path, _vars, _crs, reader_kwargs
             )
-
-            data_class = Data.get_data_subclass(_type)
-            reader_class = Reader.get_reader_subclass(_type, _subtype)
-
-            data_instance = data_class(_name, _path, _vars, reader_class, reader_kwargs)
 
             data[_name] = data_instance
 
-        for plot_name, plot_block in control_dict["plots"].items():
-            _type, _data = plot_block.pop("type"), plot_block.pop("data")
-            kwargs = plot_block
-            plot_instance = Plot(plot_name, _type, _data, **kwargs)
+        for plot_name, plot_model in valid.plots.items():
+            _type = plot_model.type
+            plot_instance = Plot.create(
+                plot_name, _type, plot_model, data, output_path=analysis["output_path"]
+            )
             plots[plot_name] = plot_instance
 
         return analysis, data, plots
