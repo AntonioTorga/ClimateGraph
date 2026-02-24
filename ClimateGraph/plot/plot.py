@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 from ClimateGraph.data import Data
 from ClimateGraph.domain import Domain
 
+from ClimateGraph.data import Data
+
 logging.basicConfig(level=logging.INFO)  # TODO: make this settable from yaml file.
 
 
