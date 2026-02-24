@@ -18,18 +18,15 @@ class AnalysisModel(BaseModel):
     def val_output_path(cls, v: Path):
         v = v.resolve()
         if not v.exists():
-            raise ValueError(f"No control file found in {v}")
+            v.mkdir(parents=True)
         return v
 
-
 PlotModel = Plot.build_config_union()
-
 
 class VarModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str
     unit: str
-
 
 class DataModel(BaseModel):
     model_config = ConfigDict(extra="allow")
@@ -40,9 +37,9 @@ class DataModel(BaseModel):
     vars: Dict[str, VarModel]
     crs: Optional[str] = Field(default=None)
 
-    @field_validator("type")
+    @field_validator("topology")
     @classmethod
-    def val_data_type(cls, v: str):
+    def val_data_topology(cls, v: str):
         if not Data.check_topology_type(v):
             raise ValueError(
                 f"Topology type {v} not listed as possible data type.\nPossible data types are: {list(Data.registry.keys())}"
@@ -59,6 +56,8 @@ class DataModel(BaseModel):
     @classmethod
     def val_file_path(cls, v):
         path = manage_path(v)
+        if not path:
+            raise ValueError(f"No files found for path {v}")
         return path
 
     @model_validator(mode="after")

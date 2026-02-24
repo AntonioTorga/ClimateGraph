@@ -7,18 +7,41 @@ runner = CliRunner()
 
 SAMPLE_YAML = """
 analysis:
-  timestep: D
+  output_path: ./test_data/results
+  debug: True
+
 data: 
   WRF_D02: 
-    files: "some_files" 
-    type: RegularGrid 
+    path: ./test_data/wrf-*
+    topology: RegularGrid 
+    reader: wrf 
     vars:  
-      Temperatura: 
+      Temperatura:
         name: T2 
+        unit: kelvin 
+      Presion: 
+        name: PSFC 
+        unit: pascal 
+  DMC: 
+    path: ./test_data/dmc-2010-2019.nc
+    topology: PointSurface 
+    reader: dmc
+    vars:
+      Temperatura:
+        name: temperatura 
+        unit: degC 
+      Presion: 
+        name: presionEstacion 
+        unit: hectopascal 
+
 plots: 
-  plt1: 
-    type: spatial-overlay 
-    vars: ["Temperatura"] 
+  Timeseries: 
+    type: timeseries
+    time_interval: 1/1/2019 - 28/2/2019
+    timestep: h
+    base: DMC 
+    other_data: WRF_D02 
+    vars: [Temperatura, Presion] 
 """
 
 
@@ -29,7 +52,6 @@ def test_run_command(tmp_path):
     result = runner.invoke(app, ["run", str(f)])
     print(result.stdout)
     assert result.exit_code == 0
-    # Since AppKernel.run doesn't print anything yet, we just check exit code.
 
 
 def test_run_command_nonexistent_file():

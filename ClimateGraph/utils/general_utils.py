@@ -43,7 +43,7 @@ def manage_path(paths: str | Path | List[str] | List[Path]) -> List[Path]:
         matches = glob.glob(str(p))
         if not matches:  # is empty
             logging.debug(f"No files match pattern: {raw}")
-        result.extend(m.resolve() for m in matches if m.exists())
+        result.extend(Path(m).resolve() for m in matches if Path(m).exists())
 
     if not result:  # is empty
         logging.debug(f"No files exist for paths: {paths}")

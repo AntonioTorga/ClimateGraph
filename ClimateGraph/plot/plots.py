@@ -6,7 +6,6 @@ from ClimateGraph.data import Data, PointSurface, RegularGrid, SatelliteSwath
 from ClimateGraph.utils.general_utils import manage_time_interval, TimestepEnum
 from .plot import Plot
 
-
 class TimeSeriesConfig(BaseModel):
     type: Literal["timeseries"]
     base: str
@@ -18,7 +17,6 @@ class TimeSeriesConfig(BaseModel):
 
 class Timeseries(Plot):
     config = TimeSeriesConfig
-
     def plot(self):
         other_data = (
             self.plot_config.other_data

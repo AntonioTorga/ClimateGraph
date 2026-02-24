@@ -8,24 +8,29 @@ from ClimateGraph.utils.parser import Parser
 def config_file(tmp_path):
     config = {
         "analysis": {
-            "timestep": "D",
-            "start": "20/1/2001",
-            "end": "30/1/2001",
-            "results_path": str(tmp_path / "results"),
+            "output_path": str(tmp_path / "results"),
+            "debug": True
         },
         "data": {
             "WRF_D02": {
-                "files": str(tmp_path / "wrf-d02-20*.nc"),
-                "type": "RegularGrid",
-                "subtype": "wrf",
+                "path": "./test_data/wrf-2019-*.nc",
+                "topology": "RegularGrid",
+                "reader": "wrf",
+                "vars": {
+                    "Temperatura":
+                        {
+                            "name": "T2",
+                            "unit": "kelvin"
+                        }
+                },
             }
         },
         "plots": {
             "plt1": {
-                "type": "spatial-overlay",
-                "over": "DMC",
-                "under": "WRF_D02",
-                "vars": ["Temperatura"],
+                "type": "timeseries",
+                "base": "DMC",
+                "other_data": "WRF_D02",
+                "vars": "Temperatura",
             }
         },
     }
@@ -36,16 +41,16 @@ def config_file(tmp_path):
 
 
 def test_parse_control(config_file):
-    analysis, data, plots = Parser.parse_control(config_file, check_structure=True)
+    analysis, data, plts = Parser.parse_control(config_file)
 
-    assert analysis["timestep"] == "D"
+    assert analysis["debug"] == True
     assert "WRF_D02" in data
-    assert "plt1" in plots
+    assert "plt1" in plts
 
     # Check if correct classes were instantiated (using strings for comparison if needed, or real classes)
     from ClimateGraph.data import RegularGrid
-    from ClimateGraph.plot import Plot
+    from ClimateGraph.plot.plots import Timeseries
 
     assert isinstance(data["WRF_D02"], RegularGrid)
-    assert isinstance(plots["plt1"], Plot)
-    assert plots["plt1"].kwargs["over"] == "DMC"
+    assert isinstance(plts["plt1"], Timeseries)
+    assert plts["plt1"].plot_config.base == "DMC"

@@ -38,11 +38,9 @@ class Parser:
                 data_model.crs,
             )
             _vars = {var: var_model.model_dump() for var, var_model in _vars.items()}
-
             reader_kwargs = (
                 data_model.model_extra
             )  # Everything other than the required arguments will pass onto the reader
-
             data_instance = Data.create(
                 _name, _topology, _reader, _path, _vars, _crs, reader_kwargs
             )

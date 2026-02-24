@@ -1,6 +1,6 @@
 from ClimateGraph.data import Data
 from ClimateGraph.plot import Plot
-from ClimateGraph.utils import Parser
+from ClimateGraph.utils.parser import Parser
 
 from pathlib import Path
 import logging

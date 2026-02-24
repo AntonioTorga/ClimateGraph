@@ -41,7 +41,7 @@ class Data(ABC):
 
     @classmethod
     def check_topology_type(cls, type: str):
-        return type in cls.registry
+        return type.lower() in cls.registry
 
     @classmethod
     def create(
@@ -50,7 +50,7 @@ class Data(ABC):
         topology: str,
         reader: str,
         path: Path | List[Path],
-        vars: str | List[str],
+        vars: Dict[str, Dict[str,str]],
         crs: ccrs,
         reader_kwargs: Dict,
     ):
@@ -62,7 +62,7 @@ class Data(ABC):
         self,
         name: str,
         path: Path | list[Path],
-        vars: Dict[str, Dict],
+        vars: Dict[str, Dict[str,str]],
         reader: Reader,
         crs: ccrs.CRS,
         reader_kwargs: Dict[str, Any] | None = None,

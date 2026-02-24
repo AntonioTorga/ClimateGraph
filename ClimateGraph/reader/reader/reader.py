@@ -44,8 +44,8 @@ class Reader(ABC):
         return reader_class
 
     @classmethod
-    def check_reader_type(cls, type: str, sub_type: str):
-        return (type in cls.registry) and (sub_type in cls.registry[type])
+    def check_reader_type(cls, topology: str, reader: str):
+        return (topology.lower() in cls.registry) and (reader.lower() in cls.registry[topology.lower()])
 
     @staticmethod
     @abstractmethod
