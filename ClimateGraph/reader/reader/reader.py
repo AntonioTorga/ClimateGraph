@@ -29,23 +29,25 @@ class Reader(ABC):
             Reader.registry[topology][alias.lower()] = cls
 
     @classmethod
-    def get_reader_subclass(cls, type: str, sub_type: str):
-        type = type.lower()
-        sub_type = sub_type.lower()
+    def get_reader_subclass(cls, topology: str, reader: str):
+        topology = topology.lower()
+        reader = reader.lower()
 
-        if type not in cls.registry:
+        if topology not in cls.registry:
             raise ValueError(
-                f"No topology type named {type}. Please use one of the following: {list(cls.registry.keys())}"
+                f"No topology type named {topology}. Please use one of the following: {list(cls.registry.keys())}"
             )
         try:
-            reader_class = cls.registry[type][sub_type]
+            reader_class = cls.registry[topology][reader]
         except KeyError:
-            raise ValueError(f"No reader {sub_type} for topology {type}")
+            raise ValueError(f"No reader {reader} for topology {topology}")
         return reader_class
 
     @classmethod
     def check_reader_type(cls, topology: str, reader: str):
-        return (topology.lower() in cls.registry) and (reader.lower() in cls.registry[topology.lower()])
+        return (topology.lower() in cls.registry) and (
+            reader.lower() in cls.registry[topology.lower()]
+        )
 
     @staticmethod
     @abstractmethod

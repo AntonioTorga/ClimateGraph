@@ -1,0 +1,49 @@
+analysis:
+  output_path:  "./test_data/results"
+  debug: True
+
+data:
+  WRF_D02:
+    path: "/home/ato/Escritorio/Trabajos/Melodies-Monet/ClimateGraph/TestData/data/wrf/wrf-d02-20*.nc"
+    topology: RegularGrid
+    reader: wrf
+    vars: 
+      Temperatura:
+        name: T2
+        unit: "kelvin"
+      Presion:
+        name: PSFC
+        unit: "pascal"
+  DMC:
+    path: "/home/ato/Escritorio/Trabajos/Melodies-Monet/ClimateGraph/TestData/data/dmc/dmc-2019.nc"
+    topology: PointSurface
+    reader: DMC
+    vars:
+      Temperatura:
+        name: temperatura
+        unit: "degC"
+      Presion:
+        name: presionEstacion
+        unit: "hectopascal"
+plots:
+  ts:
+    type: timeseries
+    base: "DMC"
+    other_data: ["WRF_D02"]
+    time_interval: 1/1/2019-1/2/2019
+    timestep: "D"
+    radius_of_influence: 10000
+    vars: 
+      Temperatura: kelvin
+      Presion: pascal
+  scatter:
+    type: scatter
+    base: "DMC"
+    other: "WRF_D02"
+    time_interval: 1/1/2019-1/2/2019
+    timestep: "D"
+    radius_of_influence: 10000
+    dimension: site
+    vars:
+      Temperatura: kelvin
+      Presion: pascal

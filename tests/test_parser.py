@@ -42,6 +42,8 @@ plots:
     base: DMC 
     other_data: WRF_D02 
     vars: [Temperatura, Presion] 
+    radius_of_influence: 10000
+
 """
 
 
@@ -54,12 +56,8 @@ def test_config_model_parsing():
     assert config.data["WRF_D02"].topology == "RegularGrid"
     assert config.data["WRF_D02"].reader == "wrf"
     assert config.data["WRF_D02"].vars["Temperatura"].name == "T2"
-    assert (
-        len(config.data["DMC"].path) > 0
-    )
-    assert (
-        config.data["DMC"].path[0].exists()
-    )
+    assert len(config.data["DMC"].path) > 0
+    assert config.data["DMC"].path[0].exists()
     assert config.plots["Timeseries"].type == "timeseries"
     assert "Temperatura" in config.plots["Timeseries"].vars
 

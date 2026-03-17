@@ -1,19 +1,15 @@
 from .data import Data
 from ..reader import Reader
 from pathlib import Path
-from pyresample import AreaDefinition
+from pyresample import SwathDefinition
 import cartopy.crs as ccrs
+
+ccrs.AzimuthalEquidistant
 
 
 class RegularGrid(Data):
     type_aliases = ["regular_grid", "grid", "regulargrid"]
 
     def _set_geom(self):
-        self.geom = AreaDefinition(
-            area_id=f"area_{self.name}",
-            description=f"Regular grid area definition for {self.name} dataset.",
-            projection=self.crs,
-            area_extent=self.bbox,
-            width=self.dims["x"],
-            height=self.dims["y"],
-        )
+        lons, lats = self.get_coordinates(["longitude", "latitude"], as_array=True)
+        self._geom = SwathDefinition(lons=lons, lats=lats, crs=self.crs)

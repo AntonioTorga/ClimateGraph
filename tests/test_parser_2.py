@@ -7,22 +7,13 @@ from ClimateGraph.utils.parser import Parser
 @pytest.fixture
 def config_file(tmp_path):
     config = {
-        "analysis": {
-            "output_path": str(tmp_path / "results"),
-            "debug": True
-        },
+        "analysis": {"output_path": str(tmp_path / "results"), "debug": True},
         "data": {
             "WRF_D02": {
                 "path": "./test_data/wrf-2019-*.nc",
                 "topology": "RegularGrid",
                 "reader": "wrf",
-                "vars": {
-                    "Temperatura":
-                        {
-                            "name": "T2",
-                            "unit": "kelvin"
-                        }
-                },
+                "vars": {"Temperatura": {"name": "T2", "unit": "kelvin"}},
             }
         },
         "plots": {
@@ -31,6 +22,7 @@ def config_file(tmp_path):
                 "base": "DMC",
                 "other_data": "WRF_D02",
                 "vars": "Temperatura",
+                "radius_of_influence": 10000,
             }
         },
     }

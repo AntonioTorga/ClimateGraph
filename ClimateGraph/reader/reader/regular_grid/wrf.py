@@ -10,6 +10,7 @@ class Wrf(DefaultRegularGridReader):
         "Time": "time",
         "south_north": "y",
         "west_east": "x",
+        "bottom_top": "z",
         "XLONG": "longitude",
         "XLAT": "latitude",
     }
@@ -60,9 +61,9 @@ class Wrf(DefaultRegularGridReader):
         },
     }
 
-    @staticmethod
+    @classmethod
     def open_mfdataset(
-        files: Path | list[Path], vars: Dict[str, Any] = None, **kwargs
+        cls, files: Path | list[Path], vars: Dict[str, Any], **kwargs
     ) -> xr.Dataset:
         return super().open_mfdataset(
             files,

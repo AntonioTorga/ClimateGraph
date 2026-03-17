@@ -21,12 +21,15 @@ class AnalysisModel(BaseModel):
             v.mkdir(parents=True)
         return v
 
+
 PlotModel = Plot.build_config_union()
+
 
 class VarModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str
     unit: str
+
 
 class DataModel(BaseModel):
     model_config = ConfigDict(extra="allow")
@@ -35,7 +38,7 @@ class DataModel(BaseModel):
     reader: str
     path: Path | List[Path]
     vars: Dict[str, VarModel]
-    crs: Optional[str] = Field(default=None)
+    crs: Optional[str] = Field(default=None, validate_default=True)
 
     @field_validator("topology")
     @classmethod
@@ -48,9 +51,9 @@ class DataModel(BaseModel):
 
     @field_validator("crs")
     @classmethod
-    def val_crs_path(cls, v):
-        crs = manage_crs(v)
-        return crs
+    def val_crs(cls, v):
+        _crs = manage_crs(v)
+        return _crs
 
     @field_validator("path")
     @classmethod

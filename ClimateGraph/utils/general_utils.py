@@ -6,6 +6,7 @@ import re
 from dateutil import parser
 import glob
 from enum import Enum
+import numpy as np
 
 logging.basicConfig(level=logging.INFO)
 
@@ -26,6 +27,18 @@ class TimestepEnum(str, Enum):
     milliseconds = "ms"
     microseconds = "us"
     nanoseconds = "ns"
+
+
+class ReductionMethodEnum(str, Enum):
+    def __new__(cls, value, func):
+        obj = str.__new__(cls, value)
+        obj._value_ = value
+        obj.func = func
+        return obj
+
+    mean = ("mean", np.nanmean)
+    min = ("min", np.nanmin)
+    max = ("max", np.nanmax)
 
 
 def manage_path(paths: str | Path | List[str] | List[Path]) -> List[Path]:
@@ -55,7 +68,7 @@ def manage_crs(crs: str | None):
     crs = "platecarree" if crs is None else crs
     if crs not in CRS_TYPES:
         raise ValueError(f"CRS type {crs} not supported.")
-    return CRS_TYPES[crs]
+    return CRS_TYPES[crs]()
 
 
 def manage_time_interval(time_interval: str):

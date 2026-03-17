@@ -7,22 +7,24 @@ class DefaultRegularGridReader(Reader):
     type_aliases = ["DefaultRegularGrid", "DefaultGrid"]
     topology = "RegularGrid"
 
-    @staticmethod
+    @classmethod
     def open_mfdataset(
-        files: list[Path] | Path, var_list: dict, **kwargs
+        cls, files: list[Path] | Path, vars: dict, **kwargs
     ) -> xr.Dataset:
 
         xrds = xr.open_mfdataset(
             files,
             chunks="auto",
-            combine="by_coords",
         )
 
-        if (rename_dict := kwargs.get("rename")) is not None:
-            xrds = xrds.rename(rename_dict)
+        rename_dict = kwargs.get("rename", {})
+        if vars is not None:
+            rename_dict.update({_dict["name"]: name for name, _dict in vars.items()})
+
+        xrds = xrds.rename(rename_dict)
 
         drop_data_vars = (
-            set(list(xrds.data_vars)) - set(var_list) if var_list != None else set()
+            set(list(xrds.data_vars)) - set(vars.keys()) if vars != None else set()
         )
 
         xrds = xrds.drop_vars(drop_data_vars, errors="ignore")

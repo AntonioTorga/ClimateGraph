@@ -8,6 +8,7 @@ from ClimateGraph.data import Data
 
 logging.basicConfig(level=logging.INFO)  # TODO: make this settable from yaml file.
 
+
 class Plot(ABC):
     registry: dict[str, type["Plot"]] = {}
     config: type["BaseModel"] | None = None
