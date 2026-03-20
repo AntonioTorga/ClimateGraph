@@ -17,10 +17,20 @@ dependencies = [
         "numpy",
         "matplotlib",
         "pyyaml",
+        "pyresample",
+        "cartopy",
+        "pydantic",
+        "pint",
+        "pint_xarray"
 ]
 
-[project.scripts]
-ClimateGraph= "ClimateGraph.CLI:app"
+[project.optional-dependencies]
+dev = [
+        "black"
+]
 
-[tool.black]
-line-length = 88
+test= [
+        "pytest"
+]
+[project.scripts]
+ClimateGraph= "ClimateGraph.cli:app"
