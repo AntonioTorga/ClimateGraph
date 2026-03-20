@@ -261,10 +261,11 @@ class Data(ABC):
                 vectorize=True,
                 dask="parallelized",
                 output_dtypes=[var_src.dtype],
-                output_sizes={
+                dask_gufunc_kwargs= {"output_sizes":{
                     name: value
                     for name, value in var_dst_dims.items()
                     if name != "time"
+                }
                 },
             )
 

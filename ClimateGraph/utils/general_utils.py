@@ -40,6 +40,14 @@ class ReductionMethodEnum(str, Enum):
     min = ("min", np.nanmin)
     max = ("max", np.nanmax)
 
+class CRSEnum(str, Enum):
+    def __new__(cls, value, crs):
+        obj = str.__new__(cls, value)
+        obj._value_ = value
+        obj.crs = crs
+        return obj
+
+    platecarree = ("platecarree", ccrs.PlateCarree)
 
 def manage_path(paths: str | Path | List[str] | List[Path]) -> List[Path]:
     if isinstance(paths, (str, Path)):

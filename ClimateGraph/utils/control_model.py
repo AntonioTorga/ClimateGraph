@@ -1,12 +1,12 @@
 from pathlib import Path
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator, Field
 from typing import Dict, List, Optional
 
 
 from ClimateGraph.data import Data
 from ClimateGraph.reader import Reader
 from ClimateGraph.plot import Plot
-from ClimateGraph.utils.general_utils import manage_path, manage_crs
+from ClimateGraph.utils.general_utils import manage_path, manage_crs, CRSEnum
 
 
 class AnalysisModel(BaseModel):
@@ -38,7 +38,7 @@ class DataModel(BaseModel):
     reader: str
     path: Path | List[Path]
     vars: Dict[str, VarModel]
-    crs: Optional[str] = Field(default=None, validate_default=True)
+    crs: CRSEnum = Field(default=CRSEnum.platecarree)
 
     @field_validator("topology")
     @classmethod
@@ -48,12 +48,6 @@ class DataModel(BaseModel):
                 f"Topology type {v} not listed as possible data type.\nPossible data types are: {list(Data.registry.keys())}"
             )
         return v
-
-    @field_validator("crs")
-    @classmethod
-    def val_crs(cls, v):
-        _crs = manage_crs(v)
-        return _crs
 
     @field_validator("path")
     @classmethod

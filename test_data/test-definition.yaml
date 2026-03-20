@@ -43,7 +43,16 @@ plots:
     time_interval: 1/1/2019-1/2/2019
     timestep: "D"
     radius_of_influence: 10000
-    dimension: site
+    dimension: time
     vars:
       Temperatura: kelvin
       Presion: pascal
+  so:
+    type: spatial-overlay
+    base: WRF_D02
+    superposed: DMC
+    vars: 
+      Temperatura: kelvin
+      Presion: pascal
+    time_interval: 1/1/2019-1/2/2019
+    reduction_method: mean

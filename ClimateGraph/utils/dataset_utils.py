@@ -31,6 +31,7 @@ def time_resampling(
     timestep: str | None = None,
     time_interval: str | None = None,
 ) -> xr.Dataset | xr.DataArray:
+    # TODO: pass a Reduction method
     if time_interval is not None:
         start, end = manage_time_interval(time_interval)
         ds = ds.sel({"time": slice(start, end)})
@@ -40,6 +41,8 @@ def time_resampling(
 
 
 def change_unit(xa: xr.DataArray, src_unit: str, dst_unit: str):
+    if src_unit == dst_unit: return xa # No sense on performing any operations if it is already in the desired unit.
+
     xa_coords = list(xa.coords.keys())
     var_name = xa.name
     xa = xa.reset_coords(drop=False)

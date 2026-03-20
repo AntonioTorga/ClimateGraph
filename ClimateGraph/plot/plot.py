@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from pydantic import BaseModel, Field
-from typing import Annotated, Union
+from typing import Annotated, Union, List
 import logging
 from pathlib import Path
 
@@ -10,11 +10,14 @@ logging.basicConfig(level=logging.INFO)  # TODO: make this settable from yaml fi
 
 
 class Plot(ABC):
-    registry: dict[str, type["Plot"]] = {}
+    registry: dict[str, type["Plot"]] = dict()
+    aliases: List[str] = list()
     config: type["BaseModel"] | None = None
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
+        for name in cls.aliases:
+            Plot.registry[name] = cls
         Plot.registry[cls.__name__.lower()] = cls
 
     @classmethod

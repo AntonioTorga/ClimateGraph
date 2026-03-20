@@ -6,7 +6,6 @@ import yaml
 from ClimateGraph.data import Data
 from ClimateGraph.reader import Reader
 from ClimateGraph.plot import Plot
-from ClimateGraph.utils.general_utils import manage_path, manage_crs
 from ClimateGraph.utils.control_model import ControlFile
 
 FILE_READERS = {".json": json.load, ".yaml": yaml.safe_load, ".yml": yaml.safe_load}
