@@ -91,57 +91,57 @@ ClimateGraph is driven by a YAML or JSON configuration file that specifies the e
 Configuration for overall execution. 
 
  Managed parameters are as following:
-   output_path: Relative or absolute path to directory in which to leave the results.
-   debug: Boolean flag, turns on debug mode. Defaults to False (doesn't do much yet)
+   - output_path: Relative or absolute path to directory in which to leave the results.
+   - debug: Boolean flag, turns on debug mode. Defaults to False (doesn't do much yet)
    
 ### * data
 Every sub-block defines a new data item, which is composed by the following parameters:
-  topology: PointSurface, RegularGrid or SatelliteSwath (the latter is not yet supported)
-  reader: Specific reader for your data (WRF, Chimere, DMC, etc).
-  path: Relative or absolute path or list of paths. Accepts and expands hotkeys (*,?)
-  vars: Block of information about the vars about to plot. Every subblock defines a variable and includes **ONLY** the name of the variable in the files and the unit.
-  crs: Coordinate Reference System. Managed by Cartopy, currently only PlateCarree is available. 
+  - topology: PointSurface, RegularGrid or SatelliteSwath (the latter is not yet supported)
+  - reader: Specific reader for your data (WRF, Chimere, DMC, etc).
+  - path: Relative or absolute path or list of paths. Accepts and expands hotkeys (*,?)
+  - vars: Block of information about the vars about to plot. Every subblock defines a variable and includes **ONLY** the name of the variable in the files and the unit.
+  - crs: Coordinate Reference System. Managed by Cartopy, currently only PlateCarree is available. 
 ### * plots
 All plots require different arguments, but they all manage the following base parameters:
   #### Very important parameters
-  * **type**: Type of plot. Every plot has a default name and some aliases (listed below for every plot type) that work as this argument. This parameter is not case sensitive.
-  * **vars**: a single string, a list of strings or a dictionary. Strings must have the name of a variable defined previously for the data used in the plot. When a dictionary is provided, it is used as a mapping between a variable name and the unit to be used when plotting. ClimateGraph handles the unit transform.
+  - **type**: Type of plot. Every plot has a default name and some aliases (listed below for every plot type) that work as this argument. This parameter is not case sensitive.
+  - **vars**: a single string, a list of strings or a dictionary. Strings must have the name of a variable defined previously for the data used in the plot. When a dictionary is provided, it is used as a mapping between a variable name and the unit to be used when plotting. ClimateGraph handles the unit transform.
   #### Miscelaneous parameters
-  * filename: filename for the plot being described, note that should only be set if the plot block only produces **ONE** plot. Otherwise it will overwrite the previously saved plots.
-  * figsize: a tuple (Width, height) in inches.
-  * format: file format to use.
-  * layout: type of plot layout. Options are: 'constrained', 'compressed', 'tight', 'none', a matplotlib.LayoutEngine or None.
-  * dpi: Resolution in dots per inch.
-  * transparent: boolean flag that sets the transparency (works only for formats with alpha channel).
+  - filename: filename for the plot being described, note that should only be set if the plot block only produces **ONE** plot. Otherwise it will overwrite the previously saved plots.
+  - figsize: a tuple (Width, height) in inches.
+  - format: file format to use.
+  - layout: type of plot layout. Options are: 'constrained', 'compressed', 'tight', 'none', a matplotlib.LayoutEngine or None.
+  - dpi: Resolution in dots per inch.
+  - transparent: boolean flag that sets the transparency (works only for formats with alpha channel).
 
 The parameters specific to each plot are as follows:
 * **Spatial Overlay** (accepted type values: "spatial-overlay", "spatialoverlay", "so")
-    base: name of Base data item. Should be a spatially distributed type of topology like RegularGrid.
-    superposed: name of Superposed data item. Should be a semi-distributed type of topology like PointSurface or SatelliteSwath (not implemented yet).
-    time_interval: time interval to use for plot in "d/m/yyyy-d/m/yyyy" format, where day and month can also be double-digitted. 
-    levels: integer value for the amount of levels used in the contourf (defaults to 10)
-    reduction_method: method for the reduction of other dimensions (time for example). Supports 'mean', 'min', 'max'.
-    crs: Coordinate Reference System. Managed with cartopy but currently only manages 'platecarree'.
-    coastlines: boolean flag for adding coastlines to the plot.
-    borders: boolean flag for adding political borders to the plot.
-    cmap: colormap used for plotting.
+    - base: name of Base data item. Should be a spatially distributed type of topology like RegularGrid.
+    - superposed: name of Superposed data item. Should be a semi-distributed type of topology like PointSurface or SatelliteSwath (not implemented yet).
+    - time_interval: time interval to use for plot in "d/m/yyyy-d/m/yyyy" format, where day and month can also be double-digitted. 
+    - levels: integer value for the amount of levels used in the contourf (defaults to 10)
+    - reduction_method: method for the reduction of other dimensions (time for example). Supports 'mean', 'min', 'max'.
+    - crs: Coordinate Reference System. Managed with cartopy but currently only manages 'platecarree'.
+    - coastlines: boolean flag for adding coastlines to the plot.
+    - borders: boolean flag for adding political borders to the plot.
+    - cmap: colormap used for plotting.
 
 * **Timeseries** (accepted type values: "spatial-overlay", "spatialoverlay", "so")
-    base: name of a data item. The "other_data" will be resampled to the "base" geometry.
-    other_data: name or list of names of other data items.
-    radius_of_influence: radius of influence for resampling with Nearest Neighbor
-    time_interval: time interval to use for plot in "d/m/yyyy-d/m/yyyy" format, where day and month can also be double-digitted. 
-    timestep: timestep used to resample time.
-    reduction_method: method used for reducing to 1D. Supports 'mean', 'min', 'max'.
+    - base: name of a data item. The "other_data" will be resampled to the "base" geometry.
+    - other_data: name or list of names of other data items.
+    - radius_of_influence: radius of influence for resampling with Nearest Neighbor
+    - time_interval: time interval to use for plot in "d/m/yyyy-d/m/yyyy" format, where day and month can also be double-digitted. 
+    - timestep: timestep used to resample time.
+    - reduction_method: method used for reducing to 1D. Supports 'mean', 'min', 'max'.
     
 * **Scatter** (accepted type values: "scatter", "sc")
-    base: name of a data item. The "other" will be resampled to the "base" geometry.
-    other: name of a data item.
-    radius_of_influence: radius of influence for resampling with Nearest Neighbor
-    time_interval: time interval to use for plot in "d/m/yyyy-d/m/yyyy" format, where day and month can also be double-digitted. 
-    timestep: timestep used to resample time. Only worth using if dimension is "time"
-    dimension: For this plot data needs to be 1D, so this string parameter allows you to change that dimension (defaults to "time").
-    reduction_method: method used for reducing to 1D. Supports 'mean', 'min', 'max'.
+    - base: name of a data item. The "other" will be resampled to the "base" geometry.
+    - other: name of a data item.
+    - radius_of_influence: radius of influence for resampling with Nearest Neighbor
+    - time_interval: time interval to use for plot in "d/m/yyyy-d/m/yyyy" format, where day and month can also be double-digitted. 
+    - timestep: timestep used to resample time. Only worth using if dimension is "time"
+    - dimension: For this plot data needs to be 1D, so this string parameter allows you to change that dimension (defaults to "time").
+    - reduction_method: method used for reducing to 1D. Supports 'mean', 'min', 'max'.
 
 ### ▶ Run
 
