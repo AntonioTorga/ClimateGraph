@@ -87,21 +87,21 @@ ClimateGraph/
 
 ClimateGraph is driven by a YAML or JSON configuration file that specifies the execution parameters. This control file has three key information blocks (soon to be four with domain definitions):
 
-### analysis
+### * analysis
 Configuration for overall execution. 
 
  Managed parameters are as following:
    output_path: Relative or absolute path to directory in which to leave the results.
    debug: Boolean flag, turns on debug mode. Defaults to False (doesn't do much yet)
    
-### data
+### * data
 Every sub-block defines a new data item, which is composed by the following parameters:
   topology: PointSurface, RegularGrid or SatelliteSwath (the latter is not yet supported)
   reader: Specific reader for your data (WRF, Chimere, DMC, etc).
   path: Relative or absolute path or list of paths. Accepts and expands hotkeys (*,?)
   vars: Block of information about the vars about to plot. Every subblock defines a variable and includes **ONLY** the name of the variable in the files and the unit.
   crs: Coordinate Reference System. Managed by Cartopy, currently only PlateCarree is available. 
-### plots
+### * plots
 All plots require different arguments, but they all manage the following base parameters:
   #### Very important parameters
   * **type**: Type of plot. Every plot has a default name and some aliases (listed below for every plot type) that work as this argument. This parameter is not case sensitive.
@@ -151,7 +151,7 @@ ClimateGraph run config.yaml
 
 ---
 
-## 📝 Example Configuration
+##  Example Configuration
 
 ```yaml
 analysis:
@@ -196,7 +196,7 @@ plots:
 
 ---
 
-## 🧩 Architecture Overview
+##  Architecture Overview
 
 ---
 
@@ -252,8 +252,8 @@ class MyReader(Reader):
 
 3. Done — it auto-registers and is now available for use as a reader in the configuration file.
    
-** Keep in mind that the Reader abstract class open_mfdataset signature MUST be respected for it to work.
- Also the vars mapping should be used to rename the vars and drop all not needed vars. **
+** Keep in mind that the Reader abstract class open_mfdataset signature MUST be respected for it to work. Also the vars mapping should be used to rename the vars and drop all not needed vars **
+
 ---
 
 ##  Resampling and Alignment
