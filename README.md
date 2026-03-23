@@ -4,21 +4,21 @@
 
 It is designed to be:
 
-* 🔌 **Extensible** — easily add new data readers and plot types
-* ⚙️ **Config-driven** — controlled via YAML files
-* 🧠 **Lazy & efficient** — data is only loaded and processed when needed
+*  **Extensible** — easily add new data readers and plot types
+*  **Topology agnostic** - compare data between different topology types with ease
+*  **Config-driven** — controlled via YAML or JSON configuration files
+*  **Lazy & efficient** — data is only loaded and processed when needed
 
 ---
 
-## ✨ Features
+##  Features
 
-### 📥 Data Readers
+### Data Readers
 
 * **WRF (Weather Research and Forecasting)** model outputs (gridded data)
 * **DMC network** (point surface observations)
 * Designed for future support:
 
-  * Unstructured grids
   * Satellite swath data
   * Additional NetCDF-based datasets
 
@@ -43,16 +43,16 @@ It is designed to be:
 
 ---
 
-### 🔄 Data Handling
+### Data Handling
 
 * Lazy data loading
 * Time resampling and alignment
 * Spatial Resampling (Cartopy and Pyresample based)
-* Unit conversion 
+* Automatic unit conversion
 
 ---
 
-## 🚀 Installation
+## Installation
 
 ```bash
 git clone https://github.com/AntonioTorga/ClimateGraph.git
@@ -62,7 +62,7 @@ pip install .
 
 ---
 
-## 📁 Project Structure
+## Repository structure
 
 ```bash
 ClimateGraph/
@@ -83,22 +83,65 @@ ClimateGraph/
 
 ---
 
-## ⚙️ Usage
+##  Usage
 
-ClimateGraph is driven by a YAML or JSON **control file**, with three key parts:
+ClimateGraph is driven by a YAML or JSON configuration file that specifies the execution parameters. This control file has three key information blocks (soon to be four with domain definitions):
 
-#### Analysis
-Configuration for overall execution. The managed parameters are as following:
-    output_path: Relative or absolute path to directory in which to leave the results.
-    debug: Boolean flag, turns on debug mode. Defaults to False (doesn't do much yet)
-#### Data
-    topology: PointSurface, RegularGrid or SatelliteSwath (the latter is not yet supported)
-    reader: Specific reader for your data (WRF, Chimere, DMC, etc).
-    path: Relative or absolute path or list of paths. Accepts and expands hotkeys (*,?)
-    vars: Block of information about the vars about to plot. Includes the name of the variable in the files and the unit.
-    crs: Coordinate Reference System. Managed by Cartopy, currently only PlateCarree is available. 
-#### Plots
-    Depends on each plot. Soon a detailed guide, but can be seen in utils/control_model.py how every plot has it's own accepted parameters.
+### analysis
+Configuration for overall execution. 
+
+ Managed parameters are as following:
+   output_path: Relative or absolute path to directory in which to leave the results.
+   debug: Boolean flag, turns on debug mode. Defaults to False (doesn't do much yet)
+   
+### data
+Every sub-block defines a new data item, which is composed by the following parameters:
+  topology: PointSurface, RegularGrid or SatelliteSwath (the latter is not yet supported)
+  reader: Specific reader for your data (WRF, Chimere, DMC, etc).
+  path: Relative or absolute path or list of paths. Accepts and expands hotkeys (*,?)
+  vars: Block of information about the vars about to plot. Every subblock defines a variable and includes **ONLY** the name of the variable in the files and the unit.
+  crs: Coordinate Reference System. Managed by Cartopy, currently only PlateCarree is available. 
+### plots
+All plots require different arguments, but they all manage the following base parameters:
+  #### Very important parameters
+  * **type**: Type of plot. Every plot has a default name and some aliases (listed below for every plot type) that work as this argument. This parameter is not case sensitive.
+  * **vars**: a single string, a list of strings or a dictionary. Strings must have the name of a variable defined previously for the data used in the plot. When a dictionary is provided, it is used as a mapping between a variable name and the unit to be used when plotting. ClimateGraph handles the unit transform.
+  #### Miscelaneous parameters
+  * filename: filename for the plot being described, note that should only be set if the plot block only produces **ONE** plot. Otherwise it will overwrite the previously saved plots.
+  * figsize: a tuple (Width, height) in inches.
+  * format: file format to use.
+  * layout: type of plot layout. Options are: 'constrained', 'compressed', 'tight', 'none', a matplotlib.LayoutEngine or None.
+  * dpi: Resolution in dots per inch.
+  * transparent: boolean flag that sets the transparency (works only for formats with alpha channel).
+
+The parameters specific to each plot are as follows:
+* **Spatial Overlay** (accepted type values: "spatial-overlay", "spatialoverlay", "so")
+    base: name of Base data item. Should be a spatially distributed type of topology like RegularGrid.
+    superposed: name of Superposed data item. Should be a semi-distributed type of topology like PointSurface or SatelliteSwath (not implemented yet).
+    time_interval: time interval to use for plot in "d/m/yyyy-d/m/yyyy" format, where day and month can also be double-digitted. 
+    levels: integer value for the amount of levels used in the contourf (defaults to 10)
+    reduction_method: method for the reduction of other dimensions (time for example). Supports 'mean', 'min', 'max'.
+    crs: Coordinate Reference System. Managed with cartopy but currently only manages 'platecarree'.
+    coastlines: boolean flag for adding coastlines to the plot.
+    borders: boolean flag for adding political borders to the plot.
+    cmap: colormap used for plotting.
+
+* **Timeseries** (accepted type values: "spatial-overlay", "spatialoverlay", "so")
+    base: name of a data item. The "other_data" will be resampled to the "base" geometry.
+    other_data: name or list of names of other data items.
+    radius_of_influence: radius of influence for resampling with Nearest Neighbor
+    time_interval: time interval to use for plot in "d/m/yyyy-d/m/yyyy" format, where day and month can also be double-digitted. 
+    timestep: timestep used to resample time.
+    reduction_method: method used for reducing to 1D. Supports 'mean', 'min', 'max'.
+    
+* **Scatter** (accepted type values: "scatter", "sc")
+    base: name of a data item. The "other" will be resampled to the "base" geometry.
+    other: name of a data item.
+    radius_of_influence: radius of influence for resampling with Nearest Neighbor
+    time_interval: time interval to use for plot in "d/m/yyyy-d/m/yyyy" format, where day and month can also be double-digitted. 
+    timestep: timestep used to resample time. Only worth using if dimension is "time"
+    dimension: For this plot data needs to be 1D, so this string parameter allows you to change that dimension (defaults to "time").
+    reduction_method: method used for reducing to 1D. Supports 'mean', 'min', 'max'.
 
 ### ▶ Run
 
@@ -159,7 +202,7 @@ plots:
 
 ## 🔌 Extending the Framework
 
-### ➕ Adding a New Plot
+###  Adding a New Plot
 
 1. Create a config model:
 
@@ -180,14 +223,40 @@ class MyPlot(Plot):
         ...
 ```
 
-3. Done — it auto-registers
+3. Done — it auto-registers.
+
+** Keep in mind that extra parameters not defined in the PlotConfig will be available inside the MyPlot class as "self.plot_kwargs" **
 
 ---
-### ➕ Adding a New Data Reader
+###  Adding a New Data Reader
 
-Soon
+1. Create a reader class inside of one of the reader topology directories inheriting the Reader abstract class, and  a topology for it:
 
-## 🔄 Resampling & Alignment
+```python
+class MyReader(Reader):
+    topology = "PointSurface" or other topology type
+    ...
+```
+
+2. Override the open_mfdataset class method:
+
+```python
+class MyReader(Reader):
+    ...
+    @classmethod
+    def open_mfdataset(
+        cls, files: list[Path] | Path, vars: dict, **kwargs
+    ) -> xr.Dataset:
+    ... reading logic ...
+```
+
+3. Done — it auto-registers and is now available for use as a reader in the configuration file.
+   
+** Keep in mind that the Reader abstract class open_mfdataset signature MUST be respected for it to work.
+ Also the vars mapping should be used to rename the vars and drop all not needed vars. **
+---
+
+##  Resampling and Alignment
 
 ClimateGraph includes a centralized alignment system:
 
@@ -198,7 +267,7 @@ Plots request alignment — they don’t implement it.
 
 ---
 
-## 🧪 Supported Data Types
+##  Supported Topology Types
 
 | Type          | Description              |
 | ------------- | ------------------------ |
@@ -208,7 +277,18 @@ Plots request alignment — they don’t implement it.
 
 ---
 
-## ⚠️ Known Limitations
+## 📌 Roadmap
+
+* [ ] Domain definition with polygons, maps (shapefiles) or attributes in the netcdf file.
+* [ ] Formally define the internal format for future reader developers.
+* [ ] Move to a config file all (or almost all) hard-coded values.
+* [ ] Statistical comparison module.
+* [ ] Advanced regridding (xESMF).
+* [ ] Interactive plots.
+
+---
+
+##  Known Limitations
 
 * Limited automatic spatial interpolation (work in progress)
 * CRS handling still being developed
@@ -231,37 +311,3 @@ Plots request alignment — they don’t implement it.
 * `typer`
 
 ---
-
-## 📌 Roadmap
-
-* [ ] Domain definition with polygons, maps (shapefiles) or attributes in the netcdf file
-* [ ] Statistical comparison module
-* [ ] Advanced regridding (xESMF)
-* [ ] Interactive plots
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome!
-
-You can:
-
-* Add new data readers
-* Implement new plot types
-* Improve alignment methods
-* Fix bugs or improve docs
-
----
-
-## 📄 License
-
-MIT License
-
----
-
-## 💡 Philosophy
-
-ClimateGraph is built around a simple idea:
-
-> Separate **data standarization**, **resampling**, and **analysis** so each can evolve independently.
