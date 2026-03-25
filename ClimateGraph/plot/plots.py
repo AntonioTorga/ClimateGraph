@@ -19,21 +19,28 @@ from .plot import Plot
 
 # TODO: remove nans
 
-class TimeSeriesConfig(BaseModel):
-    type: Literal["timeseries"]
+class BasePlotConfig(BaseModel):
+    filename: str | None = Field(default=None)
+    figsize: Tuple[float, float] = Field((6,6))
+    format: str = Field(default="jpg")
+    layout: Literal['constrained', 'compressed', 'tight', 'none'] | mpl.LayoutEngine | None = Field(default=None)
+    dpi: int = Field(default=100)
+    transparent: bool = Field(default=False)
+
+class TimeSeriesConfig(BasePlotConfig):
+    type: Literal["timeseries", "ts", "time-series"]
     base: str
     other_data: str | List[str]
     radius_of_influence: int
     vars: str | List[str] | Dict[str, str]
-    colors: str | None = Field(default=None)  # TODO: implement
     time_interval: str | List[str] | None = Field(default=None)
     timestep: TimestepEnum | None = Field(default=None)
-    filename: str | None = Field(default=None)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
-
+    colors: str | None = Field(default=None)  # TODO: implement
 
 class Timeseries(Plot):
     config = TimeSeriesConfig
+    aliases = ["ts", "time-series"]
 
     def plot(self):
         # TODO: remove time intervals with nan values.
@@ -81,7 +88,7 @@ class Timeseries(Plot):
             )
             for name, data in other_data.items()
         }
-
+        
         # Plotting
         for variable in vars:
             unit = base.vars[variable]["unit"] if not isinstance(vars, dict) else vars[variable]
@@ -109,17 +116,12 @@ class Timeseries(Plot):
             start, end = manage_time_interval(time_interval)
             format = self.plot_kwargs.get("format", "jpg")
             filename = f"ts-{variable}-{start.strftime("%d-%m-%Y")}_{end.strftime("%d-%m-%Y")}.{format}" if self.plot_config.filename is None else self.plot_config.filename
-            figure.savefig(
-                self.output_path / filename,
-                format=self.plot_kwargs.get("format", "jpg"),
-                dpi=self.plot_kwargs.get("dpi", 1000),
-            )
-            plt.close(fig=figure)
+            
+            self.savefig(filename)
 
 
-
-class ScatterConfig(BaseModel):
-    type: Literal["scatter"]
+class ScatterConfig(BasePlotConfig):
+    type: Literal["scatter", "sc"]
     base: str
     other: str
     vars: str | List[str] | Dict[str, str]
@@ -128,12 +130,11 @@ class ScatterConfig(BaseModel):
     dimension: str = Field(default="time")
     timestep: TimestepEnum | None = Field(default=None)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
-    filename: str | None = Field(default=None)
     colors: str | None = Field(default=None)  # TODO: implement
-
 
 class Scatter(Plot):
     config = ScatterConfig
+    aliases = ["sc"]
 
     def plot(self):
         # Get relevant data from the config
@@ -214,29 +215,24 @@ class Scatter(Plot):
             start, end = manage_time_interval(time_interval)
             format = self.plot_kwargs.get("format", "jpg")
             filename = f"scatter-{variable}-{start.strftime("%d-%m-%Y")}_{end.strftime("%d-%m-%Y")}.{format}" if self.plot_config.filename is None else self.plot_config.filename
-            figure.savefig(
-                self.output_path/filename,
-                format=format,
-                dpi=self.plot_kwargs.get("dpi", 1000),
-            )
-            plt.close(fig=figure)
+            
+            self.savefig(filename)
 
-class SpatialOverlayConfig(BaseModel):
-    type: Literal["spatial-overlay"]
+class SpatialOverlayConfig(BasePlotConfig):
+    type: Literal["spatial-overlay", "spatialoverlay", "so"]
     base: str
     superposed: str
     vars: str | List[str] | Dict[str, str]
     time_interval: str
     levels: int = Field(default=10)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
-    filename: str | None = Field(default=None)
     crs: CRSEnum | None = Field(default=None)
     coastlines: bool = Field(default=True)
     borders: bool = Field(default=True)
     cmap: str = Field(default="viridis")
 
 class SpatialOverlay(Plot):
-    aliases = ["spatial-overlay"]
+    aliases = ["spatial-overlay", "spatialoverlay", "so"]
     config = SpatialOverlayConfig
 
     def plot(self):
@@ -302,9 +298,4 @@ class SpatialOverlay(Plot):
             format = self.plot_kwargs.get("format", "jpg")
             filename = (f"spatial_overlay-{var}-{base.name}-{superposed.name}-{start.strftime("%d-%m-%Y")}_{end.strftime("%d-%m-%Y")}.{format}" if self.plot_config.filename is None else self.plot_config.filename)
             
-            figure.savefig(
-                                self.output_path/filename,
-                                format=self.plot_kwargs.get("format", "jpg"),
-                                dpi=self.plot_kwargs.get("dpi", 1000),
-                        )
-            plt.close(fig=figure)
+            self.savefig(filename)

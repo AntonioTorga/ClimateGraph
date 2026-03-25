@@ -32,5 +32,8 @@ dev = [
 test= [
         "pytest"
 ]
+[tool.setuptools]
+packages = ["ClimateGraph"]
+
 [project.scripts]
 ClimateGraph= "ClimateGraph.cli:app"

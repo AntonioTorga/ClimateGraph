@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 from ClimateGraph.data import Data
 from ClimateGraph.reader import Reader
 from ClimateGraph.plot import Plot
+from ClimateGraph.domain import Domain
 from ClimateGraph.utils.general_utils import manage_path, manage_crs, CRSEnum
 
 
@@ -21,15 +22,13 @@ class AnalysisModel(BaseModel):
             v.mkdir(parents=True)
         return v
 
-
 PlotModel = Plot.build_config_union()
-
+DomainModel = Domain.build_config_union()
 
 class VarModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str
     unit: str
-
 
 class DataModel(BaseModel):
     model_config = ConfigDict(extra="allow")
@@ -69,6 +68,7 @@ class DataModel(BaseModel):
 class ControlFile(BaseModel):
     # domains
     analysis: AnalysisModel
+    domains: Dict[str, DomainModel]
     data: Dict[str, DataModel]
     plots: Dict[str, PlotModel]
     # stats

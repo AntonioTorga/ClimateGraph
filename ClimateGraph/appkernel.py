@@ -12,14 +12,12 @@ class AppKernel:
     def __init__(self):
         self.output_path = None
         self.analysis = None
-        self.data = dict[str:Data]  # name : Data
-        self.plots = dict[str:Plot]  # name : Plot
+        self.data = None
+        self.domains = None
+        self.plots = None # name : Plot
 
         self.debug = None
         self.output_path = None
-        self.timestep = None
-        self.start = None
-        self.end = None
 
         # self.domains = dict() #TODO: replace placeholder with actual domain handling
 
@@ -28,8 +26,9 @@ class AppKernel:
             analysis,
             data,
             plots,
+            domains
         ) = Parser.parse_control(control_path)
-        return analysis, data, plots
+        return analysis, data, plots, domains
 
     def load_data(self):
         for name, data_obj in self.data.items():
@@ -47,18 +46,14 @@ class AppKernel:
 
         self.debug = analysis.get("debug", False)
         self.output_path = analysis.get("output_path", Path("./"))
-        self.start = analysis.get("start")
-        self.end = analysis.get("end")
-        self.timestep = analysis.get("timestep", "H")
 
     def run(self, control_path: Path):
         self.analysis, self.data, self.plots = self.read_control(control_path)
 
         self.set_analysis_data()
-        self.load_data()
+        # if self.eager : self.load_data()
         self.plot()
 
-        # self.create_domains() TODO: when i add domains
         # self.stats() TODO: add a module for stats
 
-        self.data, self.plots = dict(), dict()
+        self.data, self.plots, self.domains = None, None, None

@@ -6,6 +6,7 @@ import yaml
 from ClimateGraph.data import Data
 from ClimateGraph.reader import Reader
 from ClimateGraph.plot import Plot
+from ClimateGraph.domain import Domain
 from ClimateGraph.utils.control_model import ControlFile
 
 FILE_READERS = {".json": json.load, ".yaml": yaml.safe_load, ".yml": yaml.safe_load}
@@ -26,6 +27,7 @@ class Parser:
         analysis = valid.analysis.model_dump()
         data = dict()
         plots = dict()
+        domains = dict()
 
         for data_name, data_model in valid.data.items():
             _name = data_name
@@ -46,14 +48,22 @@ class Parser:
 
             data[_name] = data_instance
 
+        for domain_name, domain_model in valid.domains.items():
+            _type = domain_model.type
+            domain_instance = Domain.create(
+                domain_name, _type, domain_model
+            )
+            domains[domain_name] = domain_instance
+
         for plot_name, plot_model in valid.plots.items():
             _type = plot_model.type
             plot_instance = Plot.create(
-                plot_name, _type, plot_model, data, output_path=analysis["output_path"]
+                plot_name, _type, plot_model, data, output_path=analysis["output_path"], domains=domains
             )
             plots[plot_name] = plot_instance
+        
 
-        return analysis, data, plots
+        return analysis, data, plots, domains
 
     @staticmethod
     def read_control(control_path: Path):

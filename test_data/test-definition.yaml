@@ -4,7 +4,7 @@ analysis:
 
 data:
   WRF_D02:
-    path: "/home/ato/Escritorio/Trabajos/Melodies-Monet/ClimateGraph/TestData/data/wrf/wrf-d02-20*.nc"
+    path: "./test_data/wrf-20*.nc"
     topology: RegularGrid
     reader: wrf
     vars: 
@@ -15,7 +15,7 @@ data:
         name: PSFC
         unit: "pascal"
   DMC:
-    path: "/home/ato/Escritorio/Trabajos/Melodies-Monet/ClimateGraph/TestData/data/dmc/dmc-2019.nc"
+    path: "./test_data/dmc*.nc"
     topology: PointSurface
     reader: DMC
     vars:

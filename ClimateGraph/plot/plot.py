@@ -3,11 +3,13 @@ from pydantic import BaseModel, Field
 from typing import Annotated, Union, List
 import logging
 from pathlib import Path
+import matplotlib as mpl
+import matplotlib.pyplot as plt
 
 from ClimateGraph.data import Data
+from ClimateGraph.domain import Domain
 
-logging.basicConfig(level=logging.INFO)  # TODO: make this settable from yaml file.
-
+logging.basicConfig(level=logging.INFO)  # TODO: make this settable from yaml file.    
 
 class Plot(ABC):
     registry: dict[str, type["Plot"]] = dict()
@@ -35,6 +37,7 @@ class Plot(ABC):
         plot_config: BaseModel,
         data_registry: dict[str, Data],
         output_path: Path,
+        domains: dict[str, Domain]|None = None,
     ):
         plot_class = cls.get_plot_class(type)
         kwargs = plot_config.model_extra if plot_config.model_extra else {}
@@ -70,3 +73,15 @@ class Plot(ABC):
     @abstractmethod
     def plot(self):
         pass
+
+    def savefig(self, figure: mpl.figure.Figure, filename=None):
+            filename = self.plot_config.filename if filename is None else filename 
+
+            figure.savefig(
+                self.output_path/filename,
+                dpi=self.plot_config.dpi,
+                format=self.plot_config.format,
+                transparent = self.plot_config.transparent
+                )
+            
+            plt.close(fig=figure)

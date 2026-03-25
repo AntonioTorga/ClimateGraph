@@ -19,7 +19,6 @@ def test_wrf_read():
         [Path("test_data/wrf-2019-01.nc"), Path("test_data/wrf-2019-02.nc")],
         {"Temperatura": {"name": "T2", "unit": "kelvin"}},
     )
-    print(obj)
     assert type(obj) == xr.Dataset
     assert all([x in obj.coords for x in ["latitude", "longitude"]])
     assert all(
