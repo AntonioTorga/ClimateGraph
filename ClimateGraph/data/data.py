@@ -12,6 +12,7 @@ from datetime import datetime
 
 
 from ClimateGraph.reader import Reader
+from ClimateGraph.domain import Domain
 from ClimateGraph.utils.dataset_utils import time_resampling, change_unit
 from ClimateGraph.utils.general_utils import manage_time_interval, ReductionMethodEnum
 
@@ -85,6 +86,16 @@ class Data(ABC):
         self.path = path
         self.crs = crs
 
+    def copy(self):
+        new = self.__class__(self.name, self.path, self.vars, self.reader, self.crs, reader_kwargs= self.reader_kwargs)
+        new.obj = self._obj
+        new._geom = self._geom
+        new._bbox = self._bbox  # minlon, minlat, maxlon, maxlat
+        new._dims = self._dims
+        new.resampled = self.resampled
+
+        return new
+
     @abstractmethod
     def _set_geom(self):
         pass
@@ -94,6 +105,13 @@ class Data(ABC):
         if self._obj == None:
             self.load_obj()
         return self._obj
+    
+    @obj.setter
+    def obj(self, _obj):
+        self._obj = _obj
+        self._bbox = None
+        self._geom = None
+        self._dims = None
 
     @property
     def geom(self):
@@ -114,14 +132,14 @@ class Data(ABC):
     @property
     def dims(self):
         if self._dims is None:
-            self._dims = dict(self.obj.dims)
+            self._dims = dict(self.obj.sizes)
         return self._dims
 
     @property
     def bbox(self):
         if self._bbox is None:
             lons, lats = self.get_coordinates(["longitude", "latitude"])
-            self._bbox = (lons.min(), lats.min(), lons.max(), lats.max())
+            self._bbox = (float(lons.min()), float(lats.min()), float(lons.max()), float(lats.max()))
         return self._bbox
 
     def load_obj(self):
@@ -177,7 +195,6 @@ class Data(ABC):
     def get_coordinates(
         self,
         coord_names: list[str] | str,
-        two_dim: bool = False,
         as_array: bool = False,
     ) -> list[xr.DataArray] | xr.DataArray | list[np.ndarray] | np.ndarray:
         obj = self.obj

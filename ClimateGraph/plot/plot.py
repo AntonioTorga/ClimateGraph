@@ -4,6 +4,7 @@ from typing import Annotated, Union, List
 import logging
 from pathlib import Path
 import matplotlib as mpl
+mpl.use("Agg")
 import matplotlib.pyplot as plt
 
 from ClimateGraph.data import Data
@@ -15,7 +16,7 @@ class Plot(ABC):
     registry: dict[str, type["Plot"]] = dict()
     aliases: List[str] = list()
     config: type["BaseModel"] | None = None
-
+    
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         for name in cls.aliases:
@@ -36,8 +37,8 @@ class Plot(ABC):
         type: str,
         plot_config: BaseModel,
         data_registry: dict[str, Data],
+        domain_registry: dict[str, Domain],
         output_path: Path,
-        domains: dict[str, Domain]|None = None,
     ):
         plot_class = cls.get_plot_class(type)
         kwargs = plot_config.model_extra if plot_config.model_extra else {}
@@ -46,19 +47,23 @@ class Plot(ABC):
             name,
             plot_config=plot_config,
             data_registry=data_registry,
+            domain_registry=domain_registry,
             output_path=output_path,
             **kwargs,
         )
 
-    def __init__(self, name, plot_config, data_registry, output_path, **kwargs):
+    def __init__(self, name, plot_config, data_registry, domain_registry, output_path, **kwargs):
         self.plot_config = plot_config
 
         self.name = name
         self.data = data_registry
-        self.output_path = (
-            output_path  # This is going to be the appk output path + name of plot group
-        )
+        self.domains = domain_registry
         self.plot_kwargs = kwargs
+
+        self.output_path = Path(
+            output_path / name # This is going to be the appk output path + name of plot group
+        )
+        self.output_path.mkdir(parents=True, exist_ok=True)
 
         self._done = False
 
@@ -70,13 +75,12 @@ class Plot(ABC):
     def get_plot_class(cls, name: str):
         return cls.registry[name.lower()]
 
+    
     @abstractmethod
-    def plot(self):
+    def plot(self, domain = None):
         pass
 
-    def savefig(self, figure: mpl.figure.Figure, filename=None):
-            filename = self.plot_config.filename if filename is None else filename 
-
+    def savefig(self, figure: mpl.figure.Figure, filename: str):
             figure.savefig(
                 self.output_path/filename,
                 dpi=self.plot_config.dpi,

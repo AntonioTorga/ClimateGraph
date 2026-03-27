@@ -48,12 +48,11 @@ class AppKernel:
         self.output_path = analysis.get("output_path", Path("./"))
 
     def run(self, control_path: Path):
-        self.analysis, self.data, self.plots = self.read_control(control_path)
+        self.analysis, self.data, self.plots, self.domains = self.read_control(control_path)
 
         self.set_analysis_data()
         # if self.eager : self.load_data()
         self.plot()
-
         # self.stats() TODO: add a module for stats
 
         self.data, self.plots, self.domains = None, None, None

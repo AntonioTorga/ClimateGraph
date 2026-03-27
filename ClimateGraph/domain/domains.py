@@ -3,14 +3,11 @@ from typing import Literal, List, Dict, Tuple, Any
 import numpy as np
 import regionmask
 import geopandas as gpd
-from shapely.geometry import MultiPolygon, Polygon
+import shapely.geometry as gm
 from pathlib import Path
-
-from ClimateGraph.data import Data
+import xarray as xr
 
 from .domain import Domain
-
-# TODO: remove nans
 
 class AttributeConfig(BaseModel):
     type: Literal["attribute", "attr"]
@@ -21,11 +18,10 @@ class Attribute(Domain):
     config = AttributeConfig
     aliases = ["attribute", "attr"]
 
-    def apply(self, data: Data):
+    def apply(self, data: xr.Dataset|xr.DataArray):
         field_name = self.domain_config.field_name
         field_value = self.domain_config.field_value
-
-        return data.obj.where(data.obj[field_name]==field_value)
+        return data.where((data[field_name]==field_value).compute(), drop=True)
     
 class PolygonConfig(BaseModel):
     type: Literal["polygon", "poly"]
@@ -35,20 +31,23 @@ class Polygon(Domain):
     config = PolygonConfig
     aliases = ["polygon", "poly"]
 
-    def apply(self, data: Data):
+    def apply(self, data: xr.Dataset|xr.DataArray):
         vertex = self.domain_config.vertex
-        if isinstance(vertex[0], Tuple): vertex = [vertex]
+        if isinstance(vertex[0], tuple): vertex = [vertex]
         polygons = []
+
         for p in vertex:
-            polygons.append(Polygon(p))
-        polygons = MultiPolygon(polygons)
+            polygons.append(gm.Polygon(p))
+
+        polygons = gm.MultiPolygon(polygons)
         regions = regionmask.Regions([polygons])
 
         # Regionmask requires "lat" and "lon"
-        region_mask = regions.mask(data.obj.rename({"latitude": "lat", "longitude": "lon"}))
+        region_mask = regions.mask(data.rename({"latitude": "lat", "longitude": "lon"}))
         region_mask = region_mask.rename({"lat": "latitude", "lon": "longitude"})
-
+   
         masked_data = data.where(region_mask.notnull())
+
         return masked_data
     
 class ShapefileConfig(BaseModel):
@@ -60,7 +59,7 @@ class Shapefile(Domain):
     config = ShapefileConfig
     aliases = ["shapefile", "shp"]
 
-    def apply(self, data: Data):    
+    def apply(self, data: xr.Dataset|xr.DataArray):    
         path = self.domain_config.path
         field_value = self.domain_config.field_value
 
@@ -70,5 +69,4 @@ class Shapefile(Domain):
         region_mask = region_mask.rename({"lat": "latitude", "lon": "longitude"})
 
         masked_data = data.where(region_mask == field_value)
-
         return masked_data

@@ -25,11 +25,24 @@ data:
       Presion:
         name: presionEstacion
         unit: "hectopascal"
+domains: 
+  RM:
+    type: attr
+    field_name: region
+    field_value:  13
+  Litoral:
+    type: attr
+    field_name: zonaGeografica
+    field_value: Litoral
+  Poly1:
+    type: polygon
+    vertex: [[-73.51507, -33.43938],[-73.51507, -36.46943],[-69.68720, -36.46943],[-69.68720, -33.43938]]
 plots:
   ts:
     type: timeseries
     base: "DMC"
     other_data: ["WRF_D02"]
+    domains: ["RM", "Litoral"]
     time_interval: 1/1/2019-1/2/2019
     timestep: "D"
     radius_of_influence: 10000
@@ -39,6 +52,7 @@ plots:
   scatter:
     type: scatter
     base: "DMC"
+    domains: ["Valle"]
     other: "WRF_D02"
     time_interval: 1/1/2019-1/2/2019
     timestep: "D"
@@ -51,6 +65,7 @@ plots:
     type: spatial-overlay
     base: WRF_D02
     superposed: DMC
+    domains: ["Poly1"]
     vars: 
       Temperatura: kelvin
       Presion: pascal

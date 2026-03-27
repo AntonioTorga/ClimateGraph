@@ -4,7 +4,7 @@ from typing import Annotated, Union, List
 import logging
 from pathlib import Path
 
-from ClimateGraph.data import Data
+import xarray as xr
 
 logging.basicConfig(level=logging.INFO)  # TODO: make this settable from yaml file.
 
@@ -58,5 +58,6 @@ class Domain(ABC):
         return cls.registry[name.lower()]
 
     @abstractmethod
-    def apply(self, data: Data):
+    def apply(self, data: xr.Dataset|xr.DataArray):
         pass
+

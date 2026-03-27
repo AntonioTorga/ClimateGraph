@@ -68,7 +68,7 @@ class DataModel(BaseModel):
 class ControlFile(BaseModel):
     # domains
     analysis: AnalysisModel
-    domains: Dict[str, DomainModel]
-    data: Dict[str, DataModel]
-    plots: Dict[str, PlotModel]
+    data: Dict[str, DataModel] 
+    domains: Dict[str, DomainModel]| None = Field(default= None)
+    plots: Dict[str, PlotModel]| None = Field(default= None)
     # stats

@@ -30,13 +30,11 @@ def time_resampling(
     time_interval: str | None = None,
     reduction_method: ReductionMethodEnum = ReductionMethodEnum.mean
 ) -> xr.Dataset | xr.DataArray:
-    # TODO: pass a Reduction method
     if time_interval is not None:
         start, end = manage_time_interval(time_interval)
         ds = ds.sel({"time": slice(start, end)})
     if timestep is not None:
-        ds = ds.resample({"time": timestep})
-        ds = reduction_method.func(ds)
+        ds = getattr(ds.resample(time=timestep), reduction_method.value)()
     return ds
 
 def change_unit(xa: xr.DataArray, src_unit: str, dst_unit: str):
