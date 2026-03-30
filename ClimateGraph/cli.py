@@ -24,15 +24,20 @@ def run(
         ),
     ],
 ):
+    """run Run the ClimateGraph routine with a control file.
+
+    Parameters
+    ----------
+    control_file : Annotated[ Path, typer.Argument, optional
+        Path of the configuration file for the ClimateGraph run, by default True, dir_okay=False, file_okay=True, resolve_path=True, help="File defining the analysis.", ), ]
+    """
     appK = AppKernel()
     appK.run(control_file)
 
 
 @app.command()
 def version():
-    """
-    Print the version of ClimateGraph.
-    """
+    """Print the version of ClimateGraph."""
     print("ClimateGraph version 0.1.0")
 
 

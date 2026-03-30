@@ -21,7 +21,9 @@ dependencies = [
         "cartopy",
         "pydantic",
         "pint",
-        "pint_xarray"
+        "pint_xarray",
+        "geopandas",
+        "regionmask"
 ]
 
 [project.optional-dependencies]

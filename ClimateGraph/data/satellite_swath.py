@@ -6,6 +6,10 @@ import cartopy.crs as ccrs
 
 
 class SatelliteSwath(Data):
+    """The Satellite Swath topology class. Not being used and not recommended.
+
+    A class that gives particular representation to Satellite Swath data.
+    """
 
     def _set_geom(self):
         lons, lats = self.get_coordinates(["longitude", "latitude"])

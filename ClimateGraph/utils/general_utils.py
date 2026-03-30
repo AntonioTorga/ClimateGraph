@@ -7,6 +7,8 @@ from dateutil import parser
 import glob
 from enum import Enum
 import numpy as np
+import datetime
+from typing import Tuple
 
 logging.basicConfig(level=logging.INFO)
 
@@ -15,10 +17,12 @@ TIME_INTERVAL_FORMAT = r"^(.+?)\s*(?:-|to)\s*(.+)$"  # Accepts "date - date" or 
 
 
 class TimestepEnum(str, Enum):
+    """TimestepEnum Enum used for timestep handling. Keeps consistent timestep values."""
+
     business_day = "B"
     calendar_day = "D"
     weekly = "W"
-    monthly = "M"
+    monthly = "ME"
     quarterly = "Q"
     yearly = "Y"
     hourly = "h"
@@ -30,6 +34,8 @@ class TimestepEnum(str, Enum):
 
 
 class ReductionMethodEnum(str, Enum):
+    """ReductionMethodEnum Enum used for Reduction Method handling. Keeps consistent Reduction methods values."""
+
     def __new__(cls, value, func):
         obj = str.__new__(cls, value)
         obj._value_ = value
@@ -40,7 +46,10 @@ class ReductionMethodEnum(str, Enum):
     min = ("min", np.nanmin)
     max = ("max", np.nanmax)
 
+
 class CRSEnum(str, Enum):
+    """CRSEnum Enum used for Coordinate Reference System handling. Keeps consistent CRS values."""
+
     def __new__(cls, value, crs):
         obj = str.__new__(cls, value)
         obj._value_ = value
@@ -49,7 +58,20 @@ class CRSEnum(str, Enum):
 
     platecarree = ("platecarree", ccrs.PlateCarree)
 
+
 def manage_path(paths: str | Path | List[str] | List[Path]) -> List[Path]:
+    """manage_path Handles paths, including lists of paths and paths with hotkeys (*,?, etc).
+
+    Parameters
+    ----------
+    paths : str | Path | List[str] | List[Path]
+        Path or list of paths that compose the data object.
+
+    Returns
+    -------
+    List[Path]
+        List of existing pathlib.Path's created from the input paths.
+    """
     if isinstance(paths, (str, Path)):
         paths = [paths]
 
@@ -72,14 +94,26 @@ def manage_path(paths: str | Path | List[str] | List[Path]) -> List[Path]:
     return result
 
 
-def manage_crs(crs: str | None):
-    crs = "platecarree" if crs is None else crs
-    if crs not in CRS_TYPES:
-        raise ValueError(f"CRS type {crs} not supported.")
-    return CRS_TYPES[crs]()
+def manage_time_interval(
+    time_interval: str,
+) -> Tuple[datetime.datetime, datetime.datetime]:
+    """manage_time_interval Manages time interval strings in the TIME_INTERVAL_FORMAT.
 
+    Parameters
+    ----------
+    time_interval : str
+        String in TIME_INTERVAL_FORMAT
 
-def manage_time_interval(time_interval: str):
+    Returns
+    -------
+    Tuple[datetime.datetime, datetime.datetime]
+        start datetime and end datetime.
+
+    Raises
+    ------
+    ValueError
+        Time interval provided doesn't meet the required format.
+    """
     time_interval = time_interval.strip()
     if (match := re.match(TIME_INTERVAL_FORMAT, time_interval)) is None:
         raise ValueError(
