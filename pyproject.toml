@@ -22,9 +22,11 @@ dependencies = [
         "pydantic",
         "pint",
         "pint_xarray",
-	"geopandas",
-	"regionmask",
-	"h5netcdf"
+		"geopandas",
+		"regionmask",
+		"h5netcdf",
+		"h5py",
+		"dask"
 ]
 
 [project.optional-dependencies]
