@@ -25,7 +25,6 @@ class Attribute(Domain):
     aliases = ["attribute", "attr"]
 
     def apply(self, data: xr.Dataset | xr.DataArray):
-<<<<<<< HEAD
         """apply Filters the data with a mask defined by a field and a field value.
 
         Parameters
@@ -41,12 +40,6 @@ class Attribute(Domain):
         field_name = self.domain_config.field_name
         field_value = self.domain_config.field_value
         return data.where((data[field_name] == field_value).compute(), drop=True)
-=======
-        field_name = self.domain_config.field_name
-        field_value = self.domain_config.field_value
-        mask = (data[field_name] == field_value).compute()
-        return data.where(mask, drop=True)
->>>>>>> 65ad422 (Small fixes. Changed xarray engine to h5netcdf)
 
 
 class PolygonConfig(BaseModel):
@@ -63,21 +56,18 @@ class Polygon(Domain):
     aliases = ["polygon", "poly"]
 
     def apply(self, data: xr.Dataset | xr.DataArray):
-<<<<<<< HEAD
         """apply Constructs the polygons with a set of vertices and uses them to filter the data.
 
         Parameters
         ----------
         data : xr.Dataset | xr.DataArray
-            Data to be filtered
+            Data to be filtered by the polygons
 
         Returns
         -------
         xr.Dataset|xr.DataArray
             Data filtered by the polygon(s)
         """
-=======
->>>>>>> 65ad422 (Small fixes. Changed xarray engine to h5netcdf)
         vertex = self.domain_config.vertex
         if isinstance(vertex[0], tuple):
             vertex = [vertex]
@@ -113,21 +103,18 @@ class Shapefile(Domain):
     aliases = ["shapefile", "shp"]
 
     def apply(self, data: xr.Dataset | xr.DataArray):
-<<<<<<< HEAD
         """apply Loads shapefile and constructs a regionmask.regionmask with it. Applies the mask over the provided data.
 
         Parameters
         ----------
         data : xr.Dataset | xr.DataArray
-            _description_
+            Data to be filtered by the shapefile.
 
         Returns
         -------
-        _type_
-            _description_
+        xr.Dataset | xr.DataArray
+            Data filtered by the shapefile
         """
-=======
->>>>>>> 65ad422 (Small fixes. Changed xarray engine to h5netcdf)
         path = self.domain_config.path
         field_value = self.domain_config.field_value
 

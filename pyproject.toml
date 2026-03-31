@@ -23,7 +23,7 @@ dependencies = [
         "pint",
         "pint_xarray",
 	"geopandas",
-	"regionmask"
+	"regionmask",
 	"h5netcdf"
 ]
 

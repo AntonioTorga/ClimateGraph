@@ -340,16 +340,10 @@ class Data(ABC):
         KeyError
             If the variable can't be found in the obj object.
         """
-        if var_name not in self.obj:
-            try:
-                var_name = (
-                    var_name if var_name in self.obj else self.vars[var_name]["name"]
-                )
-                xa = self.obj.data_vars[var_name]
-            except KeyError as e:
-                raise KeyError(
-                    f"Variable {var_name} not defined for dataset {self.name}."
-                )
+        if var_name not in self.obj and self.vars[var_name]["name"] not in self.obj:
+            raise KeyError(f"Variable {var_name} not defined for dataset {self.name}.")
+        var_name = var_name if var_name in self.obj else self.vars[var_name]["name"]
+        xa = self.obj.data_vars[var_name]
 
         if reduction_func is not None:
             reduction_func = (

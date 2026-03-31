@@ -22,8 +22,6 @@ class AppKernel:
         self.debug = None
         self.output_path = None
 
-        # self.domains = dict() #TODO: replace placeholder with actual domain handling
-
     def read_control(self, control_path: Path):
         """read_control Uses the Parser from utils to read a control file.
 
@@ -34,8 +32,8 @@ class AppKernel:
 
         Returns
         -------
-        _type_
-            _description_
+        BaseModel, Dict[str, Data], Dict[str, Plot], Dict[str, Domain]
+            All necessary data for running a ClimateGraph execution
         """
         analysis, data, plots, domains = Parser.parse_control(control_path)
         return analysis, data, plots, domains

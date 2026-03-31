@@ -41,7 +41,6 @@ def version():
     Print the version of ClimateGraph.
     """
     print("ClimateGraph version 0.3.0")
->>>>>>> 65ad422 (Small fixes. Changed xarray engine to h5netcdf)
 
 
 if __name__ == "__main__":
