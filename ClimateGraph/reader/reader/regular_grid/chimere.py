@@ -13,10 +13,10 @@ class Chimere(DefaultRegularGridReader):
         "bottom_top": "z",
     }
 
-    @staticmethod
+    @classmethod
     def open_mfdataset(
-        files: Path | list[Path], vars: Dict[str, Any] = None, **kwargs
+        cls, files: Path | list[Path], vars: Dict[str, Any], **kwargs
     ) -> xr.Dataset:
         rename = kwargs.get("rename", {})
-        rename.extend(Chimere.rename)
+        rename.update(Chimere.rename)
         return super().open_mfdataset(files, vars, rename=rename)

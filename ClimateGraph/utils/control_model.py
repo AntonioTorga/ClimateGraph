@@ -1,15 +1,28 @@
 from pathlib import Path
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+    Field,
+)
 from typing import Dict, List, Optional
 
 
 from ClimateGraph.data import Data
 from ClimateGraph.reader import Reader
 from ClimateGraph.plot import Plot
-from ClimateGraph.utils.general_utils import manage_path, manage_crs, CRSEnum
+from ClimateGraph.domain import Domain
+from ClimateGraph.utils.general_utils import manage_path, CRSEnum
 
 
 class AnalysisModel(BaseModel):
+    """AnalysisModel Analysis block pydantic model. Just has output_path as a pathlib.Path and a debug flag.
+    Doesn't allow extra parameters.
+    """
+
+    model_config = ConfigDict(extra="forbid")
     output_path: Path
     debug: bool
 
@@ -23,15 +36,32 @@ class AnalysisModel(BaseModel):
 
 
 PlotModel = Plot.build_config_union()
+DomainModel = Domain.build_config_union()
 
 
 class VarModel(BaseModel):
+    """VarModel Variable block pydantic model. Just has a name for the variable and pint-accepted unit.
+    Doesn't allow extra parameters.
+
+    Parameters
+    ----------
+    BaseModel : _type_
+        _description_
+    """
+
     model_config = ConfigDict(extra="forbid")
     name: str
     unit: str
 
 
 class DataModel(BaseModel):
+    """DataModel Data block pydantic model. Accepts topology and reader (they have to match).
+    Also a single path or path list for the files that the Data object will represent.
+    Accept vars mapping where the key is the name given to the variable for plotting names and internal reference.
+    Also a Cartopy Coordinate Reference System managed by the CRSEnum from utils.general_utils
+    Allows for extra parameters that get turned into reader kwargs.
+    """
+
     model_config = ConfigDict(extra="allow")
 
     topology: str
@@ -67,8 +97,10 @@ class DataModel(BaseModel):
 
 
 class ControlFile(BaseModel):
-    # domains
+    """ControlFile Complete Control/Configuration pydantic model. Gets the other pydantic models together."""
+
     analysis: AnalysisModel
     data: Dict[str, DataModel]
-    plots: Dict[str, PlotModel]
+    domains: Dict[str, DomainModel] | None = Field(default=None)
+    plots: Dict[str, PlotModel] | None = Field(default=None)
     # stats

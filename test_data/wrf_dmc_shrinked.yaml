@@ -1,0 +1,61 @@
+analysis:
+  output_path:  "/home/atorga/ClimateGraph/ClimateGraph/test_data/results/wrf-chim-dmc"
+  debug: True
+
+data:
+  WRF_D02:
+    path: "/home/atorga/Melodies-Proyecto-MMA/Encargo-Nicolas/data/wrf-2/wrf-d02-2016*.nc"
+    topology: RegularGrid
+    reader: wrf
+    vars: 
+      Temperatura:
+        name: T2
+        unit: "kelvin"
+      Presion:
+        name: PSFC
+        unit: "pascal"
+  DMC:
+    path: "/home/atorga/ClimateGraph/ClimateGraph/test_data/dmc*.nc"
+    topology: PointSurface
+    reader: DMC
+    vars:
+      Temperatura:
+        name: temperatura
+        unit: "degC"
+      Presion:
+        name: presionEstacion
+        unit: "hectopascal"
+  CHIMERE:
+    path: [
+            "/home/cr2/nhuneeus/RESULTS/CHIMERE2023/FDCYTnoFire2016_INEMA_09KM/chim_FDCYT9noFire2016_INEMA_2016*.nc",
+    ]
+    topology: RegularGrid
+    reader: chimere
+    vars: 
+      Temperatura:
+        name: tem2
+        unit: "kelvin"
+      Presion: 
+        name: pres
+        unit: "pascal"
+domains: 
+  RM:
+    type: attr
+    field_name: region
+    field_value:  13
+  Litoral:
+    type: attr
+    field_name: zonaGeografica
+    field_value: Litoral
+plots:
+  ts:
+    type: timeseries
+    base: "DMC"
+    other_data: ["WRF_D02", "CHIMERE"]
+    domains: ["RM", "Litoral"]
+    time_interval: 1/1/2016-31/12/2016
+    timestep: "D"
+    radius_of_influence: 10000
+    vars: 
+      Temperatura: kelvin
+      Presion: pascal

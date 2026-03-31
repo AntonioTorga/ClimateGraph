@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name= "ClimateGraph"
-version = "0.1.0"
+version = "0.3.0"
 description = "A CLI tool for graphing Climate Data"
 readme = "README.md"
 license = {text = "MIT"}
@@ -21,7 +21,10 @@ dependencies = [
         "cartopy",
         "pydantic",
         "pint",
-        "pint_xarray"
+        "pint_xarray",
+	"geopandas",
+	"regionmask",
+	"h5netcdf"
 ]
 
 [project.optional-dependencies]
@@ -32,5 +35,9 @@ dev = [
 test= [
         "pytest"
 ]
+
+[tool.setuptools]
+packages = ["ClimateGraph", "ClimateGraph.data", "ClimateGraph.plot","ClimateGraph.reader"]
+
 [project.scripts]
 ClimateGraph= "ClimateGraph.cli:app"

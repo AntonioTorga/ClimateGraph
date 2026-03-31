@@ -12,16 +12,24 @@ from datetime import datetime
 
 
 from ClimateGraph.reader import Reader
+from ClimateGraph.domain import Domain
 from ClimateGraph.utils.dataset_utils import time_resampling, change_unit
 from ClimateGraph.utils.general_utils import manage_time_interval, ReductionMethodEnum
 
 
 class Data(ABC):
+    """The Data abstract class.
+
+    A class that abstracts the core nature of environmental data, independent of the topology of the data.
+    This class contains and implements attributes and methods common to all the Data that ClimateGraph is supposed to handle.
+    """
+
     registry: dict[str, type["Data"]] = {}
     type_aliases: list[str] = list()
 
     # Allows for self registering, and alias registering, for then looking up the right Data Class.
     def __init_subclass__(cls, **kwargs):
+        """__init_subclass__ This Dunder method is being used to dinamically register all inheriting classes from Data, this helps with Data creation."""
         super().__init_subclass__(**kwargs)
         Data.registry[cls.__name__.lower()] = cls
 
@@ -30,6 +38,23 @@ class Data(ABC):
 
     @classmethod
     def get_data_subclass(cls, name: str):
+        """get_data_subclass Method for getting a class object from a string, centralizes the lookup operation for further development of smart lookup.
+
+        Parameters
+        ----------
+        name : str
+            String to use for lookup in the Data registry
+
+        Returns
+        -------
+        type
+            Object of Data subclass requested
+
+        Raises
+        ------
+        ValueError
+            No subclass available for the requested string
+        """
         _name = name.lower()
         try:
             data_class = cls.registry[_name]
@@ -41,6 +66,18 @@ class Data(ABC):
 
     @classmethod
     def check_topology_type(cls, type: str):
+        """check_topology_type Method for checking if a string correlates to a Data subclass, meant to have the same lookup mechanism as get_data_subclass
+
+        Parameters
+        ----------
+        type : str
+            String to lookup in Data class registry.
+
+        Returns
+        -------
+        boolean
+            Boolean representing existence of a correlation between the provided string and a Data subclass.
+        """
         return type.lower() in cls.registry
 
     @classmethod
@@ -54,6 +91,30 @@ class Data(ABC):
         crs: ccrs,
         reader_kwargs: Dict,
     ):
+        """create Creation of a Data object with the adequate Data subclass
+
+        Parameters
+        ----------
+        name : str
+            Name of the object, used for reference inside ClimateGraph execution.
+        topology : str
+            Type of topology, used for lookup in the Data registry.
+        reader : str
+            Specific reader name used for reading the files that compose the data object. A reader must exist for the corresponding topology and reader name.
+        path : Path | List[Path]
+            Path or list of paths that compose the data object.
+        vars : Dict[str, Dict[str, str]]
+            Dictionary where keys are Variable names, and the value is another Dictionary with "name" (with the name of the variable in the files) and "unit" (with the "pint" unit name for this variable) keys.
+        crs : Cartopy.CRS
+            Cartopy Coordinate Reference System object
+        reader_kwargs : Dict
+            Other keyword arguments in Dict format passed directly to the Reader, allows for further reader specialization.
+
+        Returns
+        -------
+        Data
+            Data object created with the arguments in the adequate Data subclass
+        """
         data_cls = cls.get_data_subclass(topology)
         reader_cls = Reader.get_reader_subclass(topology, reader)
         return data_cls(name, path, vars, reader_cls, crs, reader_kwargs=reader_kwargs)
@@ -67,6 +128,23 @@ class Data(ABC):
         crs: ccrs.CRS,
         reader_kwargs: Dict[str, Any] | None = None,
     ):
+        """__init__ Data initialization dunder method.
+
+        Parameters
+        ----------
+        name : str
+            Name for reference inside the ClimateGraph execution.
+        path : Path | list[Path]
+            Path or list of paths that compose the data objects
+        vars : Dict[str, Dict[str, str]]
+            Dictionary where keys are Variable names, and the value is another Dictionary with "name" (with the name of the variable in the files) and "unit" (with the "pint" unit name for this variable) keys.
+        reader : Reader
+            Specific reader object used for reading the files that compose the data object. A reader must exist for the corresponding topology and reader name.
+        crs : ccrs.CRS
+            Cartopy Coordinate Reference System object
+        reader_kwargs : Dict[str, Any] | None, optional
+            Other keyword arguments in Dict format passed directly to the Reader, allows for further reader specialization, by default None
+        """
         # This seems weird and unnecesary, but i'll keep it for now
         self.reader = reader
         self.reader_kwargs = {} if reader_kwargs is None else reader_kwargs
@@ -85,15 +163,61 @@ class Data(ABC):
         self.path = path
         self.crs = crs
 
+    def copy(self):
+        """copy Create an exact copy of the object and return it. Used for domain application.
+
+        Returns
+        -------
+        Data
+            Exact replica of the Data object
+        """
+        new = self.__class__(
+            self.name,
+            self.path,
+            self.vars,
+            self.reader,
+            self.crs,
+            reader_kwargs=self.reader_kwargs,
+        )
+        new.obj = self._obj
+        new._geom = self._geom
+        new._bbox = self._bbox  # minlon, minlat, maxlon, maxlat
+        new._dims = self._dims
+        new.resampled = self.resampled
+
+        return new
+
     @abstractmethod
     def _set_geom(self):
+        """_set_geom Method for setting the Pyresample Geometry object used for resampling. Main method of the topology abstraction."""
         pass
 
     @property
     def obj(self) -> xr.Dataset:
+        """obj Property getter method for getting the obj object. Used for lazy loading of Data objects.
+
+        Returns
+        -------
+        xr.Dataset
+            Xarray dataset of the Data object.
+        """
         if self._obj == None:
             self.load_obj()
         return self._obj
+
+    @obj.setter
+    def obj(self, _obj: xr.Dataset):
+        """obj Property setter method for getting the obj object. Used for lazy loading of Data objects. Takes care of removing precomputed data for the previous Dataset.
+
+        Parameters
+        ----------
+        _obj : xr.Dataset
+             Xarray Dataset object meant to be set in the Data object.
+        """
+        self._obj = _obj
+        self._bbox = None
+        self._geom = None
+        self._dims = None
 
     @property
     def geom(self):
@@ -103,6 +227,13 @@ class Data(ABC):
 
     @property
     def vars(self):
+        """vars Property getter method for getting the vars.
+
+        Returns
+        -------
+        Dict[str, Dict[str, str]]
+            Dictionary where keys are Variable names, and the value is another Dictionary with "name" (with the name of the variable in the files) and "unit" (with the "pint" unit name for this variable) keys.
+        """
         return self._vars
 
     # TODO: decide if it's worth adding the scan_obj, for now this doesn't exist because i don't want anyone being able to set vars except the init
@@ -113,31 +244,64 @@ class Data(ABC):
 
     @property
     def dims(self):
+        """dims Property getter method for getting a dimension mapping (dimension name to dimension size).
+
+        Returns
+        -------
+        Dict[str, int]
+            Dictionary mapping dimension names to dimension size.
+        """
         if self._dims is None:
-            self._dims = dict(self.obj.dims)
+            self._dims = dict(self.obj.sizes)
         return self._dims
 
     @property
     def bbox(self):
+        """bbox Property getter method for getting a bounding box around the spatial data.
+
+        Returns
+        -------
+        Tuple[float, float, float, float]
+            Tuple representing (Minimum Longitude,  Minimum Latitude, Maximum Longitude, Maximum Latitude)
+        """
         if self._bbox is None:
             lons, lats = self.get_coordinates(["longitude", "latitude"])
-            self._bbox = (lons.min(), lats.min(), lons.max(), lats.max())
+            self._bbox = (
+                float(lons.min()),
+                float(lats.min()),
+                float(lons.max()),
+                float(lats.max()),
+            )
         return self._bbox
 
     def load_obj(self):
+        """load_obj Load the actual data into the obj attribute, using the reader and reader_kwargs attributes.
+
+        Returns
+        -------
+        xr.Dataset
+            Xarray dataset of the Data object.
+        """
         self._obj = self.reader.open_mfdataset(
             self.path, self.vars, **self.reader_kwargs
         )
         return self._obj
 
-    def _scan_obj(self, vars: list | str) -> bool:
+    def _scan_obj(self):
+        """_scan_obj Method for quickly scanning the obj attribute for errors. Currently only checks if variables actually exist
+
+        Raises
+        ------
+        ValueError
+            Raises an error if anything is wrong with the obj attribute.
+        """
         glimpse_path = self.path[0] if isinstance(self.path, list) else self.path
         if isinstance(glimpse_path, list):
             glimpse_path = glimpse_path[0]
-        with xr.open_dataset(glimpse_path) as glimpse:
-            for var_name in vars:
-                if not var_name in glimpse.data_vars.keys():
-                    raise KeyError(f"Variable {var_name} not in {self.name} dataset.")
+        with xr.open_dataset(glimpse_path, chunks="auto") as glimpse:
+            for var_name, var_dict in self.vars:
+                if not var_dict["name"] in glimpse and not var_name in glimpse:
+                    raise ValueError(f"Variable {var_name} not in {self.name} dataset.")
 
     # The var_name is the variable name not native to the file but as how it is referred in vars
     def get_var(
@@ -148,10 +312,37 @@ class Data(ABC):
         keep_dims: str | list[str] | None = None,
         reduction_dims: str | list[str] | None = None,
         as_array: bool = False,
-    ):
-        if var_name not in self.vars:
-            raise KeyError(f"Variable {var_name} not defined for dataset {self.name}.")
+    ) -> xr.DataArray | np.ndarray:
+        """get_var Get variable from the obj attribute.
 
+        Parameters
+        ----------
+        var_name : str
+            Variable name.
+        in_unit : str | None, optional
+            Measure of unit in which to convert the variable, by default None
+        reduction_func : str | None, optional
+            name of function with which to reduce the variable dimensions, dimensions in reduction_dims or, that aren't in keep_dims arg. Works only if keep_dims or reduction_dims is also specified. By default None
+        keep_dims : str | list[str] | None, optional
+            Dimensions to keep after reducing the others with the reduction_func. Only works if reduction_func is not None. By default None
+        reduction_dims : str | list[str] | None, optional
+            Dimensions to reduce with the reduction_func. Only works if reduction_func is not None. By default None
+        as_array : bool, optional
+            Boolean representing if the resulting data will be returned in numpy.ndarray format, by default False
+
+        Returns
+        -------
+        xr.DataArray | numpy.ndarray
+            Variable obtained from the obj attribute. Processed if required.
+
+        Raises
+        ------
+        KeyError
+            If the variable can't be found in the obj object.
+        """
+        if var_name not in self.obj and self.vars[var_name]["name"] not in self.obj:
+            raise KeyError(f"Variable {var_name} not defined for dataset {self.name}.")
+        var_name = var_name if var_name in self.obj else self.vars[var_name]["name"]
         xa = self.obj.data_vars[var_name]
 
         if reduction_func is not None:
@@ -177,9 +368,27 @@ class Data(ABC):
     def get_coordinates(
         self,
         coord_names: list[str] | str,
-        two_dim: bool = False,
         as_array: bool = False,
     ) -> list[xr.DataArray] | xr.DataArray | list[np.ndarray] | np.ndarray:
+        """get_coordinates Get coordinate from the obj attribute.
+
+        Parameters
+        ----------
+        coord_names : list[str] | str
+            Coordinate name or names.
+        as_array : bool, optional
+            Boolean representing if the resulting data will be returned in numpy.ndarray format, by default False
+
+        Returns
+        -------
+        list[xr.DataArray] | xr.DataArray | list[np.ndarray] | np.ndarray
+            Coordinate(s) obtained from the obj attribute. Processed if required.
+
+        Raises
+        ------
+        KeyError
+            If a coordinate can't be found in the obj object.
+        """
         obj = self.obj
         if isinstance(coord_names, str):
             coord_names = [coord_names]
@@ -204,9 +413,29 @@ class Data(ABC):
         vars: str | List[str] | Dict[str, str],
         timestep: str | None = None,
         time_interval: str | None = None,
-        radius_of_influence: int | None = None,
+        radius_of_influence: int = 10000,
         # reduction_dims: str | List[str] | None = None, reduction_func: Callable | None = None
     ) -> xr.DataArray | xr.Dataset:
+        """resample_vars Resample the requested vars using Pyresample and the geom attributes. Until now only NearestNeighbour method is being used.
+
+        Parameters
+        ----------
+        other : Data
+            Other data object to resample into the "self" geometry.
+        vars : str | List[str] | Dict[str, str]
+            Variable name, variable name list or dictionary where keys are Variable names, and the value can be a Mapping between variables and "pint" units, or a Dictionary with "name" (with the name of the variable in the files) and "unit" (with the "pint" unit name for this variable) keys.
+        timestep : str | None, optional
+            Timestep managed by the utils.TimestepEnum, by default None
+        time_interval : str | None, optional
+            Time interval in dd/mm/yyyy-dd/mm/yyyy or d/m/yyyy-d/m/yyyy, by default None
+        radius_of_influence : int, optional
+            Radius length in meters to use for resampling with nearest neighbours. Lower improves computation time but may result in less resulting data, by default 10000
+
+        Returns
+        -------
+        xr.DataArray | xr.Dataset
+            Resampled data, processed if requested (time alignment and time resampling).
+        """
         if isinstance(vars, str):
             vars = [vars]
 
@@ -261,11 +490,12 @@ class Data(ABC):
                 vectorize=True,
                 dask="parallelized",
                 output_dtypes=[var_src.dtype],
-                dask_gufunc_kwargs= {"output_sizes":{
-                    name: value
-                    for name, value in var_dst_dims.items()
-                    if name != "time"
-                }
+                dask_gufunc_kwargs={
+                    "output_sizes": {
+                        name: value
+                        for name, value in var_dst_dims.items()
+                        if name != "time"
+                    }
                 },
             )
 

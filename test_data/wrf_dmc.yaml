@@ -1,0 +1,71 @@
+analysis:
+  output_path:  "/home/atorga/ClimateGraph/ClimateGraph/test_data/results/wrf-chim-dmc"
+  debug: True
+
+data:
+  WRF_D02:
+    path: ["/home/cr2/nhuneeus/MODELS/WRF/WRF4.3.3/SIMULDIR/FDCYT_SEGUEL_9KM3KM_2010/wrfout_d02_*",
+ "/home/cr2/nhuneeus/MODELS/WRF/WRF4.3.3/SIMULDIR/FDCYT_SEGUEL_9KM3KM_2010/wrfout_d02_*",
+ "/home/cr2/nhuneeus/MODELS/WRF/WRF4.3.3/SIMULDIR/FDCYT_SEGUEL_9KM3KM_2011/wrfout_d02_*",
+ "/home/cr2/nhuneeus/MODELS/WRF/WRF4.3.3/SIMULDIR/FDCYT_SEGUEL_9KM3KM_2012/wrfout_d02_*",
+ "/home/cr2/nhuneeus/MODELS/WRF/WRF4.3.3/SIMULDIR/FDCYT_SEGUEL_9KM3KM_2013/wrfout_d02_*",
+ "/home/cr2/nhuneeus/MODELS/WRF/WRF4.3.3/SIMULDIR/FDCYT_SEGUEL_9KM3KM_2014/wrfout_d02_*",
+ "/home/cr2/nhuneeus/MODELS/WRF/WRF4.3.3/SIMULDIR/FDCYT_SEGUEL_9KM3KM_2015/wrfout_d02_*",
+ "/home/cr2/nhuneeus/MODELS/WRF/WRF4.3.3/SIMULDIR/FDCYT_SEGUEL_9KM3KM_2016/wrfout_d02_*",
+ "/home/cr2/nhuneeus/MODELS/WRF/WRF4.3.3/SIMULDIR/FDCYT_SEGUEL_9KM3KM_2017/wrfout_d02_*",
+ "/home/cr2/nhuneeus/MODELS/WRF/WRF4.3.3/SIMULDIR/FDCYT_SEGUEL_9KM3KM_2018/wrfout_d02_*",
+ "/home/cr2/nhuneeus/MODELS/WRF/WRF4.3.3/SIMULDIR/FDCYT_SEGUEL_9KM3KM_2019/wrfout_d02_*"
+]
+    topology: RegularGrid
+    reader: wrf
+    vars: 
+      Temperatura:
+        name: T2
+        unit: "kelvin"
+      Presion:
+        name: PSFC
+        unit: "pascal"
+  DMC:
+    path: "/home/atorga/ClimateGraph/ClimateGraph/test_data/dmc*.nc"
+    topology: PointSurface
+    reader: DMC
+    vars:
+      Temperatura:
+        name: temperatura
+        unit: "degC"
+      Presion:
+        name: presionEstacion
+        unit: "hectopascal"
+domains: 
+  RM:
+    type: attr
+    field_name: region
+    field_value:  13
+  Litoral:
+    type: attr
+    field_name: zonaGeografica
+    field_value: Litoral
+plots:
+  ts:
+    type: timeseries
+    base: "DMC"
+    other_data: ["WRF_D02"]
+    domains: ["RM", "Litoral"]
+    time_interval: 1/1/2010-1/4/2019
+    timestep: "ME"
+    radius_of_influence: 10000
+    vars: 
+      Temperatura: kelvin
+      Presion: pascal
+  scatter:
+    type: scatter
+    base: "DMC"
+    domains: ["RM","Litoral"]
+    other: "WRF_D02"
+    time_interval: 1/1/2010-1/4/2019
+    timestep: "ME"
+    radius_of_influence: 10000
+    dimension: time
+    vars:
+      Temperatura: kelvin
+      Presion: pascal
