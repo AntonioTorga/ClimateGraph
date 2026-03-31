@@ -12,10 +12,7 @@ class DefaultRegularGridReader(Reader):
         cls, files: list[Path] | Path, vars: dict, **kwargs
     ) -> xr.Dataset:
 
-        xrds = xr.open_mfdataset(
-            files,
-            chunks="auto",
-        )
+        xrds = xr.open_mfdataset(files, chunks="auto", engine="h5netcdf")
 
         rename_dict = kwargs.get("rename", {})
         if vars is not None:

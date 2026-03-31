@@ -11,7 +11,7 @@ class DMC(Reader):
     def open_mfdataset(
         cls, files: list[Path] | Path, vars: dict, **kwargs
     ) -> xr.Dataset:
-        obj = xr.open_mfdataset(files, chunks="auto")
+        obj = xr.open_mfdataset(files, chunks="auto", engine="h5netcdf")
 
         rename = {}
         if rename_dict := kwargs.get("rename", False):

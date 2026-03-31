@@ -170,8 +170,7 @@ class Plot(ABC):
         filename : str
             Filename to be used. Doesn't have to include file format, just name.
         """
-
-        figure.savefig(
+       figure.savefig(
             self.output_path / filename,
             dpi=self.plot_config.dpi,
             format=self.plot_config.format,

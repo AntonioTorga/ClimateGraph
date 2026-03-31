@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name= "ClimateGraph"
-version = "0.1.0"
+version = "0.3.0"
 description = "A CLI tool for graphing Climate Data"
 readme = "README.md"
 license = {text = "MIT"}
@@ -22,8 +22,9 @@ dependencies = [
         "pydantic",
         "pint",
         "pint_xarray",
-        "geopandas",
-        "regionmask"
+	"geopandas",
+	"regionmask"
+	"h5netcdf"
 ]
 
 [project.optional-dependencies]
