@@ -3,4 +3,3 @@
 *.egg-info/
 .pytest_cache
 /build/
-*.nc
