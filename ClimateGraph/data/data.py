@@ -201,7 +201,7 @@ class Data(ABC):
         xr.Dataset
             Xarray dataset of the Data object.
         """
-        if self._obj == None:
+        if self._obj is None:
             self.load_obj()
         return self._obj
 
@@ -477,7 +477,8 @@ class Data(ABC):
                     dist_array,
                     fill_value=np.nan,
                 )
-
+            
+            # Here if im resampling into a point surface topology then height will always get dropped. Unless its a point in space not surface.
             resampled = xr.apply_ufunc(
                 _resample,
                 var_src,

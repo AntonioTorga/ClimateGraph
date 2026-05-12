@@ -19,4 +19,8 @@ class Chimere(DefaultRegularGridReader):
     ) -> xr.Dataset:
         rename = kwargs.get("rename", {})
         rename.update(Chimere.rename)
-        return super().open_mfdataset(files, vars, rename=rename)
+        xrds = super().open_mfdataset(files, vars, rename=rename)^M
+        
+        if "z" in list(xrds.dims):
+            xrds = xrds.isel(z=0)
+        return xrds
