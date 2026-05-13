@@ -1,0 +1,21 @@
+analysis:
+  output_path:  "./test_data/results/sinca"
+  debug: True
+
+data: 
+  SINCA:
+     path: "./test_data/data/SINCA*.nc"
+     topology: PointSurface
+     reader: SINCA
+     vars:
+       PM10:
+         name: PM10_ug|m3
+         unit: "ug/m**3"
+
+plots:
+  TC:
+    type: timecycle
+    base: SINCA
+    time_interval: "1/1/2019-30/12/2019"
+    timestep: "h"
+    time_buckets: "hourly"

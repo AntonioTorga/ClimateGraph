@@ -20,7 +20,7 @@ class TimestepEnum(str, Enum):
     """TimestepEnum Enum used for timestep handling. Keeps consistent timestep values."""
 
     business_day = "B"
-    calendar_day = "D"
+    daily = "D"
     weekly = "W"
     monthly = "ME"
     quarterly = "Q"
@@ -32,6 +32,14 @@ class TimestepEnum(str, Enum):
     microseconds = "us"
     nanoseconds = "ns"
 
+class TimeBucketEnum(str, Enum):
+    """TimeBucketEnum Enum used for timestep handling. Keeps consistent timestep values."""
+    minute = "minute"
+    hour = "hour"
+    day = "day"
+    season = "season"
+    weekly = "week"
+    monthly = "quarter"
 
 class ReductionMethodEnum(str, Enum):
     """ReductionMethodEnum Enum used for Reduction Method handling. Keeps consistent Reduction methods values."""
@@ -61,7 +69,7 @@ class CRSEnum(str, Enum):
 
 def manage_path(paths: str | Path | List[str] | List[Path]) -> List[Path]:
     """manage_path Handles paths, including lists of paths and paths with hotkeys (*,?, etc).
-
+2
     Parameters
     ----------
     paths : str | Path | List[str] | List[Path]
