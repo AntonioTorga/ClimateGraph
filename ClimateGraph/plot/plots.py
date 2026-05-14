@@ -617,6 +617,8 @@ class TimeCycle(Plot):
                 )
                 ax = figure.add_subplot(1, 1, 1)
 
+                xticklabels = None
+
                 for name, data_obj in all_data_dom.items():
                     da = data_obj[f"{variable}__{name}"]
 
@@ -625,6 +627,7 @@ class TimeCycle(Plot):
                     std    = grouped.std("time",  skipna=True)
 
                     bucket_vals = mean[time_bucket].values
+                    xticklabels = xticklabels if xticklabels is not None else bucket_vals
 
                     ax.plot(bucket_vals, mean.values, label=name)
                     ax.fill_between(bucket_vals,
@@ -637,6 +640,8 @@ class TimeCycle(Plot):
                 ylabel = self.plot_kwargs.get("ylabel", f"{variable} ({unit})")
 
                 ax.set_xlabel(xlabel)
+                ax.set_xticks(list(range(len(xticklabels))))
+                ax.set_xticklabels(xticklabels)
                 ax.set_ylabel(ylabel)
                 ax.legend()
                 figure.suptitle(title)
