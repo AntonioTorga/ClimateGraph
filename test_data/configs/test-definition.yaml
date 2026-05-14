@@ -1,10 +1,10 @@
 analysis:
-  output_path:  "./test_data/results"
+  output_path:  "./test_data/results/test-definition/"
   debug: True
 
 data:
   WRF_D02:
-    path: "./test_data/wrf-20*.nc"
+    path: "./test_data/data/wrf-20*.nc"
     topology: RegularGrid
     reader: wrf
     vars: 
@@ -15,7 +15,7 @@ data:
         name: PSFC
         unit: "pascal"
   DMC:
-    path: "./test_data/dmc*.nc"
+    path: "./test_data/data/dmc*.nc"
     topology: PointSurface
     reader: DMC
     vars:

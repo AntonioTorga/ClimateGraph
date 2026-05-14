@@ -283,7 +283,7 @@ class Scatter(Plot):
                 unit = (
                     base.vars[variable]["unit"]
                     if isinstance(vars, List | str)
-                    else vars[var]
+                    else vars[variable]
                 )
                 figure = plt.figure(
                     figsize=self.plot_kwargs.get("figsize", [6, 6]),
@@ -557,7 +557,6 @@ class TimeCycle(Plot):
         time_bucket = self.plot_config.time_buckets.value  # e.g. "hour", "month", "dayofyear"
         
         base = self.data[self.plot_config.base]
-
         # Base data: time interval filter and unit conversion, no timestep resampling
         # (groupby needs the original time resolution intact)
         base_obj = time_resampling(base.obj, timestep=None, time_interval=time_interval)

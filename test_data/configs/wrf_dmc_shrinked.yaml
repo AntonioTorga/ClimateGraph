@@ -1,5 +1,5 @@
 analysis:
-  output_path:  "/home/atorga/ClimateGraph/ClimateGraph/test_data/results/wrf-chim-dmc"
+  output_path:  "./test_data/results/wrf-chim-dmc"
   debug: True
 
 data:
@@ -15,7 +15,7 @@ data:
         name: PSFC
         unit: "pascal"
   DMC:
-    path: "/home/atorga/ClimateGraph/ClimateGraph/test_data/dmc*.nc"
+    path: "./test_data/dmc*.nc"
     topology: PointSurface
     reader: DMC
     vars:
