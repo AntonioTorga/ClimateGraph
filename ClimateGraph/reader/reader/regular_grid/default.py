@@ -20,13 +20,13 @@ class DefaultRegularGridReader(Reader):
 
         xrds = xrds.rename(rename_dict)
 
+        xrds = xrds.reset_coords()
+
         drop_data_vars = (
-            set(list(xrds.data_vars)) - set(vars.keys()) if vars != None else set()
-        )
+            (set(list(xrds.data_vars)) - set(vars.keys()) - set(("longitude", "latitude", "time"))) if vars != None else set()
+        ) # TEST!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
         xrds = xrds.drop_vars(drop_data_vars, errors="ignore")
-
-        xrds = xrds.reset_coords()
         xrds = xrds.set_coords(["latitude", "longitude"])
 
         return xrds

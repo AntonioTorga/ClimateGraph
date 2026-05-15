@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 import matplotlib.pyplot as plt
 from typing import Literal, List, Dict, Tuple
 import numpy as np
@@ -12,6 +12,7 @@ from ClimateGraph.data import Data, PointSurface, RegularGrid, SatelliteSwath
 from ClimateGraph.utils.general_utils import (
     manage_time_interval,
     TimestepEnum,
+    TimeBucketEnum,
     ReductionMethodEnum,
     CRSEnum,
 )
@@ -42,8 +43,8 @@ class TimeSeriesConfig(BasePlotConfig):
 
     type: Literal["timeseries", "ts", "time-series"]
     base: str
-    other_data: str | List[str]
-    radius_of_influence: int
+    other_data: str | List[str] | None = Field(default=None)
+    radius_of_influence: int | None = Field(default=None)
     time_interval: str | List[str] | None = Field(default=None)
     timestep: TimestepEnum | None = Field(default=None)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
@@ -84,9 +85,6 @@ class Timeseries(Plot):
         timestep = self.plot_config.timestep
         time_interval = self.plot_config.time_interval
 
-        if not isinstance(self.plot_config.other_data, list):
-            self.plot_config.other_data = [self.plot_config.other_data]
-        other_data = {name: self.data[name] for name in self.plot_config.other_data}
         base = self.data[self.plot_config.base]
 
         # Working on base data.
@@ -104,21 +102,23 @@ class Timeseries(Plot):
                 )
         base_obj = base_obj.rename({name: name + "__" + base.name for name in vars})
 
-        # Working on the rest of the data. Time and spatial resampling, and converting units.
-        other_data = {
-            name_: base.resample_vars(
-                data,
-                vars,
-                radius_of_influence=radius_of_influence,
-                timestep=timestep,
-                time_interval=time_interval,
-            )
-            for name_, data in other_data.items()
-        }  # now every item in list is a dataset resampled with all the vars :)
-
-        other_data[self.plot_config.base] = base_obj  # add the base data
-
-        all_data = other_data
+        if self.plot_config.other_data is not None:
+            if not isinstance(self.plot_config.other_data, list):
+                self.plot_config.other_data = [self.plot_config.other_data]
+            other_data = {
+                    name_: base.resample_vars(
+                    data,
+                    vars,
+                    radius_of_influence=radius_of_influence,
+                    timestep=timestep,
+                    time_interval=time_interval,
+                )
+                for name_, data in {name: self.data[name] for name in self.plot_config.other_data}.items()
+            }
+            other_data[self.plot_config.base] = base_obj
+            all_data = other_data
+        else:
+            all_data = {self.plot_config.base: base_obj}
 
         # Plotting
         for dom_name, dom in domains.items():
@@ -283,7 +283,7 @@ class Scatter(Plot):
                 unit = (
                     base.vars[variable]["unit"]
                     if isinstance(vars, List | str)
-                    else vars[var]
+                    else vars[variable]
                 )
                 figure = plt.figure(
                     figsize=self.plot_kwargs.get("figsize", [6, 6]),
@@ -500,6 +500,157 @@ class SpatialOverlay(Plot):
                 format = self.plot_kwargs.get("format", "jpg")
                 filename = (
                     f"spatial_overlay-{dom_name}-{var}-{base.name}-{superposed.name}-{start.strftime("%d-%m-%Y")}_{end.strftime("%d-%m-%Y")}.{format}"
+                    if self.plot_config.filename is None
+                    else self.plot_config.filename
+                )
+
+                self.savefig(figure, filename)
+
+class TimeCycleConfig(BasePlotConfig):
+    """TimeSeriesConfig Timeseries plot configuration as Pydantic Model."""
+    type: Literal["timecycle", "time cycle", "cycle"]
+    base: str
+    other_data: str | List[str] | None = Field(default=None)
+    radius_of_influence: int | None = Field(default=None)
+    time_interval: str | List[str] | None = Field(default=None)
+    timestep: TimestepEnum | None = Field(default=None)
+    time_buckets: TimeBucketEnum = Field(default=TimeBucketEnum.day)
+    reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
+
+    @model_validator(mode="after")
+    def check_timestep_vs_bucket(self) -> "TimeCycleConfig":
+        if self.timestep is None:
+            return self
+        # map both to hours for comparison
+        bucket_hours = {
+            "hour": 1, "day": 24, "month": 720, "dayofyear": 24, "season": 2160
+        }
+        timestep_hours = {
+            TimestepEnum.hourly: 1, TimestepEnum.daily: 24, TimestepEnum.monthly: 720
+            # extend as needed
+        }
+        if timestep_hours[self.timestep] > bucket_hours[self.time_buckets.value]:
+            raise ValueError(
+                f"timestep '{self.timestep}' is coarser than "
+                f"time_bucket '{self.time_buckets.value}' — std bands will be meaningless"
+            )
+        return self
+
+class TimeCycle(Plot):
+    config = TimeCycleConfig
+    aliases = ["time cycle", "cycle"]
+
+    def plot(self):
+        # Get relevant data from the config
+        vars = self.plot_config.vars
+        domains = {
+            name: dom
+            for name, dom in self.domains.items()
+            if name in self.plot_config.domains
+        }
+        if not domains:
+            domains = {"": None}
+
+        radius_of_influence = self.plot_config.radius_of_influence
+        time_interval = self.plot_config.time_interval
+        timestep = self.plot_config.timestep
+        time_bucket = self.plot_config.time_buckets.value  # e.g. "hour", "month", "dayofyear"
+        
+        base = self.data[self.plot_config.base]
+        # Base data: time interval filter and unit conversion, no timestep resampling
+        # (groupby needs the original time resolution intact)
+        base_obj = time_resampling(base.obj, timestep=None, time_interval=time_interval)
+        for var in vars:
+            if isinstance(vars, dict):
+                base_obj[var] = change_unit(
+                    base_obj[var], base.vars[var]["unit"], vars[var]
+                )
+        base_obj = base_obj.rename({name: name + "__" + base.name for name in vars})
+
+        # Other data: spatial resampling + time interval, but no timestep resampling
+        if self.plot_config.other_data is not None:
+            if not isinstance(self.plot_config.other_data, list):
+                self.plot_config.other_data = [self.plot_config.other_data]
+            other_data = {
+                    name_: base.resample_vars(
+                    data,
+                    vars,
+                    radius_of_influence=radius_of_influence,
+                    timestep=timestep,
+                    time_interval=time_interval,
+                )
+                for name_, data in {name: self.data[name] for name in self.plot_config.other_data}.items()
+            }
+            other_data[self.plot_config.base] = base_obj
+            all_data = other_data
+        else:
+            all_data = {self.plot_config.base: base_obj}
+
+        # Plotting
+        for dom_name, dom in domains.items():
+            # Apply domain
+            all_data_dom = (
+                {name: dom.apply(data) for name, data in all_data.items()}
+                if dom is not None
+                else all_data
+            )
+
+            # Reduce all non-time spatial dims before groupby
+            all_data_dom = {
+                name: data.reduce(
+                    self.plot_config.reduction_method.func,
+                    list(set(data.dims) - {"time"}),
+                )
+                for name, data in all_data_dom.items()
+            }
+
+            for variable in vars:
+                unit = (
+                    base.vars[variable]["unit"]
+                    if not isinstance(vars, dict)
+                    else vars[variable]
+                )
+
+                figure = plt.figure(
+                    figsize=self.plot_kwargs.get("figsize", [8, 5]),
+                    layout=self.plot_kwargs.get("layout", "constrained"),
+                )
+                ax = figure.add_subplot(1, 1, 1)
+
+                xticklabels = None
+
+                for name, data_obj in all_data_dom.items():
+                    da = data_obj[f"{variable}__{name}"]
+
+                    grouped = da.groupby(f"time.{time_bucket}")
+                    mean   = grouped.mean("time", skipna=True)
+                    std    = grouped.std("time",  skipna=True)
+
+                    bucket_vals = mean[time_bucket].values
+                    xticklabels = xticklabels if xticklabels is not None else bucket_vals
+
+                    ax.plot(bucket_vals, mean.values, label=name)
+                    ax.fill_between(bucket_vals,
+                                    (mean - std).values,
+                                    (mean + std).values,
+                                    alpha=0.2)
+
+                title  = self.plot_kwargs.get("title",  f"Diurnal cycle of {variable}")
+                xlabel = self.plot_kwargs.get("xlabel", time_bucket.capitalize())
+                ylabel = self.plot_kwargs.get("ylabel", f"{variable} ({unit})")
+
+                ax.set_xlabel(xlabel)
+                ax.set_xticks(list(range(len(xticklabels))))
+                ax.set_xticklabels(xticklabels)
+                ax.set_ylabel(ylabel)
+                ax.legend()
+                figure.suptitle(title)
+
+                start, end = manage_time_interval(time_interval)
+                fmt      = self.plot_kwargs.get("format", "jpg")
+                filename = (
+                    f"cycle-{time_bucket}-{dom_name}-{variable}"
+                    f"-{start.strftime('%d-%m-%Y')}_{end.strftime('%d-%m-%Y')}.{fmt}"
                     if self.plot_config.filename is None
                     else self.plot_config.filename
                 )

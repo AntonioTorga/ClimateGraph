@@ -34,10 +34,8 @@ class AnalysisModel(BaseModel):
             v.mkdir(parents=True)
         return v
 
-
 PlotModel = Plot.build_config_union()
 DomainModel = Domain.build_config_union()
-
 
 class VarModel(BaseModel):
     """VarModel Variable block pydantic model. Just has a name for the variable and pint-accepted unit.
@@ -52,7 +50,6 @@ class VarModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str
     unit: str
-
 
 class DataModel(BaseModel):
     """DataModel Data block pydantic model. Accepts topology and reader (they have to match).

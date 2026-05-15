@@ -1,0 +1,43 @@
+analysis:
+  output_path:  "./test_data/results/chimere"
+  debug: True
+
+data: 
+  CHIMERE:
+     path: "/home/cr2/nhuneeus/RESULTS/CHIMERE2023/FDCYT-STGOPTOMTT/chim_STGOPTOMTT_202106*out.nc"
+     topology: RegularGrid
+     reader: CHIMERE
+     vars:
+        PM10:
+         name: PM10
+         unit: "ug/m**3"
+        PM25:
+         name: PM25
+         unit: "ug/m**3"
+        NO2:
+          name: NO2
+          unit: "ppb"
+        O3:
+          name: O3
+          unit: "ppb"
+        CO:
+          name: CO
+          unit: "ppb"
+        SO2:
+          name: SO2
+          unit: "ppb"
+
+plots:
+  TC:
+    type: timecycle
+    base: "CHIMERE"
+    time_interval: "1/6/2021-30/6/2021"
+    timestep: "h"
+    time_buckets: "hour"
+    vars: 
+      PM10: "ug/m**3"
+      PM25: "ug/m**3"
+      O3: "ppb"
+      CO: "ppb"
+      SO2: "ppb"
+      NO2: "ppb"

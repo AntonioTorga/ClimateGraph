@@ -4,7 +4,7 @@ import xarray as xr
 from ..reader import Reader
 
 
-class DMC(Reader):
+class SINCA(Reader):
     topology = "PointSurface"
 
     @classmethod
