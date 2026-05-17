@@ -12,7 +12,7 @@ analysis:
 
 data: 
   WRF_D02: 
-    path: ./test_data/wrf-*
+    path: ./test_data/data/wrf-*
     topology: RegularGrid 
     reader: wrf 
     vars:  
@@ -23,7 +23,7 @@ data:
         name: PSFC 
         unit: pascal 
   DMC: 
-    path: ./test_data/dmc-2010-2019.nc
+    path: ./test_data/data/dmc-2010-2019.nc
     topology: PointSurface 
     reader: dmc
     vars:
@@ -68,7 +68,7 @@ def test_input_reader_yaml(tmp_path):
     f = d / "test.yaml"
     f.write_text(SAMPLE_YAML)
 
-    analysis, data, plots = Parser.parse_control(f)
+    analysis, data, plots, domains = Parser.parse_control(f)
     assert isinstance(analysis, dict)
     for _, data_instance in data.items():
         assert isinstance(data_instance, Data)
@@ -84,7 +84,7 @@ def test_input_reader_yml(tmp_path):
     f = d / "test.yml"
     f.write_text(SAMPLE_YAML)
 
-    analysis, data, plots = Parser.parse_control(f)
+    analysis, data, plots, domains = Parser.parse_control(f)
     assert isinstance(analysis, dict)
     for _, data_instance in data.items():
         assert isinstance(data_instance, Data)

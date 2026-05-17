@@ -13,10 +13,14 @@ def test_wrf_is_registered():
     assert class_reader == Wrf
 
 
+@pytest.mark.slow
 def test_wrf_read():
     class_reader = Reader.get_reader_subclass("RegularGrid", "WRF")
     obj = class_reader.open_mfdataset(
-        [Path("test_data/wrf-2019-01.nc"), Path("test_data/wrf-2019-02.nc")],
+        [
+            Path("test_data/data/wrf-2019-01.nc"),
+            Path("test_data/data/wrf-2019-02.nc"),
+        ],
         {"Temperatura": {"name": "T2", "unit": "kelvin"}},
     )
     assert type(obj) == xr.Dataset

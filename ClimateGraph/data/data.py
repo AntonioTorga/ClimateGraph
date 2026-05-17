@@ -236,12 +236,6 @@ class Data(ABC):
         """
         return self._vars
 
-    # TODO: decide if it's worth adding the scan_obj, for now this doesn't exist because i don't want anyone being able to set vars except the init
-    # @vars.setter
-    # def vars(self, vars):
-    #     var_names = [var.get("name") for _, var in vars.items()]
-    #     # self._scan_obj(vars=var_names)     #     self._vars = vars
-
     @property
     def dims(self):
         """dims Property getter method for getting a dimension mapping (dimension name to dimension size).
@@ -286,22 +280,6 @@ class Data(ABC):
             self.path, self.vars, **self.reader_kwargs
         )
         return self._obj
-
-    def _scan_obj(self):
-        """_scan_obj Method for quickly scanning the obj attribute for errors. Currently only checks if variables actually exist
-
-        Raises
-        ------
-        ValueError
-            Raises an error if anything is wrong with the obj attribute.
-        """
-        glimpse_path = self.path[0] if isinstance(self.path, list) else self.path
-        if isinstance(glimpse_path, list):
-            glimpse_path = glimpse_path[0]
-        with xr.open_dataset(glimpse_path, chunks="auto") as glimpse:
-            for var_name, var_dict in self.vars:
-                if not var_dict["name"] in glimpse and not var_name in glimpse:
-                    raise ValueError(f"Variable {var_name} not in {self.name} dataset.")
 
     # The var_name is the variable name not native to the file but as how it is referred in vars
     def get_var(

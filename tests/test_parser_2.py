@@ -10,7 +10,7 @@ def config_file(tmp_path):
         "analysis": {"output_path": str(tmp_path / "results"), "debug": True},
         "data": {
             "WRF_D02": {
-                "path": "./test_data/wrf-2019-*.nc",
+                "path": "./test_data/data/wrf-2019-*.nc",
                 "topology": "RegularGrid",
                 "reader": "wrf",
                 "vars": {"Temperatura": {"name": "T2", "unit": "kelvin"}},
@@ -33,7 +33,7 @@ def config_file(tmp_path):
 
 
 def test_parse_control(config_file):
-    analysis, data, plts = Parser.parse_control(config_file)
+    analysis, data, plts, domains = Parser.parse_control(config_file)
 
     assert analysis["debug"] == True
     assert "WRF_D02" in data

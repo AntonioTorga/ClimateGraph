@@ -12,7 +12,7 @@ analysis:
 
 data: 
   WRF_D02: 
-    path: ./test_data/wrf-*
+    path: ./test_data/data/wrf-*
     topology: RegularGrid 
     reader: wrf 
     vars:  
@@ -23,7 +23,7 @@ data:
         name: PSFC 
         unit: pascal 
   DMC: 
-    path: ./test_data/dmc-2010-2019.nc
+    path: ./test_data/data/dmc-2010-2019.nc
     topology: PointSurface 
     reader: dmc
     vars:
@@ -38,7 +38,7 @@ plots:
   Timeseries: 
     type: timeseries
     time_interval: 1/1/2019 - 28/2/2019
-    timestep: h
+    timestep: D
     radius_of_influence: 10000
     base: DMC 
     other_data: WRF_D02 

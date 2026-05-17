@@ -35,8 +35,10 @@ dev = [
         "black"
 ]
 
-test= [
-        "pytest"
+test = [
+        "pytest",
+        "pytest-cov",
+        "pillow",
 ]
 
 [tool.setuptools]
@@ -44,3 +46,30 @@ packages = ["ClimateGraph", "ClimateGraph.data", "ClimateGraph.plot","ClimateGra
 
 [project.scripts]
 ClimateGraph= "ClimateGraph.cli:app"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: tests that touch the NetCDF samples in test_data/data/ or render figures end-to-end",
+    "integration: end-to-end tests that exercise AppKernel.run() against a real YAML",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["ClimateGraph"]
+omit = [
+    "*/tests/*",
+    "*/test_data/*",
+    "ClimateGraph/cli.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
