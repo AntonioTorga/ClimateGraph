@@ -1,9 +1,6 @@
 import pytest
 
 from ClimateGraph.reader import Reader
-from ClimateGraph.reader.reader.point_surface.dmc import DMC
-from ClimateGraph.reader.reader.point_surface.sinca import SINCA
-from ClimateGraph.reader.reader.regular_grid.chimere import Chimere
 from ClimateGraph.reader.reader.regular_grid.default import DefaultRegularGridReader
 from ClimateGraph.reader.reader.regular_grid.wrf import Wrf
 

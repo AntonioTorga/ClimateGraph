@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any
+
 import xarray as xr
-from typing import Dict, Any
 
 
 class Reader(ABC):
@@ -57,8 +58,8 @@ class Reader(ABC):
             )
         try:
             reader_class = cls.registry[topology][reader]
-        except KeyError:
-            raise ValueError(f"No reader {reader} for topology {topology}")
+        except KeyError as err:
+            raise ValueError(f"No reader {reader} for topology {topology}") from err
         return reader_class
 
     @classmethod
@@ -82,7 +83,7 @@ class Reader(ABC):
     @staticmethod
     @abstractmethod
     def open_mfdataset(
-        files: Path | list[Path], vars: Dict[str, Any] = None, **kwargs
+        files: Path | list[Path], vars: dict[str, Any] | None = None, **kwargs
     ) -> xr.Dataset:
         """open_mfdataset abstract main method of every reader. Reads files from a set of paths, managing the required arguments.
 

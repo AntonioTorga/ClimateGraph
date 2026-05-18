@@ -1,5 +1,3 @@
-import pytest
-
 from ClimateGraph.domain import Domain
 from ClimateGraph.domain.domains import (
     Attribute,
@@ -50,9 +48,7 @@ class TestAttributeDomain:
         assert all(filtered["zonaGeografica"].values == "Litoral")
 
     def test_no_match_returns_empty(self, point_surface_data):
-        cfg = AttributeConfig(
-            type="attr", field_name="region", field_value=9999
-        )
+        cfg = AttributeConfig(type="attr", field_name="region", field_value=9999)
         dom = Attribute("none", domain_config=cfg)
         filtered = dom.apply(point_surface_data.obj)
         assert filtered.sizes["site"] == 0

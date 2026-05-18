@@ -1,9 +1,7 @@
-from ClimateGraph.data import Data
-from ClimateGraph.plot import Plot
-from ClimateGraph.utils.parser import Parser
-
-from pathlib import Path
 import logging
+from pathlib import Path
+
+from ClimateGraph.utils.parser import Parser
 
 logging.basicConfig(level=logging.INFO)
 
@@ -50,7 +48,7 @@ class AppKernel:
             logging.info(f"Plotting '{name}'.")
             plot_obj.plot()
 
-    def set_analysis_data(self, analysis: dict = None):
+    def set_analysis_data(self, analysis: dict | None = None):
         """set_analysis_data Set analysis data in the AppKernel instance.
 
         Parameters

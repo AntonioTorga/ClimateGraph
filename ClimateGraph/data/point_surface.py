@@ -1,7 +1,6 @@
-from .data import Data
-from pathlib import Path
-
 from pyresample.geometry import SwathDefinition
+
+from .data import Data
 
 
 class PointSurface(Data):

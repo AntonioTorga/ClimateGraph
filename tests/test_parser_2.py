@@ -1,6 +1,6 @@
 import pytest
-from pathlib import Path
 import yaml
+
 from ClimateGraph.utils.parser import Parser
 
 
@@ -33,9 +33,9 @@ def config_file(tmp_path):
 
 
 def test_parse_control(config_file):
-    analysis, data, plts, domains = Parser.parse_control(config_file)
+    analysis, data, plts, _domains = Parser.parse_control(config_file)
 
-    assert analysis["debug"] == True
+    assert analysis["debug"] is True
     assert "WRF_D02" in data
     assert "plt1" in plts
 

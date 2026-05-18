@@ -28,11 +28,12 @@ from PIL import Image
 
 from ClimateGraph.appkernel import AppKernel
 
-
 pytestmark = [pytest.mark.slow, pytest.mark.integration]
 
 
-BASELINE_DIR = Path(__file__).resolve().parent.parent / "baseline_images" / "test_definition"
+BASELINE_DIR = (
+    Path(__file__).resolve().parent.parent / "baseline_images" / "test_definition"
+)
 EXPECTED_FILES = {
     "ts": [
         "ts-Litoral-Temperatura-01-01-2019_01-02-2019.jpg",

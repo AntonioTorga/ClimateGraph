@@ -2,7 +2,7 @@ analysis:
   output_path:  "./test_data/results/chimere"
   debug: True
 
-data: 
+data:
   CHIMERE:
      path: "/home/cr2/nhuneeus/RESULTS/CHIMERE2023/FDCYT-STGOPTOMTT/chim_STGOPTOMTT_202106*out.nc"
      topology: RegularGrid
@@ -34,7 +34,7 @@ plots:
     time_interval: "1/6/2021-30/6/2021"
     timestep: "h"
     time_buckets: "hour"
-    vars: 
+    vars:
       PM10: "ug/m**3"
       PM25: "ug/m**3"
       O3: "ppb"

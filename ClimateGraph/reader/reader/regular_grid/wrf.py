@@ -1,8 +1,9 @@
-from .default import DefaultRegularGridReader
-
-from typing import Dict, Any
 from pathlib import Path
+from typing import Any
+
 import xarray as xr
+
+from .default import DefaultRegularGridReader
 
 
 class Wrf(DefaultRegularGridReader):
@@ -63,7 +64,7 @@ class Wrf(DefaultRegularGridReader):
 
     @classmethod
     def open_mfdataset(
-        cls, files: Path | list[Path], vars: Dict[str, Any], **kwargs
+        cls, files: Path | list[Path], vars: dict[str, Any], **kwargs
     ) -> xr.Dataset:
         return super().open_mfdataset(
             files,

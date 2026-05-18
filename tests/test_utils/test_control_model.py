@@ -38,9 +38,7 @@ class TestAnalysisModel:
 
     def test_forbids_extra_keys(self, tmp_path):
         with pytest.raises(ValidationError):
-            AnalysisModel(
-                output_path=str(tmp_path), debug=True, unknown_field="oops"
-            )
+            AnalysisModel(output_path=str(tmp_path), debug=True, unknown_field="oops")
 
 
 class TestVarModel:

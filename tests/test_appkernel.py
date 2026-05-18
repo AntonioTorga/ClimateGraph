@@ -27,7 +27,7 @@ def stubbed_parser(monkeypatch, tmp_path):
 
 class TestRun:
     def test_propagates_analysis(self, stubbed_parser, tmp_path):
-        analysis, _, _, _, _ = stubbed_parser
+        _analysis, _, _, _, _ = stubbed_parser
         kernel = AppKernel()
         kernel.run(tmp_path / "ignored.yaml")
         assert kernel.debug is True

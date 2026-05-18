@@ -1,6 +1,8 @@
-from ..reader import Reader
 from pathlib import Path
+
 import xarray as xr
+
+from ..reader import Reader
 
 
 class DefaultRegularGridReader(Reader):
@@ -23,8 +25,14 @@ class DefaultRegularGridReader(Reader):
         xrds = xrds.reset_coords()
 
         drop_data_vars = (
-            (set(list(xrds.data_vars)) - set(vars.keys()) - set(("longitude", "latitude", "time"))) if vars != None else set()
-        ) # TEST!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+            (
+                set(list(xrds.data_vars))
+                - set(vars.keys())
+                - set(("longitude", "latitude", "time"))
+            )
+            if vars is not None
+            else set()
+        )  # TEST!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
         xrds = xrds.drop_vars(drop_data_vars, errors="ignore")
         xrds = xrds.set_coords(["latitude", "longitude"])

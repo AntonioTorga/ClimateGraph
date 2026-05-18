@@ -1,10 +1,7 @@
-from pathlib import Path
-
 import pytest
 import xarray as xr
 
 from ClimateGraph.reader import Reader
-
 
 pytestmark = pytest.mark.slow
 

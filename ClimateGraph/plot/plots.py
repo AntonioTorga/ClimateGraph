@@ -1,22 +1,23 @@
-from pydantic import BaseModel, Field, model_validator
-import matplotlib.pyplot as plt
-from typing import Literal, List, Dict, Tuple
-import numpy as np
 import math
+from typing import Literal
+
 import cartopy.feature as cfeature
 import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
+from pydantic import BaseModel, Field, model_validator
 
 mpl.use("Agg")
 
-from ClimateGraph.data import Data, PointSurface, RegularGrid, SatelliteSwath
+from ClimateGraph.data import PointSurface, RegularGrid
+from ClimateGraph.utils.dataset_utils import change_unit, time_resampling
 from ClimateGraph.utils.general_utils import (
-    manage_time_interval,
-    TimestepEnum,
-    TimeBucketEnum,
-    ReductionMethodEnum,
     CRSEnum,
+    ReductionMethodEnum,
+    TimeBucketEnum,
+    TimestepEnum,
+    manage_time_interval,
 )
-from ClimateGraph.utils.dataset_utils import time_resampling, change_unit
 
 from .plot import Plot
 
@@ -27,15 +28,15 @@ class BasePlotConfig(BaseModel):
     """BasePlotConfig Base configuration as for all plots, Pydantic Model. Used to manage common arguments."""
 
     filename: str | None = Field(default=None)
-    figsize: Tuple[float, float] = Field((6, 6))
+    figsize: tuple[float, float] = Field((6, 6))
     format: str = Field(default="jpg")
     layout: Literal["constrained", "compressed", "tight", "none"] = Field(
         default="compressed"
     )
     dpi: int = Field(default=400)
     transparent: bool = Field(default=False)
-    domains: List[str] = Field(default_factory=list)
-    vars: str | List[str] | Dict[str, str]
+    domains: list[str] = Field(default_factory=list)
+    vars: str | list[str] | dict[str, str]
 
 
 class TimeSeriesConfig(BasePlotConfig):
@@ -43,9 +44,9 @@ class TimeSeriesConfig(BasePlotConfig):
 
     type: Literal["timeseries", "ts", "time-series"]
     base: str
-    other_data: str | List[str] | None = Field(default=None)
+    other_data: str | list[str] | None = Field(default=None)
     radius_of_influence: int | None = Field(default=None)
-    time_interval: str | List[str] | None = Field(default=None)
+    time_interval: str | list[str] | None = Field(default=None)
     timestep: TimestepEnum | None = Field(default=None)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
     colors: str | None = Field(default=None)  # TODO: implement
@@ -106,14 +107,16 @@ class Timeseries(Plot):
             if not isinstance(self.plot_config.other_data, list):
                 self.plot_config.other_data = [self.plot_config.other_data]
             other_data = {
-                    name_: base.resample_vars(
+                name_: base.resample_vars(
                     data,
                     vars,
                     radius_of_influence=radius_of_influence,
                     timestep=timestep,
                     time_interval=time_interval,
                 )
-                for name_, data in {name: self.data[name] for name in self.plot_config.other_data}.items()
+                for name_, data in {
+                    name: self.data[name] for name in self.plot_config.other_data
+                }.items()
             }
             other_data[self.plot_config.base] = base_obj
             all_data = other_data
@@ -170,7 +173,7 @@ class Timeseries(Plot):
                 start, end = manage_time_interval(time_interval)
                 format = self.plot_kwargs.get("format", "jpg")
                 filename = (
-                    f"ts-{dom_name}-{variable}-{start.strftime("%d-%m-%Y")}_{end.strftime("%d-%m-%Y")}.{format}"
+                    f"ts-{dom_name}-{variable}-{start.strftime('%d-%m-%Y')}_{end.strftime('%d-%m-%Y')}.{format}"
                     if self.plot_config.filename is None
                     else self.plot_config.filename
                 )
@@ -240,7 +243,7 @@ class Scatter(Plot):
             base.obj, timestep=timestep, time_interval=time_interval
         )
         for var in vars:
-            unit = base.vars[var]["unit"] if isinstance(vars, List | str) else vars[var]
+            unit = base.vars[var]["unit"] if isinstance(vars, list | str) else vars[var]
             base_obj[var] = change_unit(
                 base_obj[var], base.vars[var]["unit"], vars[var]
             )
@@ -282,7 +285,7 @@ class Scatter(Plot):
             for variable, unit in vars.items():
                 unit = (
                     base.vars[variable]["unit"]
-                    if isinstance(vars, List | str)
+                    if isinstance(vars, list | str)
                     else vars[variable]
                 )
                 figure = plt.figure(
@@ -294,9 +297,10 @@ class Scatter(Plot):
                     other_obj_dom[f"{variable}__{other.name}"],
                 )
                 ax = figure.add_subplot(1, 1, 1)
-                min_val, max_val = math.floor(
-                    np.nanmin([np.nanmin(base_var), np.nanmin(other_var)])
-                ), math.ceil(np.nanmax([np.nanmax(base_var), np.nanmax(other_var)]))
+                min_val, max_val = (
+                    math.floor(np.nanmin([np.nanmin(base_var), np.nanmin(other_var)])),
+                    math.ceil(np.nanmax([np.nanmax(base_var), np.nanmax(other_var)])),
+                )
 
                 title = self.plot_kwargs.get(
                     "title",
@@ -324,7 +328,7 @@ class Scatter(Plot):
                 start, end = manage_time_interval(time_interval)
                 format = self.plot_kwargs.get("format", "jpg")
                 filename = (
-                    f"scatter-{dom_name}-{variable}-{start.strftime("%d-%m-%Y")}_{end.strftime("%d-%m-%Y")}.{format}"
+                    f"scatter-{dom_name}-{variable}-{start.strftime('%d-%m-%Y')}_{end.strftime('%d-%m-%Y')}.{format}"
                     if self.plot_config.filename is None
                     else self.plot_config.filename
                 )
@@ -344,7 +348,7 @@ class SpatialOverlayConfig(BasePlotConfig):
     coastlines: bool = Field(default=True)
     borders: bool = Field(default=True)
     cmap: str = Field(default="viridis")
-    bbox: List[float | int] = Field(default=None)
+    bbox: list[float | int] = Field(default=None)
 
 
 class SpatialOverlay(Plot):
@@ -434,9 +438,10 @@ class SpatialOverlay(Plot):
                     f"Spatial overlay comparison of {var} between {base.name} and {superposed.name}"
                 )
 
-                vmin, vmax = np.nanmin(
-                    [base_var.min(), superposed_var.min()]
-                ), np.nanmax([base_var.max(), superposed_var.max()])
+                vmin, vmax = (
+                    np.nanmin([base_var.min(), superposed_var.min()]),
+                    np.nanmax([base_var.max(), superposed_var.max()]),
+                )
 
                 if self.plot_config.bbox is not None:
                     lon_min, lat_min, lon_max, lat_max = self.plot_config.bbox
@@ -499,20 +504,22 @@ class SpatialOverlay(Plot):
                 start, end = manage_time_interval(time_interval)
                 format = self.plot_kwargs.get("format", "jpg")
                 filename = (
-                    f"spatial_overlay-{dom_name}-{var}-{base.name}-{superposed.name}-{start.strftime("%d-%m-%Y")}_{end.strftime("%d-%m-%Y")}.{format}"
+                    f"spatial_overlay-{dom_name}-{var}-{base.name}-{superposed.name}-{start.strftime('%d-%m-%Y')}_{end.strftime('%d-%m-%Y')}.{format}"
                     if self.plot_config.filename is None
                     else self.plot_config.filename
                 )
 
                 self.savefig(figure, filename)
 
+
 class TimeCycleConfig(BasePlotConfig):
     """TimeSeriesConfig Timeseries plot configuration as Pydantic Model."""
+
     type: Literal["timecycle", "time cycle", "cycle"]
     base: str
-    other_data: str | List[str] | None = Field(default=None)
+    other_data: str | list[str] | None = Field(default=None)
     radius_of_influence: int | None = Field(default=None)
-    time_interval: str | List[str] | None = Field(default=None)
+    time_interval: str | list[str] | None = Field(default=None)
     timestep: TimestepEnum | None = Field(default=None)
     time_buckets: TimeBucketEnum = Field(default=TimeBucketEnum.day)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
@@ -523,10 +530,16 @@ class TimeCycleConfig(BasePlotConfig):
             return self
         # map both to hours for comparison
         bucket_hours = {
-            "hour": 1, "day": 24, "month": 720, "dayofyear": 24, "season": 2160
+            "hour": 1,
+            "day": 24,
+            "month": 720,
+            "dayofyear": 24,
+            "season": 2160,
         }
         timestep_hours = {
-            TimestepEnum.hourly: 1, TimestepEnum.daily: 24, TimestepEnum.monthly: 720
+            TimestepEnum.hourly: 1,
+            TimestepEnum.daily: 24,
+            TimestepEnum.monthly: 720,
             # extend as needed
         }
         if timestep_hours[self.timestep] > bucket_hours[self.time_buckets.value]:
@@ -535,6 +548,7 @@ class TimeCycleConfig(BasePlotConfig):
                 f"time_bucket '{self.time_buckets.value}' — std bands will be meaningless"
             )
         return self
+
 
 class TimeCycle(Plot):
     config = TimeCycleConfig
@@ -554,8 +568,10 @@ class TimeCycle(Plot):
         radius_of_influence = self.plot_config.radius_of_influence
         time_interval = self.plot_config.time_interval
         timestep = self.plot_config.timestep
-        time_bucket = self.plot_config.time_buckets.value  # e.g. "hour", "month", "dayofyear"
-        
+        time_bucket = (
+            self.plot_config.time_buckets.value
+        )  # e.g. "hour", "month", "dayofyear"
+
         base = self.data[self.plot_config.base]
         # Base data: time interval filter and unit conversion, no timestep resampling
         # (groupby needs the original time resolution intact)
@@ -572,14 +588,16 @@ class TimeCycle(Plot):
             if not isinstance(self.plot_config.other_data, list):
                 self.plot_config.other_data = [self.plot_config.other_data]
             other_data = {
-                    name_: base.resample_vars(
+                name_: base.resample_vars(
                     data,
                     vars,
                     radius_of_influence=radius_of_influence,
                     timestep=timestep,
                     time_interval=time_interval,
                 )
-                for name_, data in {name: self.data[name] for name in self.plot_config.other_data}.items()
+                for name_, data in {
+                    name: self.data[name] for name in self.plot_config.other_data
+                }.items()
             }
             other_data[self.plot_config.base] = base_obj
             all_data = other_data
@@ -623,19 +641,20 @@ class TimeCycle(Plot):
                     da = data_obj[f"{variable}__{name}"]
 
                     grouped = da.groupby(f"time.{time_bucket}")
-                    mean   = grouped.mean("time", skipna=True)
-                    std    = grouped.std("time",  skipna=True)
+                    mean = grouped.mean("time", skipna=True)
+                    std = grouped.std("time", skipna=True)
 
                     bucket_vals = mean[time_bucket].values
-                    xticklabels = xticklabels if xticklabels is not None else bucket_vals
+                    xticklabels = (
+                        xticklabels if xticklabels is not None else bucket_vals
+                    )
 
                     ax.plot(bucket_vals, mean.values, label=name)
-                    ax.fill_between(bucket_vals,
-                                    (mean - std).values,
-                                    (mean + std).values,
-                                    alpha=0.2)
+                    ax.fill_between(
+                        bucket_vals, (mean - std).values, (mean + std).values, alpha=0.2
+                    )
 
-                title  = self.plot_kwargs.get("title",  f"Diurnal cycle of {variable}")
+                title = self.plot_kwargs.get("title", f"Diurnal cycle of {variable}")
                 xlabel = self.plot_kwargs.get("xlabel", time_bucket.capitalize())
                 ylabel = self.plot_kwargs.get("ylabel", f"{variable} ({unit})")
 
@@ -647,7 +666,7 @@ class TimeCycle(Plot):
                 figure.suptitle(title)
 
                 start, end = manage_time_interval(time_interval)
-                fmt      = self.plot_kwargs.get("format", "jpg")
+                fmt = self.plot_kwargs.get("format", "jpg")
                 filename = (
                     f"cycle-{time_bucket}-{dom_name}-{variable}"
                     f"-{start.strftime('%d-%m-%Y')}_{end.strftime('%d-%m-%Y')}.{fmt}"

@@ -1,5 +1,3 @@
-import pytest
-
 from ClimateGraph.plot import Plot
 from ClimateGraph.plot.plots import Scatter, SpatialOverlay, TimeCycle, Timeseries
 

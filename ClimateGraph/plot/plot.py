@@ -1,17 +1,16 @@
-from abc import ABC, abstractmethod
-from pydantic import BaseModel, Field
-from typing import Annotated, Union, List
 import logging
+from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Annotated, Union
+
 import matplotlib as mpl
+from pydantic import BaseModel, Field
 
 mpl.use("Agg")
 import matplotlib.pyplot as plt
 
 from ClimateGraph.data import Data
 from ClimateGraph.domain import Domain
-
-from ClimateGraph.data import Data
 
 logging.basicConfig(level=logging.INFO)  # TODO: make this settable from yaml file.
 
@@ -24,7 +23,7 @@ class Plot(ABC):
     """
 
     registry: dict[str, type["Plot"]] = dict()
-    aliases: List[str] = list()
+    aliases: list[str] = list()
     config: type["BaseModel"] | None = None
 
     def __init_subclass__(cls, **kwargs):
@@ -46,7 +45,9 @@ class Plot(ABC):
         configs = [
             cls_.config for cls_ in Plot.registry.values() if cls_.config is not None
         ]
-        return Annotated[Union[tuple(configs)], Field(discriminator="type")]
+        # `Union[tuple(configs)]` unpacks the tuple at runtime — Ruff's UP007 must not
+        # rewrite this; doing so strips the Union and breaks Pydantic's discriminator.
+        return Annotated[Union[tuple(configs)], Field(discriminator="type")]  # noqa: UP007
 
     @classmethod
     def create(

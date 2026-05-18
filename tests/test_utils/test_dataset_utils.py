@@ -1,11 +1,9 @@
 import numpy as np
-import pytest
 import xarray as xr
 
 from ClimateGraph.utils.dataset_utils import (
     change_unit,
     time_resampling,
-    variable_aggregation,
 )
 from ClimateGraph.utils.general_utils import ReductionMethodEnum
 
@@ -31,9 +29,7 @@ class TestTimeResampling:
         )
         # Each 2-day bucket should equal the per-bucket min — verify on Temperatura
         baseline = (
-            regular_grid_dataset["Temperatura"]
-            .resample(time="2D")
-            .reduce(np.nanmin)
+            regular_grid_dataset["Temperatura"].resample(time="2D").reduce(np.nanmin)
         )
         xr.testing.assert_allclose(result["Temperatura"], baseline)
 

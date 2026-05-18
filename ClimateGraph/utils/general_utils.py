@@ -1,14 +1,13 @@
-from typing import List
-from pathlib import Path
-import logging
-import cartopy.crs as ccrs
-import re
-from dateutil import parser
-import glob
-from enum import Enum
-import numpy as np
 import datetime
-from typing import Tuple
+import glob
+import logging
+import re
+from enum import Enum
+from pathlib import Path
+
+import cartopy.crs as ccrs
+import numpy as np
+from dateutil import parser
 
 logging.basicConfig(level=logging.INFO)
 
@@ -32,14 +31,17 @@ class TimestepEnum(str, Enum):
     microseconds = "us"
     nanoseconds = "ns"
 
+
 class TimeBucketEnum(str, Enum):
     """TimeBucketEnum Enum used for timestep handling. Keeps consistent timestep values."""
+
     minute = "minute"
     hour = "hour"
     day = "day"
     season = "season"
     weekly = "week"
     monthly = "quarter"
+
 
 class ReductionMethodEnum(str, Enum):
     """ReductionMethodEnum Enum used for Reduction Method handling. Keeps consistent Reduction methods values."""
@@ -67,18 +69,18 @@ class CRSEnum(str, Enum):
     platecarree = ("platecarree", ccrs.PlateCarree)
 
 
-def manage_path(paths: str | Path | List[str] | List[Path]) -> List[Path]:
+def manage_path(paths: str | Path | list[str] | list[Path]) -> list[Path]:
     """manage_path Handles paths, including lists of paths and paths with hotkeys (*,?, etc).
-2
-    Parameters
-    ----------
-    paths : str | Path | List[str] | List[Path]
-        Path or list of paths that compose the data object.
+    2
+        Parameters
+        ----------
+        paths : str | Path | List[str] | List[Path]
+            Path or list of paths that compose the data object.
 
-    Returns
-    -------
-    List[Path]
-        List of existing pathlib.Path's created from the input paths.
+        Returns
+        -------
+        List[Path]
+            List of existing pathlib.Path's created from the input paths.
     """
     if isinstance(paths, (str, Path)):
         paths = [paths]
@@ -104,7 +106,7 @@ def manage_path(paths: str | Path | List[str] | List[Path]) -> List[Path]:
 
 def manage_time_interval(
     time_interval: str,
-) -> Tuple[datetime.datetime, datetime.datetime]:
+) -> tuple[datetime.datetime, datetime.datetime]:
     """manage_time_interval Manages time interval strings in the TIME_INTERVAL_FORMAT.
 
     Parameters

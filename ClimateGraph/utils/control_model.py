@@ -1,20 +1,18 @@
 from pathlib import Path
+
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
     field_validator,
     model_validator,
-    Field,
 )
-from typing import Dict, List, Optional
-
 
 from ClimateGraph.data import Data
-from ClimateGraph.reader import Reader
-from ClimateGraph.plot import Plot
 from ClimateGraph.domain import Domain
-from ClimateGraph.utils.general_utils import manage_path, CRSEnum
+from ClimateGraph.plot import Plot
+from ClimateGraph.reader import Reader
+from ClimateGraph.utils.general_utils import CRSEnum, manage_path
 
 
 class AnalysisModel(BaseModel):
@@ -34,8 +32,10 @@ class AnalysisModel(BaseModel):
             v.mkdir(parents=True)
         return v
 
+
 PlotModel = Plot.build_config_union()
 DomainModel = Domain.build_config_union()
+
 
 class VarModel(BaseModel):
     """VarModel Variable block pydantic model. Just has a name for the variable and pint-accepted unit.
@@ -51,6 +51,7 @@ class VarModel(BaseModel):
     name: str
     unit: str
 
+
 class DataModel(BaseModel):
     """DataModel Data block pydantic model. Accepts topology and reader (they have to match).
     Also a single path or path list for the files that the Data object will represent.
@@ -63,8 +64,8 @@ class DataModel(BaseModel):
 
     topology: str
     reader: str
-    path: Path | List[Path]
-    vars: Dict[str, VarModel]
+    path: Path | list[Path]
+    vars: dict[str, VarModel]
     crs: CRSEnum = Field(default=CRSEnum.platecarree)
 
     @field_validator("topology")
@@ -97,7 +98,7 @@ class ControlFile(BaseModel):
     """ControlFile Complete Control/Configuration pydantic model. Gets the other pydantic models together."""
 
     analysis: AnalysisModel
-    data: Dict[str, DataModel]
-    domains: Dict[str, DomainModel] | None = Field(default=None)
-    plots: Dict[str, PlotModel] | None = Field(default=None)
+    data: dict[str, DataModel]
+    domains: dict[str, DomainModel] | None = Field(default=None)
+    plots: dict[str, PlotModel] | None = Field(default=None)
     # stats

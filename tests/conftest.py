@@ -8,15 +8,14 @@ should be marked ``@pytest.mark.slow``.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 import cartopy.crs as ccrs
 import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
-
 
 # ``test_against_manual_filter.py`` is an ad-hoc analysis script that imports
 # data from a CR2 NFS share. It is not a real test; ignore it during collection
@@ -205,6 +204,16 @@ def test_data_dir() -> Path:
     return TEST_DATA_DIR
 
 
+def _is_real_netcdf(p: Path) -> bool:
+    try:
+        with p.open("rb") as fh:
+            sig = fh.read(8)
+        # HDF5 magic = \x89HDF\r\n\x1a\n ; classic NetCDF = b"CDF"
+        return sig.startswith(b"\x89HDF") or sig.startswith(b"CDF")
+    except OSError:
+        return False
+
+
 def pytest_collection_modifyitems(config, items):
     """Auto-skip @slow tests when the sample NetCDFs are not on disk.
 
@@ -212,7 +221,7 @@ def pytest_collection_modifyitems(config, items):
     without explicit ``-m "not slow"`` filtering.
     """
     have_samples = (TEST_DATA_DIR / "data").is_dir() and any(
-        (TEST_DATA_DIR / "data").glob("*.nc")
+        _is_real_netcdf(p) for p in (TEST_DATA_DIR / "data").glob("*.nc")
     )
     if have_samples:
         return

@@ -1,5 +1,5 @@
-import pkgutil
 import importlib
+import pkgutil
 
 from .reader import Reader
 

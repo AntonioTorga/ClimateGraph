@@ -1,11 +1,10 @@
-import pytest
-
 from pathlib import Path
+
+import pytest
 import xarray as xr
 
 from ClimateGraph.reader import Reader
 from ClimateGraph.reader.reader.regular_grid.wrf import Wrf
-from ClimateGraph.reader.reader.regular_grid.default import DefaultRegularGridReader
 
 
 def test_wrf_is_registered():
@@ -23,7 +22,7 @@ def test_wrf_read():
         ],
         {"Temperatura": {"name": "T2", "unit": "kelvin"}},
     )
-    assert type(obj) == xr.Dataset
+    assert isinstance(obj, xr.Dataset)
     assert all([x in obj.coords for x in ["latitude", "longitude"]])
     assert all(
         [x in obj.dims for x in ["time", "x", "y"]]

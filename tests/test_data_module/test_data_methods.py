@@ -98,6 +98,56 @@ class TestResampleVars:
         assert point_surface_data.resampled is not None
 
 
+class TestCopy:
+    def test_returns_new_instance_same_class(self, regular_grid_data):
+        copy = regular_grid_data.copy()
+        assert copy is not regular_grid_data
+        assert type(copy) is type(regular_grid_data)
+
+    def test_user_facing_attrs_match(self, regular_grid_data):
+        copy = regular_grid_data.copy()
+        assert copy.name == regular_grid_data.name
+        assert copy.path == regular_grid_data.path
+        assert copy.vars == regular_grid_data.vars
+        assert copy.reader is regular_grid_data.reader
+        assert copy.crs == regular_grid_data.crs
+        assert copy.reader_kwargs == regular_grid_data.reader_kwargs
+
+    def test_obj_is_propagated(self, regular_grid_data):
+        # Shallow on purpose: the cached dataset is shared so copy() doesn't
+        # trigger another reader read.
+        copy = regular_grid_data.copy()
+        assert copy.obj is regular_grid_data.obj
+
+    def test_cached_state_is_propagated(self, regular_grid_data):
+        # Prime caches that the obj setter would otherwise reset.
+        _ = regular_grid_data.bbox
+        _ = regular_grid_data.dims
+        regular_grid_data._set_geom()
+        regular_grid_data.resampled = "sentinel"
+
+        copy = regular_grid_data.copy()
+        assert copy._bbox == regular_grid_data._bbox
+        assert copy._dims == regular_grid_data._dims
+        assert copy._geom is regular_grid_data._geom
+        assert copy.resampled == "sentinel"
+
+    def test_obj_setter_on_copy_does_not_mutate_original(
+        self, regular_grid_data, make_regular_grid
+    ):
+        copy = regular_grid_data.copy()
+        new_ds = make_regular_grid(n_time=3)
+        copy.obj = new_ds
+        assert copy.obj is new_ds
+        assert regular_grid_data.obj is not new_ds
+
+    def test_point_surface_copy(self, point_surface_data):
+        copy = point_surface_data.copy()
+        assert type(copy) is type(point_surface_data)
+        assert copy.name == point_surface_data.name
+        assert copy.obj is point_surface_data.obj
+
+
 class TestObjLazyLoading:
     def test_obj_property_triggers_load(self, regular_grid_dataset):
         from pathlib import Path

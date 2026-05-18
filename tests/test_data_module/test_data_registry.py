@@ -1,6 +1,6 @@
 import pytest
 
-from ClimateGraph.data import Data, PointSurface, RegularGrid, SatelliteSwath
+from ClimateGraph.data import Data, PointSurface, RegularGrid
 
 
 class TestRegistry:

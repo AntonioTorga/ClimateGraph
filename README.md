@@ -1,5 +1,7 @@
 # 🌍 ClimateGraph
 
+[![CI](https://github.com/AntonioTorga/ClimateGraph/actions/workflows/ci.yml/badge.svg)](https://github.com/AntonioTorga/ClimateGraph/actions/workflows/ci.yml)
+
 **ClimateGraph** is a modular Python framework for reading, transforming, and visualizing climate and environmental data from multiple sources.
 
 It is designed to be:
@@ -89,24 +91,24 @@ ClimateGraph/
 ClimateGraph is driven by a YAML or JSON configuration file that specifies the execution parameters. This control file has four key information blocks (soon to be four with domain definitions):
 
 ### - analysis
-Configuration for overall execution. 
+Configuration for overall execution.
 
  Managed parameters are as following:
    - output_path: Relative or absolute path to directory in which to leave the results.
    - debug: Boolean flag, turns on debug mode. Defaults to False (doesn't do much yet)
-   
+
 ### - data
 Every sub-block defines a new data item, which is composed by the following parameters:
   - topology: PointSurface, RegularGrid or SatelliteSwath (the latter is not yet supported)
   - reader: Specific reader for your data (WRF, Chimere, DMC, etc).
   - path: Relative or absolute path or list of paths. Accepts and expands hotkeys (*,?)
   - vars: Block of information about the vars about to plot. Every subblock defines a variable and includes **ONLY** the name of the variable in the files and the unit.
-  - crs: Coordinate Reference System. Managed by Cartopy, currently only PlateCarree is available. 
+  - crs: Coordinate Reference System. Managed by Cartopy, currently only PlateCarree is available.
 ### - domains
   - **type** Type of domain.
   And then every different type requires different extra arguments.
 - Attribute Domain (referred as "attribute" or "attr"):
-  - field_name: Attribute field name present in the obj. 
+  - field_name: Attribute field name present in the obj.
   - field_value: Value of the attribute selected.
 - Polygon Domain (referred as "polygon" or "poly") :
   - vertex: List of tuples of floating numbers. Each tuple defines a vertex in (lon, lat). Can also manage a List of List of Tuples, that defines a Multipolygon.
@@ -132,7 +134,7 @@ The parameters specific to each plot are as follows:
 - **Spatial Overlay** (accepted type values: "spatial-overlay", "spatialoverlay", "so")
     - base: name of Base data item. Should be a spatially distributed type of topology like RegularGrid.
     - superposed: name of Superposed data item. Should be a semi-distributed type of topology like PointSurface or SatelliteSwath (not implemented yet).
-    - time_interval: time interval to use for plot in "d/m/yyyy-d/m/yyyy" format, where day and month can also be double-digitted. 
+    - time_interval: time interval to use for plot in "d/m/yyyy-d/m/yyyy" format, where day and month can also be double-digitted.
     - levels: integer value for the amount of levels used in the contourf (defaults to 10)
     - reduction_method: method for the reduction of other dimensions (time for example). Supports 'mean', 'min', 'max'.
     - crs: Coordinate Reference System. Managed with cartopy but currently only manages 'platecarree'.
@@ -144,15 +146,15 @@ The parameters specific to each plot are as follows:
     - base: name of a data item. The "other_data" will be resampled to the "base" geometry.
     - other_data: name or list of names of other data items.
     - radius_of_influence: radius of influence for resampling with Nearest Neighbor
-    - time_interval: time interval to use for plot in "d/m/yyyy-d/m/yyyy" format, where day and month can also be double-digitted. 
+    - time_interval: time interval to use for plot in "d/m/yyyy-d/m/yyyy" format, where day and month can also be double-digitted.
     - timestep: timestep used to resample time.
     - reduction_method: method used for reducing to 1D. Supports 'mean', 'min', 'max'.
-    
+
 - **Scatter** (accepted type values: "scatter", "sc")
     - base: name of a data item. The "other" will be resampled to the "base" geometry.
     - other: name of a data item.
     - radius_of_influence: radius of influence for resampling with Nearest Neighbor
-    - time_interval: time interval to use for plot in "d/m/yyyy-d/m/yyyy" format, where day and month can also be double-digitted. 
+    - time_interval: time interval to use for plot in "d/m/yyyy-d/m/yyyy" format, where day and month can also be double-digitted.
     - timestep: timestep used to resample time. Only worth using if dimension is "time"
     - dimension: For this plot data needs to be 1D, so this string parameter allows you to change that dimension (defaults to "time").
     - reduction_method: method used for reducing to 1D. Supports 'mean', 'min', 'max'.
@@ -177,7 +179,7 @@ data:
     path: "./test_data/wrf-20*.nc"
     topology: RegularGrid
     reader: wrf
-    vars: 
+    vars:
       Temperatura:
         name: T2
         unit: "kelvin"
@@ -195,7 +197,7 @@ data:
       Presion:
         name: presionEstacion
         unit: "hectopascal"
-domains: 
+domains:
   RM:
     type: attr
     field_name: region
@@ -216,7 +218,7 @@ plots:
     time_interval: 1/1/2019-1/2/2019
     timestep: "D"
     radius_of_influence: 10000
-    vars: 
+    vars:
       Temperatura: kelvin
       Presion: pascal
   scatter:
@@ -236,7 +238,7 @@ plots:
     base: WRF_D02
     superposed: DMC
     domains: ["Poly1"]
-    vars: 
+    vars:
       Temperatura: kelvin
       Presion: pascal
     time_interval: 1/1/2019-1/2/2019
@@ -301,7 +303,7 @@ class MyReader(Reader):
 ```
 
 3. Done — it auto-registers and is now available for use as a reader in the configuration file.
-   
+
 ** Keep in mind that the Reader abstract class open_mfdataset signature MUST be respected for it to work. Also the vars mapping should be used to rename the vars and drop all not needed vars **
 
 ---
@@ -393,5 +395,58 @@ Plots request alignment — they don’t implement it.
 ---
 
 ## Optional dependencies
-- `black` (for style standarization)
-- `pytest` (for testing)
+- `ruff` (lint + format)
+- `pre-commit` (git hook runner)
+- `pytest`, `pytest-cov`, `pillow` (test suite + coverage + figure regression)
+
+---
+
+## Development
+
+Contributing to ClimateGraph? The dev loop is:
+
+```bash
+git clone https://github.com/AntonioTorga/ClimateGraph.git
+cd ClimateGraph
+
+# Editable install with dev + test extras
+pip install -e .[dev,test]
+
+# One-time per clone: register the pre-commit git hook
+pre-commit install
+```
+
+From there, every `git commit` automatically runs the lint, format, and small file
+hooks. To trigger the same checks manually:
+
+```bash
+pre-commit run --all-files
+```
+
+Common tasks:
+
+```bash
+ruff check .                  # lint
+ruff check --fix .            # lint and auto-fix what's safe
+ruff format .                 # format
+pytest -m "not slow"          # fast unit suite (~11 s)
+pytest                        # full suite including integration + figure regression
+pytest --cov                  # with coverage report
+```
+
+The integration suite under `tests/test_integration/` compares produced plots
+to baselines in `tests/baseline_images/` via per-pixel RMS. To refresh the
+baselines after an intentional plot change:
+
+```bash
+CLIMATEGRAPH_UPDATE_BASELINES=1 pytest tests/test_integration/
+```
+
+### CI
+
+Every push and every PR targeting `main` or `develop` triggers
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml). The pipeline runs on
+Python 3.12 and 3.13 in parallel; lint, fast tests, and a coverage gate
+(`--cov-fail-under=85`) must all pass. Slow tests (NetCDF-touching + figure
+regression) are not run in CI — they auto-skip when the sample data isn't
+present on the runner.

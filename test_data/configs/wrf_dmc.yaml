@@ -18,7 +18,7 @@ data:
 ]
     topology: RegularGrid
     reader: wrf
-    vars: 
+    vars:
       Temperatura:
         name: T2
         unit: "kelvin"
@@ -36,7 +36,7 @@ data:
       Presion:
         name: presionEstacion
         unit: "hectopascal"
-domains: 
+domains:
   RM:
     type: attr
     field_name: region
@@ -54,7 +54,7 @@ plots:
     time_interval: 1/1/2010-1/4/2019
     timestep: "ME"
     radius_of_influence: 10000
-    vars: 
+    vars:
       Temperatura: kelvin
       Presion: pascal
   scatter:

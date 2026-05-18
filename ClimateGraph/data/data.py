@@ -1,20 +1,15 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any
+
+import cartopy.crs as ccrs
 import numpy as np
 import xarray as xr
-import cartopy.crs as ccrs
-from typing import Dict
-import pint_xarray
-from pint import Quantity
-from typing import Callable, Any, List, Dict
 from pyresample import kd_tree
-from datetime import datetime
-
 
 from ClimateGraph.reader import Reader
-from ClimateGraph.domain import Domain
-from ClimateGraph.utils.dataset_utils import time_resampling, change_unit
-from ClimateGraph.utils.general_utils import manage_time_interval, ReductionMethodEnum
+from ClimateGraph.utils.dataset_utils import change_unit, time_resampling
+from ClimateGraph.utils.general_utils import ReductionMethodEnum
 
 
 class Data(ABC):
@@ -58,10 +53,10 @@ class Data(ABC):
         _name = name.lower()
         try:
             data_class = cls.registry[_name]
-        except KeyError:
+        except KeyError as err:
             raise ValueError(
                 f"No type named {name} recognized. Options are {Data.registry.keys()} (case insensitive)."
-            )
+            ) from err
         return data_class
 
     @classmethod
@@ -86,10 +81,10 @@ class Data(ABC):
         name: str,
         topology: str,
         reader: str,
-        path: Path | List[Path],
-        vars: Dict[str, Dict[str, str]],
+        path: Path | list[Path],
+        vars: dict[str, dict[str, str]],
         crs: ccrs,
-        reader_kwargs: Dict,
+        reader_kwargs: dict,
     ):
         """create Creation of a Data object with the adequate Data subclass
 
@@ -123,10 +118,10 @@ class Data(ABC):
         self,
         name: str,
         path: Path | list[Path],
-        vars: Dict[str, Dict[str, str]],
+        vars: dict[str, dict[str, str]],
         reader: Reader,
         crs: ccrs.CRS,
-        reader_kwargs: Dict[str, Any] | None = None,
+        reader_kwargs: dict[str, Any] | None = None,
     ):
         """__init__ Data initialization dunder method.
 
@@ -218,10 +213,11 @@ class Data(ABC):
         self._bbox = None
         self._geom = None
         self._dims = None
+        self.resampled = None
 
     @property
     def geom(self):
-        if self._geom == None:
+        if self._geom is None:
             self._set_geom()
         return self._geom
 
@@ -370,7 +366,7 @@ class Data(ABC):
         obj = self.obj
         if isinstance(coord_names, str):
             coord_names = [coord_names]
-        missing_coords = [i for i in coord_names if i not in obj.coords.keys()]
+        missing_coords = [i for i in coord_names if i not in obj.coords]
         if len(missing_coords) > 0:
             raise KeyError(f"Coordinates {missing_coords} not in {self.name} dataset.")
 
@@ -388,7 +384,7 @@ class Data(ABC):
     def resample_vars(
         self,
         other: "Data",
-        vars: str | List[str] | Dict[str, str],
+        vars: str | list[str] | dict[str, str],
         timestep: str | None = None,
         time_interval: str | None = None,
         radius_of_influence: int = 10000,
@@ -455,7 +451,7 @@ class Data(ABC):
                     dist_array,
                     fill_value=np.nan,
                 )
-            
+
             # Here if im resampling into a point surface topology then height will always get dropped. Unless its a point in space not surface.
             resampled = xr.apply_ufunc(
                 _resample,
@@ -464,7 +460,7 @@ class Data(ABC):
                     [d for d in var_src.dims if d != "time"]
                 ],  # remove time from core dims so it loops over just time
                 output_core_dims=[
-                    [d for d in var_dst_dims.keys() if d != "time"]
+                    [d for d in var_dst_dims if d != "time"]
                 ],  # Produces a new array with the new geom minus time
                 vectorize=True,
                 dask="parallelized",

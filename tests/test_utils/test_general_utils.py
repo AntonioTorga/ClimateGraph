@@ -7,8 +7,8 @@ import pytest
 from ClimateGraph.utils.general_utils import (
     CRSEnum,
     ReductionMethodEnum,
-    TimestepEnum,
     TimeBucketEnum,
+    TimestepEnum,
     manage_path,
     manage_time_interval,
 )
@@ -29,7 +29,8 @@ class TestManageTimeInterval:
             manage_time_interval("just a single date")
 
     def test_invalid_date_raises(self):
-        with pytest.raises(Exception):
+        # dateutil.parser.parse raises ParserError (a ValueError subclass) on garbage.
+        with pytest.raises(ValueError):
             manage_time_interval("not-a-date - also-not")
 
 

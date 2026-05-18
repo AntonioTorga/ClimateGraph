@@ -1,12 +1,11 @@
-from pathlib import Path
-from abc import abstractmethod
 import json
+from pathlib import Path
+
 import yaml
 
 from ClimateGraph.data import Data
-from ClimateGraph.reader import Reader
-from ClimateGraph.plot import Plot
 from ClimateGraph.domain import Domain
+from ClimateGraph.plot import Plot
 from ClimateGraph.utils.control_model import ControlFile
 
 FILE_READERS = {".json": json.load, ".yaml": yaml.safe_load, ".yml": yaml.safe_load}
@@ -38,10 +37,10 @@ class Parser:
 
         try:
             valid = ControlFile.model_validate(control_dict)
-        except Exception as e:
+        except Exception as err:
             raise ValueError(
-                f"Configuration file doesn't meet the input structure. Check the pydantic model in control_model.py to meet the necessary requirements."
-            )
+                "Configuration file doesn't meet the input structure. Check the pydantic model in control_model.py to meet the necessary requirements."
+            ) from err
 
         analysis = valid.analysis.model_dump()
         data = dict()
@@ -114,6 +113,6 @@ class Parser:
         if (reader := FILE_READERS.get(control_path.suffix)) is None:
             raise ValueError(f"File type {control_path.suffix} not supported.")
 
-        with open(control_path, mode="r") as fp:
+        with open(control_path) as fp:
             control_dict = reader(fp)
         return control_dict
