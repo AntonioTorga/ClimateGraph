@@ -1,0 +1,39 @@
+# Unsafe load benchmark — identical body to bench_chim_sinca_safe.yaml
+# except `load_mode: unsafe`. Output path also differs so the two runs
+# don't overwrite each other.
+
+analysis:
+  output_path: "./test_data/results/bench-unsafe"
+  debug: True
+
+data:
+  SINCA:
+    path: "./test_data/data/SINCA-CAL-Daily-2000-2026.nc"
+    topology: PointSurface
+    reader: SINCA
+    load_mode: unsafe
+    vars:
+      PM25:
+        name: PM25_ug|m3
+        unit: "ug/m**3"
+
+  CHIMERE:
+    path: "./test_data/data/chim_reduced_2021-06.nc"
+    topology: RegularGrid
+    reader: chimere
+    load_mode: unsafe
+    vars:
+      PM25:
+        name: PM25
+        unit: "ug/m**3"
+
+plots:
+  ts_pm25:
+    type: timeseries
+    base: "SINCA"
+    other_data: ["CHIMERE"]
+    time_interval: "1/6/2021-30/6/2021"
+    timestep: "D"
+    radius_of_influence: 10000
+    vars:
+      PM25: "ug/m**3"

@@ -8,6 +8,7 @@ import xarray as xr
 from pyresample import kd_tree
 
 from ClimateGraph.reader import Reader
+from ClimateGraph.reader.reader.reader import ReadSpec
 from ClimateGraph.utils.dataset_utils import change_unit, time_resampling
 from ClimateGraph.utils.general_utils import ReductionMethodEnum
 
@@ -265,16 +266,27 @@ class Data(ABC):
         return self._bbox
 
     def load_obj(self):
-        """load_obj Load the actual data into the obj attribute, using the reader and reader_kwargs attributes.
+        """load_obj Load the actual data into the obj attribute by building
+        a ReadSpec and invoking ``reader.read(spec)``. ``load_mode`` and
+        ``cache_dir`` are pulled out of ``reader_kwargs`` if present; the
+        remainder lives on ``spec.extras`` for the subclass to consume.
 
         Returns
         -------
         xr.Dataset
             Xarray dataset of the Data object.
         """
-        self._obj = self.reader.open_mfdataset(
-            self.path, self.vars, **self.reader_kwargs
+        extras = dict(self.reader_kwargs)
+        load_mode = extras.pop("load_mode", "safe")
+        cache_dir = extras.pop("cache_dir", None)
+        spec = ReadSpec(
+            paths=self.path if isinstance(self.path, list) else [self.path],
+            vars=self.vars,
+            load_mode=load_mode,
+            cache_dir=cache_dir,
+            extras=extras,
         )
+        self._obj = self.reader.read(spec)
         return self._obj
 
     # The var_name is the variable name not native to the file but as how it is referred in vars

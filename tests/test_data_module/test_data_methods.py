@@ -160,7 +160,7 @@ class TestObjLazyLoading:
 
         class _Reader:
             @staticmethod
-            def open_mfdataset(files, vars, **kwargs):
+            def read(spec):
                 loaded["called"] += 1
                 return regular_grid_dataset
 

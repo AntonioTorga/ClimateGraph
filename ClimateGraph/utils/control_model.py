@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from pydantic import (
     BaseModel,
@@ -67,6 +68,11 @@ class DataModel(BaseModel):
     path: Path | list[Path]
     vars: dict[str, VarModel]
     crs: CRSEnum = Field(default=CRSEnum.platecarree)
+    load_mode: Literal["safe", "unsafe"] = Field(default="safe")
+    # Per-data download cache override. If unset, Parser falls back to
+    # analysis.output_path/.cache/. Reader._resolve_paths is the only
+    # site that consumes this; local-only readers ignore it.
+    cache_dir: Path | None = Field(default=None)
 
     @field_validator("topology")
     @classmethod
@@ -102,3 +108,21 @@ class ControlFile(BaseModel):
     domains: dict[str, DomainModel] | None = Field(default=None)
     plots: dict[str, PlotModel] | None = Field(default=None)
     # stats
+
+    @model_validator(mode="after")
+    def check_plot_domain_refs(self):
+        # Pre-M3 a typo in a plot's `domains:` list silently fell through
+        # to the "no domain" branch and the plot rendered against full
+        # data — a confusing failure mode. Catch unknown names early.
+        if not self.plots:
+            return self
+        known = set(self.domains or {})
+        for plot_name, plot_model in self.plots.items():
+            refs = getattr(plot_model, "domains", None) or []
+            missing = [d for d in refs if d not in known]
+            if missing:
+                raise ValueError(
+                    f"Plot {plot_name!r} references unknown domain(s) {missing}. "
+                    f"Known domains: {sorted(known) or '(none defined)'}."
+                )
+        return self

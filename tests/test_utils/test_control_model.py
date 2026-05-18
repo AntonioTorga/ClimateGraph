@@ -90,3 +90,43 @@ class TestControlFile:
         assert "WRF" in model.data
         assert model.plots is None
         assert model.domains is None
+
+    def test_plot_referencing_unknown_domain_is_rejected(
+        self, tmp_path, base_data_block
+    ):
+        cfg = {
+            "analysis": {"output_path": str(tmp_path / "out"), "debug": False},
+            "data": {"WRF": base_data_block},
+            "domains": {
+                "RM": {"type": "attribute", "field_name": "region", "field_value": 13},
+            },
+            "plots": {
+                "TS": {
+                    "type": "timeseries",
+                    "vars": "Temperatura",
+                    "domains": ["RM", "does_not_exist"],
+                    "base": "WRF",
+                },
+            },
+        }
+        with pytest.raises(ValidationError, match="unknown domain"):
+            ControlFile.model_validate(cfg)
+
+    def test_plot_with_known_domain_passes(self, tmp_path, base_data_block):
+        cfg = {
+            "analysis": {"output_path": str(tmp_path / "out"), "debug": False},
+            "data": {"WRF": base_data_block},
+            "domains": {
+                "RM": {"type": "attribute", "field_name": "region", "field_value": 13},
+            },
+            "plots": {
+                "TS": {
+                    "type": "timeseries",
+                    "vars": "Temperatura",
+                    "domains": ["RM"],
+                    "base": "WRF",
+                },
+            },
+        }
+        model = ControlFile.model_validate(cfg)
+        assert "TS" in model.plots

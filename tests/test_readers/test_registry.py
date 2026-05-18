@@ -16,20 +16,18 @@ class TestRegistry:
         bucket = Reader.registry["pointsurface"]
         assert "dmc" in bucket
         assert "sinca" in bucket
+        assert "defaultpointsurfacereader" in bucket
 
     def test_case_insensitive_lookup(self):
         assert Reader.get_reader_subclass("RegularGrid", "WRF") is Wrf
         assert Reader.get_reader_subclass("regulargrid", "wrf") is Wrf
 
-    def test_default_alias_lookup_resolves(self):
-        # `type_aliases = ["DefaultRegularGrid", "DefaultGrid"]` is declared on
-        # DefaultRegularGridReader, but because `__init_subclass__` reads
-        # inherited attributes, every subclass (Wrf, Chimere) re-registers the
-        # same aliases — so the final bound class is whichever was defined
-        # last. We only assert the alias resolves to *some* RegularGrid reader.
+    def test_default_alias_resolves_to_declaring_class(self):
+        # type_aliases are now filtered to cls.__dict__, so the alias
+        # declared on DefaultRegularGridReader resolves to it and is
+        # not silently rebound to the last-imported subclass.
         resolved = Reader.get_reader_subclass("RegularGrid", "DefaultRegularGrid")
-        assert resolved.topology == "RegularGrid"
-        assert issubclass(resolved, DefaultRegularGridReader)
+        assert resolved is DefaultRegularGridReader
 
     def test_unknown_topology_raises(self):
         with pytest.raises(ValueError, match="No topology"):
@@ -48,6 +46,4 @@ class TestRegistry:
         with pytest.raises(TypeError, match="topology"):
 
             class BadReader(Reader):
-                @classmethod
-                def open_mfdataset(cls, files, vars, **kwargs):
-                    return None
+                pass

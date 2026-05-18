@@ -144,7 +144,7 @@ def regular_grid_data(regular_grid_dataset, monkeypatch):
 
     class _StubReader:
         @staticmethod
-        def open_mfdataset(files, vars, **kwargs):
+        def read(spec):
             return regular_grid_dataset
 
     instance = RegularGrid(
@@ -168,7 +168,7 @@ def point_surface_data(point_surface_dataset):
 
     class _StubReader:
         @staticmethod
-        def open_mfdataset(files, vars, **kwargs):
+        def read(spec):
             return point_surface_dataset
 
     instance = PointSurface(

@@ -1,26 +1,10 @@
-from pathlib import Path
-
-import xarray as xr
-
-from ..reader import Reader
+from .default import DefaultPointSurfaceReader
 
 
-class DMC(Reader):
-    topology = "PointSurface"
+class DMC(DefaultPointSurfaceReader):
+    """Dirección Meteorológica de Chile point-surface reader.
 
-    @classmethod
-    def open_mfdataset(
-        cls, files: list[Path] | Path, vars: dict, **kwargs
-    ) -> xr.Dataset:
-        obj = xr.open_mfdataset(files, chunks="auto", engine="h5netcdf")
-
-        rename = {}
-        if rename_dict := kwargs.get("rename", False):
-            rename.update(rename_dict)
-        rename.update({_dict["name"]: name for name, _dict in vars.items()})
-        if ("x" in obj.coords) and ("site" not in obj.coords):
-            rename.update({"x": "site"})
-
-        obj = obj.rename(rename)
-
-        return obj
+    Currently a thin subclass of the default — kept distinct so DMC-specific
+    download/preprocessing (e.g. fetching from the DMC API) can land here
+    without touching SINCA.
+    """

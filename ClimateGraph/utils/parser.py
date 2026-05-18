@@ -47,6 +47,11 @@ class Parser:
         plots = dict()
         domains = dict()
 
+        # Default download cache for readers that fetch remote paths.
+        # Per-data `cache_dir` in YAML overrides this; local-only readers
+        # never look at it.
+        default_cache_dir = analysis["output_path"] / ".cache"
+
         for data_name, data_model in valid.data.items():
             _name = data_name
             _topology, _reader, _path, _vars, _crs = (
@@ -57,9 +62,16 @@ class Parser:
                 data_model.crs,
             )
             _vars = {var: var_model.model_dump() for var, var_model in _vars.items()}
-            reader_kwargs = (
-                data_model.model_extra
-            )  # Everything other than the required arguments will pass onto the reader
+
+            # model_extra is reader-specific kwargs (rename overrides,
+            # vertical_level for Chimere, etc.). Lifecycle settings
+            # (load_mode, cache_dir) are declared fields — we add them
+            # in explicitly so Data.load_obj has the full picture
+            # without Data growing new parameters.
+            reader_kwargs = dict(data_model.model_extra or {})
+            reader_kwargs["load_mode"] = data_model.load_mode
+            reader_kwargs["cache_dir"] = data_model.cache_dir or default_cache_dir
+
             data_instance = Data.create(
                 _name, _topology, _reader, _path, _vars, _crs, reader_kwargs
             )
