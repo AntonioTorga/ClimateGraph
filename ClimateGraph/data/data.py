@@ -267,9 +267,10 @@ class Data(ABC):
 
     def load_obj(self):
         """load_obj Load the actual data into the obj attribute by building
-        a ReadSpec and invoking ``reader.read(spec)``. ``load_mode`` and
-        ``cache_dir`` are pulled out of ``reader_kwargs`` if present; the
-        remainder lives on ``spec.extras`` for the subclass to consume.
+        a ReadSpec and invoking ``reader.read(spec)``. ``load_mode``,
+        ``cache_dir`` and ``engine`` are pulled out of ``reader_kwargs``
+        if present; the remainder lives on ``spec.extras`` for the
+        subclass to consume.
 
         Returns
         -------
@@ -279,11 +280,13 @@ class Data(ABC):
         extras = dict(self.reader_kwargs)
         load_mode = extras.pop("load_mode", "safe")
         cache_dir = extras.pop("cache_dir", None)
+        engine = extras.pop("engine", None)
         spec = ReadSpec(
             paths=self.path if isinstance(self.path, list) else [self.path],
             vars=self.vars,
             load_mode=load_mode,
             cache_dir=cache_dir,
+            engine=engine,
             extras=extras,
         )
         self._obj = self.reader.read(spec)

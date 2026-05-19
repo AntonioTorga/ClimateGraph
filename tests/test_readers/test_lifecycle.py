@@ -102,11 +102,13 @@ def test_unknown_load_mode_raises(tracked_reader):
 
 def test_default_open_many_wires_per_file_pipeline(monkeypatch):
     """The default _open_many should pass a per-file callback as the
-    `preprocess=` kwarg to xr.open_mfdataset and request parallel opens.
-    Without this wiring the safe path would skip _to_xarray and
-    _preprocess entirely. End-to-end behaviour (the callback actually
-    renaming and dropping) is covered by the slow safe-vs-unsafe
-    equivalence tests on real files.
+    `preprocess=` kwarg to xr.open_mfdataset. Without this wiring the
+    safe path would skip _to_xarray and _preprocess entirely. End-to-end
+    behaviour (the callback actually renaming and dropping) is covered by
+    the slow safe-vs-unsafe equivalence tests on real files.
+
+    Parallel opens are disabled by default because libnetcdf (the netcdf4
+    engine) is not thread-safe.
     """
     import xarray as xr
 
@@ -126,7 +128,8 @@ def test_default_open_many_wires_per_file_pipeline(monkeypatch):
     spec = ReadSpec(paths=[Path("a.nc")], vars=None)
     DefaultRegularGridReader._open_many([Path("a.nc")], spec)
 
-    assert captured["kwargs"]["parallel"] is True
+    assert captured["kwargs"]["engine"] == "netcdf4"
+    assert captured["kwargs"]["parallel"] is False
     assert captured["kwargs"]["chunks"] == "auto"
     assert callable(captured["kwargs"]["preprocess"])
 

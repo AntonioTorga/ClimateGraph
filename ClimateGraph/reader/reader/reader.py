@@ -27,6 +27,7 @@ class ReadSpec:
     vars: dict[str, dict[str, str]] | None = None
     load_mode: LoadMode = "safe"
     cache_dir: Path | None = None
+    engine: str | None = None
     extras: dict[str, Any] = field(default_factory=dict)
 
 
@@ -119,6 +120,7 @@ class Reader(ABC):
             vars=spec.vars,
             load_mode=spec.load_mode,
             cache_dir=spec.cache_dir,
+            engine=spec.engine,
             extras=spec.extras,
         )
 
@@ -161,7 +163,11 @@ class Reader(ABC):
 
     # NetCDF defaults. Override for non-NetCDF formats; downstream
     # _to_xarray will then turn the returned raw object into a Dataset.
-    open_engine: str = "h5netcdf"
+    # netcdf4 reads metadata via libnetcdf in C — far cheaper than
+    # h5netcdf's Python-level HDF5 dimension-scale walk, which previously
+    # dominated wall time on multi-file Chimere runs. Per-data-block
+    # override available via ``engine:`` in the YAML data entry.
+    open_engine: str = "netcdf4"
 
     @classmethod
     def _open_many(cls, paths: list[Path], spec: ReadSpec) -> xr.Dataset:
@@ -170,6 +176,12 @@ class Reader(ABC):
         ``xr.open_mfdataset(preprocess=)`` so they run in parallel inside
         xarray's machinery and unused variables get dropped *before*
         the cross-file combine. Non-NetCDF readers override this entirely.
+
+        ``parallel`` is disabled for ``netcdf4`` because libnetcdf is not
+        thread-safe — concurrent opens raise ``NetCDF: HDF error``. Other
+        engines (e.g. ``h5netcdf``) get parallel opens, so a user who
+        opts into a non-default engine via the YAML ``engine:`` knob can
+        try to amortise opens across threads.
         """
 
         def per_file(ds: xr.Dataset) -> xr.Dataset:
@@ -177,18 +189,20 @@ class Reader(ABC):
             ds = cls._preprocess(ds, spec)
             return ds
 
+        engine = spec.engine or cls.open_engine
         return xr.open_mfdataset(
             paths,
             chunks="auto",
-            engine=cls.open_engine,
-            parallel=True,
+            engine=engine,
+            parallel=engine != "netcdf4",
             preprocess=per_file,
         )
 
     @classmethod
     def _open_one(cls, path: Path, spec: ReadSpec) -> Any:
         """Open a single file (unsafe path)."""
-        return xr.open_dataset(path, chunks="auto", engine=cls.open_engine)
+        engine = spec.engine or cls.open_engine
+        return xr.open_dataset(path, chunks="auto", engine=engine)
 
     @classmethod
     def _to_xarray(cls, raw: Any, spec: ReadSpec) -> xr.Dataset:
