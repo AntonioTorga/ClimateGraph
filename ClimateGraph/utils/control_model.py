@@ -24,6 +24,7 @@ class AnalysisModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     output_path: Path
     debug: bool
+    workers: int | None = Field(default=None, ge=1)
 
     @field_validator("output_path")
     @classmethod
