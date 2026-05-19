@@ -69,7 +69,13 @@ def tracked_reader():
 def test_safe_mode_call_order(tracked_reader):
     cls, calls = tracked_reader
     cls.read(ReadSpec(paths=[Path("a.nc"), Path("b.nc")], load_mode="safe"))
-    assert calls == ["resolve", "open_many", "to_xarray", "preprocess", "postprocess"]
+    # In safe mode the orchestrator trusts _open_many to return a
+    # fully-preprocessed Dataset (the default implementation invokes
+    # _to_xarray + _preprocess per file via xr.open_mfdataset's
+    # `preprocess=` kwarg). Our mock _open_many here just returns a
+    # canned Dataset and never fires those callbacks, so the visible
+    # call order is the short one.
+    assert calls == ["resolve", "open_many", "postprocess"]
 
 
 def test_unsafe_mode_iterates_and_joins(tracked_reader):
@@ -92,6 +98,37 @@ def test_unknown_load_mode_raises(tracked_reader):
     cls, _ = tracked_reader
     with pytest.raises(ValueError, match="Unknown load_mode"):
         cls.read(ReadSpec(paths=[Path("a.nc")], load_mode="nope"))
+
+
+def test_default_open_many_wires_per_file_pipeline(monkeypatch):
+    """The default _open_many should pass a per-file callback as the
+    `preprocess=` kwarg to xr.open_mfdataset and request parallel opens.
+    Without this wiring the safe path would skip _to_xarray and
+    _preprocess entirely. End-to-end behaviour (the callback actually
+    renaming and dropping) is covered by the slow safe-vs-unsafe
+    equivalence tests on real files.
+    """
+    import xarray as xr
+
+    from ClimateGraph.reader.reader.regular_grid.default import (
+        DefaultRegularGridReader,
+    )
+
+    captured = {}
+
+    def fake_open_mfdataset(paths, **kwargs):
+        captured["paths"] = list(paths)
+        captured["kwargs"] = kwargs
+        return xr.Dataset()
+
+    monkeypatch.setattr(xr, "open_mfdataset", fake_open_mfdataset)
+
+    spec = ReadSpec(paths=[Path("a.nc")], vars=None)
+    DefaultRegularGridReader._open_many([Path("a.nc")], spec)
+
+    assert captured["kwargs"]["parallel"] is True
+    assert captured["kwargs"]["chunks"] == "auto"
+    assert callable(captured["kwargs"]["preprocess"])
 
 
 def test_resolve_paths_returning_empty_raises(tracked_reader):

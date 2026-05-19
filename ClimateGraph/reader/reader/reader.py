@@ -37,18 +37,24 @@ class Reader(ABC):
     subclasses plug into individual hooks. No subclass should override
     ``read`` itself.
 
-    Lifecycle::
+    Lifecycle (per-file hooks run in BOTH modes; the only difference is
+    who drives the per-file loop)::
 
         read(spec):
-            paths   = _resolve_paths(spec)        # download/cache here
+            paths = _resolve_paths(spec)           # download/cache here
             if safe:
-                raw = _open_many(paths, spec)
-                ds  = _to_xarray(raw, spec)
-                ds  = _preprocess(ds, spec)
+                ds = _open_many(paths, spec)       # internally calls
+                                                   # _to_xarray + _preprocess
+                                                   # per file via xarray's
+                                                   # open_mfdataset(preprocess=)
             else:
-                pieces = [_preprocess(_to_xarray(_open_one(p, spec), spec), spec)
-                          for p in paths]
-                ds  = _join(pieces, spec)
+                pieces = []
+                for p in paths:
+                    raw   = _open_one(p, spec)
+                    piece = _to_xarray(raw, spec)
+                    piece = _preprocess(piece, spec)
+                    pieces.append(piece)
+                ds = _join(pieces, spec)
             ds = _postprocess(ds, spec)
     """
 
@@ -117,9 +123,11 @@ class Reader(ABC):
         )
 
         if spec.load_mode == "safe":
-            raw = cls._open_many(local_paths, spec)
-            ds = cls._to_xarray(raw, spec)
-            ds = cls._preprocess(ds, spec)
+            # _open_many is contracted to return a fully-preprocessed,
+            # combined Dataset (the default implementation wires
+            # _to_xarray + _preprocess as the open_mfdataset
+            # `preprocess=` callback, per file, in parallel).
+            ds = cls._open_many(local_paths, spec)
         elif spec.load_mode == "unsafe":
             pieces = []
             for path in local_paths:
@@ -143,20 +151,39 @@ class Reader(ABC):
         """Turn the user-supplied path spec into a list of local paths.
 
         Default behaviour: glob-expand local paths via ``manage_path``.
-        Subclasses that fetch from remote sources override this and
-        return the post-download local paths. Downstream hooks never see
-        a remote URL.
+        Sorted lexicographically for the unsafe path (which concats in
+        input order) so an out-of-order glob doesn't silently produce a
+        non-monotonic time axis. Safe path keeps native glob order
+        because ``xr.open_mfdataset``'s ``combine="by_coords"`` aligns
+        on coords anyway.
         """
-        return manage_path(spec.paths)
+        return manage_path(spec.paths, sort=spec.load_mode == "unsafe")
 
     # NetCDF defaults. Override for non-NetCDF formats; downstream
     # _to_xarray will then turn the returned raw object into a Dataset.
     open_engine: str = "h5netcdf"
 
     @classmethod
-    def _open_many(cls, paths: list[Path], spec: ReadSpec) -> Any:
-        """Open all files in one call (safe path)."""
-        return xr.open_mfdataset(paths, chunks="auto", engine=cls.open_engine)
+    def _open_many(cls, paths: list[Path], spec: ReadSpec) -> xr.Dataset:
+        """Open all files (safe path). Default implementation routes
+        per-file ``_to_xarray`` + ``_preprocess`` through
+        ``xr.open_mfdataset(preprocess=)`` so they run in parallel inside
+        xarray's machinery and unused variables get dropped *before*
+        the cross-file combine. Non-NetCDF readers override this entirely.
+        """
+
+        def per_file(ds: xr.Dataset) -> xr.Dataset:
+            ds = cls._to_xarray(ds, spec)
+            ds = cls._preprocess(ds, spec)
+            return ds
+
+        return xr.open_mfdataset(
+            paths,
+            chunks="auto",
+            engine=cls.open_engine,
+            parallel=True,
+            preprocess=per_file,
+        )
 
     @classmethod
     def _open_one(cls, path: Path, spec: ReadSpec) -> Any:
@@ -183,14 +210,18 @@ class Reader(ABC):
 
     @classmethod
     def _join(cls, pieces: list[xr.Dataset], spec: ReadSpec) -> xr.Dataset:
-        """Concatenate per-file pieces (unsafe path only). Default joins
-        on ``time`` with override='drop_conflicts' style semantics; this
-        matches what ``open_mfdataset`` does by default for the safe path,
-        so safe and unsafe stay equivalent for typical NetCDF inputs.
+        """Combine per-file pieces (unsafe path only).
+
+        Default uses ``xr.combine_nested(pieces, concat_dim="time")``,
+        which trusts the input order — safe here because
+        ``_resolve_paths`` sorts paths when ``load_mode == "unsafe"``.
+        Readers whose files share dims but hold different variables
+        (variable-per-file layouts) should override this and call
+        ``xr.merge(pieces)`` instead.
         """
         if len(pieces) == 1:
             return pieces[0]
-        return xr.concat(pieces, dim="time")
+        return xr.combine_nested(pieces, concat_dim="time")
 
     @classmethod
     def _postprocess(cls, ds: xr.Dataset, spec: ReadSpec) -> xr.Dataset:

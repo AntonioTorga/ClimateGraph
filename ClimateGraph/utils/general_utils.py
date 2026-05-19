@@ -69,18 +69,28 @@ class CRSEnum(str, Enum):
     platecarree = ("platecarree", ccrs.PlateCarree)
 
 
-def manage_path(paths: str | Path | list[str] | list[Path]) -> list[Path]:
+def manage_path(
+    paths: str | Path | list[str] | list[Path],
+    sort: bool = False,
+) -> list[Path]:
     """manage_path Handles paths, including lists of paths and paths with hotkeys (*,?, etc).
-    2
-        Parameters
-        ----------
-        paths : str | Path | List[str] | List[Path]
-            Path or list of paths that compose the data object.
 
-        Returns
-        -------
-        List[Path]
-            List of existing pathlib.Path's created from the input paths.
+    Parameters
+    ----------
+    paths : str | Path | List[str] | List[Path]
+        Path or list of paths that compose the data object.
+    sort : bool, optional
+        When True, return paths in lexicographic order. If the post-sort
+        order differs from the input order, log a warning — callers that
+        concat in input order (e.g. the Reader unsafe path) will get a
+        silently non-monotonic time axis if filenames don't embed a
+        sortable timestamp. Default False keeps the historical
+        glob/input order.
+
+    Returns
+    -------
+    List[Path]
+        List of existing pathlib.Path's created from the input paths.
     """
     if isinstance(paths, (str, Path)):
         paths = [paths]
@@ -91,15 +101,25 @@ def manage_path(paths: str | Path | list[str] | list[Path]) -> list[Path]:
         p = Path(raw) if isinstance(raw, str) else raw
         p = p.resolve() if not p.is_absolute() else p
 
-        # Detect glob pattern
-
         matches = glob.glob(str(p))
-        if not matches:  # is empty
+        if not matches:
             logging.debug(f"No files match pattern: {raw}")
         result.extend(Path(m).resolve() for m in matches if Path(m).exists())
 
-    if not result:  # is empty
+    if not result:
         logging.debug(f"No files exist for paths: {paths}")
+
+    if sort:
+        ordered = sorted(result)
+        if ordered != result:
+            logging.warning(
+                "manage_path: input paths were not in lexicographic order; "
+                "sorted automatically. Confirm filenames embed a sortable "
+                "timestamp or callers that concat in input order will produce "
+                "a non-monotonic time axis. First few: %s",
+                [p.name for p in ordered[:3]],
+            )
+        result = ordered
 
     return result
 

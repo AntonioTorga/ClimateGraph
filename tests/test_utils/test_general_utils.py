@@ -59,6 +59,41 @@ class TestManagePath:
             result = manage_path(str(tmp_path / "does-not-exist.nc"))
         assert result == []
 
+    def test_sort_kwarg_sorts_results(self, tmp_path):
+        for name in ("c.nc", "a.nc", "b.nc"):
+            (tmp_path / name).write_bytes(b"")
+        # Pass as an explicit list in non-sorted order.
+        files = [str(tmp_path / n) for n in ("c.nc", "a.nc", "b.nc")]
+        sorted_result = manage_path(files, sort=True)
+        assert [p.name for p in sorted_result] == ["a.nc", "b.nc", "c.nc"]
+
+    def test_sort_kwarg_warns_when_input_was_unordered(self, tmp_path, caplog):
+        for name in ("c.nc", "a.nc"):
+            (tmp_path / name).write_bytes(b"")
+        files = [str(tmp_path / n) for n in ("c.nc", "a.nc")]
+        with caplog.at_level(logging.WARNING):
+            manage_path(files, sort=True)
+        assert any(
+            "not in lexicographic order" in rec.message for rec in caplog.records
+        )
+
+    def test_sort_kwarg_silent_when_input_already_ordered(self, tmp_path, caplog):
+        for name in ("a.nc", "b.nc"):
+            (tmp_path / name).write_bytes(b"")
+        files = [str(tmp_path / n) for n in ("a.nc", "b.nc")]
+        with caplog.at_level(logging.WARNING):
+            manage_path(files, sort=True)
+        assert not any(
+            "not in lexicographic order" in rec.message for rec in caplog.records
+        )
+
+    def test_default_does_not_sort(self, tmp_path):
+        for name in ("c.nc", "a.nc"):
+            (tmp_path / name).write_bytes(b"")
+        files = [str(tmp_path / n) for n in ("c.nc", "a.nc")]
+        # Default sort=False preserves input order.
+        assert [p.name for p in manage_path(files)] == ["c.nc", "a.nc"]
+
 
 class TestEnums:
     def test_timestep_enum_values(self):
