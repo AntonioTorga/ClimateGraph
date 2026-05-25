@@ -18,6 +18,17 @@ class TestRegistry:
         assert "sinca" in bucket
         assert "defaultpointsurfacereader" in bucket
 
+    def test_csv_point_surface_readers_registered(self):
+        bucket = Reader.registry["pointsurface"]
+        # The Chile CSV reader registers under its own name plus the CHILE
+        # alias, leaving the existing NetCDF SINCA reader untouched.
+        assert bucket["sincacsv"].__name__ == "SINCACSV"
+        assert bucket["chile"].__name__ == "SINCACSV"
+        assert bucket["saopaulo"].__name__ == "SAOPAULO"
+        assert bucket["quito"].__name__ == "QUITO"
+        # The new readers must not shadow the existing NetCDF SINCA.
+        assert bucket["sinca"].__name__ == "SINCA"
+
     def test_case_insensitive_lookup(self):
         assert Reader.get_reader_subclass("RegularGrid", "WRF") is Wrf
         assert Reader.get_reader_subclass("regulargrid", "wrf") is Wrf

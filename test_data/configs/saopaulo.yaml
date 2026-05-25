@@ -1,0 +1,28 @@
+analysis:
+  output_path: "./test_data/results/saopaulo"
+  debug: True
+
+data:
+  SAOPAULO:
+    path: "./test_data/data/DATOS-INSITU/SAOPAULO/obs_sp_aug_sep_2024.csv"
+    topology: PointSurface
+    reader: SAOPAULO
+    metadata: "./test_data/data/DATOS-INSITU/SAOPAULO/stations.csv"
+    vars:
+      O3:
+        name: o3
+        unit: "ug/m**3"
+      PM10:
+        name: pm10
+        unit: "ug/m**3"
+
+plots:
+  TC:
+    type: timecycle
+    base: "SAOPAULO"
+    time_interval: "1/8/2024-30/9/2024"
+    timestep: "h"
+    time_buckets: "hour"
+    vars:
+      O3: "ug/m**3"
+      PM10: "ug/m**3"

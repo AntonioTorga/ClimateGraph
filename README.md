@@ -450,3 +450,7 @@ Python 3.12 and 3.13 in parallel; lint, fast tests, and a coverage gate
 (`--cov-fail-under=85`) must all pass. Slow tests (NetCDF-touching + figure
 regression) are not run in CI — they auto-skip when the sample data isn't
 present on the runner.
+
+---
+### Financed by ANID Chile
+This project is funded by ANID (Agencia Nacional de Investigación y Desarrollo) Chile through the FONDECYT Regular project N° 1231717

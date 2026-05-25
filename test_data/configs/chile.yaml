@@ -1,0 +1,38 @@
+analysis:
+  output_path: "./test_data/results/chile"
+  debug: True
+
+data:
+  CHILE:
+    # *[0-9].csv matches the per-station files (104.csv, ...) but NOT the
+    # stations.csv metadata sidecar.
+    path: "./test_data/data/DATOS-INSITU/CHILE/*[0-9].csv"
+    topology: PointSurface
+    reader: CHILE
+    metadata: "./test_data/data/DATOS-INSITU/CHILE/stations.csv"
+    vars:
+      PM25:
+        name: PM25
+        unit: "ug/m**3"
+      PM10:
+        name: PM10
+        unit: "ug/m**3"
+
+plots:
+  ts:
+    type: timeseries
+    base: "CHILE"
+    time_interval: "1/7/2022-1/8/2022"
+    timestep: "h"
+    vars:
+      PM25: "ug/m**3"
+      PM10: "ug/m**3"
+  TC:
+    type: timecycle
+    base: "CHILE"
+    time_interval: "1/7/2022-1/8/2022"
+    timestep: "h"
+    time_buckets: "hour"
+    vars:
+      PM25: "ug/m**3"
+      PM10: "ug/m**3"
