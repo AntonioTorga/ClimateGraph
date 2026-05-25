@@ -849,11 +849,18 @@ class TimeCycle(Plot):
                     )
 
                     ax.plot(bucket_vals, mean.values, label=name)
-                    ax.fill_between(
-                        bucket_vals, (mean - std).values, (mean + std).values, alpha=0.2
-                    )
+                    # Std band only for the base dataset; other_data is a line.
+                    if name == self.plot_config.base:
+                        ax.fill_between(
+                            bucket_vals,
+                            (mean - std).values,
+                            (mean + std).values,
+                            alpha=0.2,
+                        )
 
-                title = self.plot_kwargs.get("title", f"Diurnal cycle of {variable}")
+                title = self.plot_kwargs.get(
+                    "title", f"{time_bucket.capitalize()} cycle of {variable}"
+                )
                 xlabel = self.plot_kwargs.get("xlabel", time_bucket.capitalize())
                 ylabel = self.plot_kwargs.get("ylabel", f"{variable} ({unit})")
 

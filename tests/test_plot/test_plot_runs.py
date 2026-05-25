@@ -109,6 +109,51 @@ class TestTimeCyclePlot:
         plot.plot()
         assert _outputs(tmp_output_dir, "tc")
 
+    def test_std_band_only_for_base_and_title_reflects_bucket(
+        self, regular_grid_data, point_surface_data, tmp_output_dir, monkeypatch
+    ):
+        import matplotlib.axes
+        import matplotlib.figure
+
+        fills: list[int] = []
+        titles: list[str] = []
+        monkeypatch.setattr(
+            matplotlib.axes.Axes,
+            "fill_between",
+            lambda self, *a, **k: fills.append(1),
+        )
+        monkeypatch.setattr(
+            matplotlib.figure.Figure,
+            "suptitle",
+            lambda self, t, *a, **k: titles.append(t),
+        )
+
+        cfg = TimeCycleConfig(
+            type="cycle",
+            base="grid_stub",
+            other_data=["point_stub"],
+            radius_of_influence=500_000,
+            vars=["Temperatura"],
+            time_interval=TIME_INTERVAL,
+            time_buckets="hour",
+        )
+        plot = TimeCycle(
+            name="tc_band",
+            plot_config=cfg,
+            data_registry={
+                "grid_stub": regular_grid_data,
+                "point_stub": point_surface_data,
+            },
+            domain_registry={},
+            output_path=tmp_output_dir,
+        )
+        plot.plot()
+
+        # Two datasets are drawn, but only the base contributes a std band.
+        assert len(fills) == 1
+        # Title must reference the configured bucket, not a hardcoded "Diurnal".
+        assert titles and "Hour" in titles[0]
+
 
 class TestSpatialOverlayPlot:
     def test_runs_with_grid_and_point(
