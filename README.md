@@ -104,6 +104,9 @@ Every sub-block defines a new data item, which is composed by the following para
   - path: Relative or absolute path or list of paths. Accepts and expands hotkeys (*,?)
   - vars: Block of information about the vars about to plot. Every subblock defines a variable and includes **ONLY** the name of the variable in the files and the unit.
   - crs: Coordinate Reference System. Managed by Cartopy, currently only PlateCarree is available.
+  - load_mode: `safe` (default) or `unsafe`. See the loading notes for the trade-offs.
+  - time_offset (optional): hours to shift the `time` coordinate by, applied at read time. Meant for datasets stored in UTC that you want on a local schedule — e.g. `time_offset: -3` reads a UTC file as UTC-3 (Chile). Fractional hours are allowed (e.g. `5.5`); omit it or set `0` to leave time untouched.
+  - Any other key in the data block (e.g. `engine`, `cache_dir`, `vertical_level`, `metadata`) is passed through to the reader as a reader kwarg.
 ### - domains
   - **type** Type of domain.
   And then every different type requires different extra arguments.

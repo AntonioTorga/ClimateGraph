@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+import pandas as pd
 import xarray as xr
 
 from ClimateGraph.utils.general_utils import manage_path
@@ -57,6 +58,7 @@ class Reader(ABC):
                     pieces.append(piece)
                 ds = _join(pieces, spec)
             ds = _postprocess(ds, spec)
+            ds = _apply_time_offset(ds, spec)   # runs for every reader
     """
 
     registry: dict[str, dict[str, type[Reader]]] = {}
@@ -144,9 +146,30 @@ class Reader(ABC):
             )
 
         ds = cls._postprocess(ds, spec)
+        # Applied here rather than inside the _postprocess hook so it runs for
+        # every reader, even those whose _postprocess override doesn't call
+        # super() (e.g. Chimere).
+        ds = cls._apply_time_offset(ds, spec)
         return ds
 
     # ----- lifecycle hooks (override these, not read) ---------------------
+
+    @staticmethod
+    def _apply_time_offset(ds: xr.Dataset, spec: ReadSpec) -> xr.Dataset:
+        """Shift the ``time`` coordinate by ``spec.extras['time_offset']`` hours.
+
+        Optional, off by default. Meant for datasets stored in UTC that the
+        user wants on a local schedule — e.g. ``time_offset: -3`` in the data
+        block reads a UTC file as UTC-3 (Chile). A no-op when the key is
+        absent or zero, or when the dataset has no ``time`` coordinate.
+        Fractional hours are allowed (e.g. ``5.5``).
+        """
+        offset = spec.extras.get("time_offset")
+        if not offset or "time" not in ds.coords:
+            return ds
+        return ds.assign_coords(
+            time=ds["time"] + pd.to_timedelta(float(offset), unit="h")
+        )
 
     @classmethod
     def _resolve_paths(cls, spec: ReadSpec) -> list[Path]:
