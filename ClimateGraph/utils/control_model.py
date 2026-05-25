@@ -1,20 +1,19 @@
 from pathlib import Path
+from typing import Literal
+
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
     field_validator,
     model_validator,
-    Field,
 )
-from typing import Dict, List, Optional
-
 
 from ClimateGraph.data import Data
-from ClimateGraph.reader import Reader
-from ClimateGraph.plot import Plot
 from ClimateGraph.domain import Domain
-from ClimateGraph.utils.general_utils import manage_path, CRSEnum
+from ClimateGraph.plot import Plot
+from ClimateGraph.reader import Reader
+from ClimateGraph.utils.general_utils import CRSEnum, manage_path
 
 
 class AnalysisModel(BaseModel):
@@ -25,6 +24,7 @@ class AnalysisModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     output_path: Path
     debug: bool
+    workers: int | None = Field(default=None, ge=1)
 
     @field_validator("output_path")
     @classmethod
@@ -34,8 +34,10 @@ class AnalysisModel(BaseModel):
             v.mkdir(parents=True)
         return v
 
+
 PlotModel = Plot.build_config_union()
 DomainModel = Domain.build_config_union()
+
 
 class VarModel(BaseModel):
     """VarModel Variable block pydantic model. Just has a name for the variable and pint-accepted unit.
@@ -51,6 +53,7 @@ class VarModel(BaseModel):
     name: str
     unit: str
 
+
 class DataModel(BaseModel):
     """DataModel Data block pydantic model. Accepts topology and reader (they have to match).
     Also a single path or path list for the files that the Data object will represent.
@@ -63,9 +66,14 @@ class DataModel(BaseModel):
 
     topology: str
     reader: str
-    path: Path | List[Path]
-    vars: Dict[str, VarModel]
+    path: Path | list[Path]
+    vars: dict[str, VarModel]
     crs: CRSEnum = Field(default=CRSEnum.platecarree)
+    load_mode: Literal["safe", "unsafe"] = Field(default="safe")
+    # Per-data download cache override. If unset, Parser falls back to
+    # analysis.output_path/.cache/. Reader._resolve_paths is the only
+    # site that consumes this; local-only readers ignore it.
+    cache_dir: Path | None = Field(default=None)
 
     @field_validator("topology")
     @classmethod
@@ -97,7 +105,25 @@ class ControlFile(BaseModel):
     """ControlFile Complete Control/Configuration pydantic model. Gets the other pydantic models together."""
 
     analysis: AnalysisModel
-    data: Dict[str, DataModel]
-    domains: Dict[str, DomainModel] | None = Field(default=None)
-    plots: Dict[str, PlotModel] | None = Field(default=None)
+    data: dict[str, DataModel]
+    domains: dict[str, DomainModel] | None = Field(default=None)
+    plots: dict[str, PlotModel] | None = Field(default=None)
     # stats
+
+    @model_validator(mode="after")
+    def check_plot_domain_refs(self):
+        # Pre-M3 a typo in a plot's `domains:` list silently fell through
+        # to the "no domain" branch and the plot rendered against full
+        # data — a confusing failure mode. Catch unknown names early.
+        if not self.plots:
+            return self
+        known = set(self.domains or {})
+        for plot_name, plot_model in self.plots.items():
+            refs = getattr(plot_model, "domains", None) or []
+            missing = [d for d in refs if d not in known]
+            if missing:
+                raise ValueError(
+                    f"Plot {plot_name!r} references unknown domain(s) {missing}. "
+                    f"Known domains: {sorted(known) or '(none defined)'}."
+                )
+        return self

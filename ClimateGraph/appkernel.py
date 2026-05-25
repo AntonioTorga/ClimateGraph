@@ -1,9 +1,8 @@
-from ClimateGraph.data import Data
-from ClimateGraph.plot import Plot
-from ClimateGraph.utils.parser import Parser
-
-from pathlib import Path
 import logging
+from contextlib import contextmanager
+from pathlib import Path
+
+from ClimateGraph.utils.parser import Parser
 
 logging.basicConfig(level=logging.INFO)
 
@@ -21,6 +20,7 @@ class AppKernel:
 
         self.debug = None
         self.output_path = None
+        self.workers = None
 
     def read_control(self, control_path: Path):
         """read_control Uses the Parser from utils to read a control file.
@@ -50,7 +50,7 @@ class AppKernel:
             logging.info(f"Plotting '{name}'.")
             plot_obj.plot()
 
-    def set_analysis_data(self, analysis: dict = None):
+    def set_analysis_data(self, analysis: dict | None = None):
         """set_analysis_data Set analysis data in the AppKernel instance.
 
         Parameters
@@ -63,6 +63,7 @@ class AppKernel:
 
         self.debug = analysis.get("debug", False)
         self.output_path = analysis.get("output_path", Path("./"))
+        self.workers = analysis.get("workers")
 
     def run(self, control_path: Path):
         """run Run the ClimateGraph routine.
@@ -78,7 +79,24 @@ class AppKernel:
 
         self.set_analysis_data()
         # if self.eager : self.load_data()
-        self.plot()
+        with self._dask_client():
+            self.plot()
         # self.stats() TODO: add a module for stats
 
         self.data, self.plots, self.domains = None, None, None
+
+    @contextmanager
+    def _dask_client(self):
+        if not self.workers:
+            yield None
+            return
+        from dask.distributed import Client, LocalCluster
+
+        cluster = LocalCluster(n_workers=1, threads_per_worker=self.workers)
+        client = Client(cluster)
+        logging.info(f"Dask Client started: 1 worker x {self.workers} threads.")
+        try:
+            yield client
+        finally:
+            client.close()
+            cluster.close()

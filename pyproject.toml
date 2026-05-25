@@ -13,6 +13,8 @@ authors = [{ name = "Antonio Andrés Torga Mellado", email = "antonio.torga@ug.u
 dependencies = [
         "typer>=0.12",
         "xarray",
+        "pandas",
+        "openpyxl",
         "dask",
         "netcdf4",
         "numpy",
@@ -32,11 +34,14 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-        "black"
+        "ruff>=0.6",
+        "pre-commit>=3.7",
 ]
 
-test= [
-        "pytest"
+test = [
+        "pytest",
+        "pytest-cov",
+        "pillow",
 ]
 
 [tool.setuptools]
@@ -44,3 +49,67 @@ packages = ["ClimateGraph", "ClimateGraph.data", "ClimateGraph.plot","ClimateGra
 
 [project.scripts]
 ClimateGraph= "ClimateGraph.cli:app"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: tests that touch the NetCDF samples in test_data/data/ or render figures end-to-end",
+    "integration: end-to-end tests that exercise AppKernel.run() against a real YAML",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["ClimateGraph"]
+omit = [
+    "*/tests/*",
+    "*/test_data/*",
+    "ClimateGraph/cli.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 85
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+extend-exclude = [
+    "build",
+    "ClimateGraph.egg-info",
+    "venv",
+    "tests/baseline_images",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes (unused imports, undefined names)
+    "I",    # isort (import ordering)
+    "B",    # flake8-bugbear (likely bugs, e.g. mutable default args)
+    "UP",   # pyupgrade (modernise syntax for py312+)
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific rules
+]
+ignore = [
+    "E501",   # line too long — formatter handles long lines; keep code-only lines flexible
+    "B008",   # function calls in argument defaults — Typer/Pydantic use this pattern legitimately
+    "RUF012", # mutable class default — Data/Reader/Plot/Domain rely on shared class-level registry dicts by design
+    "UP042",  # str-Enum — ReductionMethodEnum / CRSEnum use a custom __new__ that StrEnum semantics would change
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401", "E402"]   # re-exports + dynamic importlib loops register subclasses before re-exporting
+"tests/**" = ["B011", "SIM"]       # tests rely on plain asserts and explicit constructs
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = false

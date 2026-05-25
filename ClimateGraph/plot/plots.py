@@ -1,41 +1,75 @@
-from pydantic import BaseModel, Field, model_validator
-import matplotlib.pyplot as plt
-from typing import Literal, List, Dict, Tuple
-import numpy as np
 import math
+from typing import Literal
+
 import cartopy.feature as cfeature
 import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
+from pydantic import BaseModel, Field, model_validator
 
 mpl.use("Agg")
 
-from ClimateGraph.data import Data, PointSurface, RegularGrid, SatelliteSwath
+from ClimateGraph.data import PointSurface, RegularGrid
+from ClimateGraph.utils.dataset_utils import change_unit, time_resampling
 from ClimateGraph.utils.general_utils import (
-    manage_time_interval,
-    TimestepEnum,
-    TimeBucketEnum,
-    ReductionMethodEnum,
     CRSEnum,
+    ReductionMethodEnum,
+    TimeBucketEnum,
+    TimestepEnum,
+    manage_time_interval,
 )
-from ClimateGraph.utils.dataset_utils import time_resampling, change_unit
 
 from .plot import Plot
 
-# TODO: remove nans
+
+def _drop_nan_points(
+    lons: np.ndarray, lats: np.ndarray, vals: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """_drop_nan_points Drop the entries whose value is NaN, keeping the
+    longitude / latitude / value arrays aligned. Used to strip empty stations
+    from scatter overlays so they neither draw nor stretch the auto extent.
+    """
+    keep = ~np.isnan(vals)
+    return lons[keep], lats[keep], vals[keep]
+
+
+def _pad_extent(
+    lon_min: float,
+    lon_max: float,
+    lat_min: float,
+    lat_max: float,
+    padding: float,
+) -> tuple[float, float, float, float]:
+    """_pad_extent Grow a (lon_min, lon_max, lat_min, lat_max) extent outward by
+    ``padding`` (a fraction of each axis span) so auto-computed map bounds don't
+    clip markers sitting on the edge. A zero-width span (e.g. a single point)
+    falls back to a fixed 0.5-degree pad so ``set_extent`` stays valid.
+    """
+    lon_span = lon_max - lon_min
+    lat_span = lat_max - lat_min
+    lon_pad = lon_span * padding if lon_span else 0.5
+    lat_pad = lat_span * padding if lat_span else 0.5
+    return (
+        lon_min - lon_pad,
+        lon_max + lon_pad,
+        lat_min - lat_pad,
+        lat_max + lat_pad,
+    )
 
 
 class BasePlotConfig(BaseModel):
     """BasePlotConfig Base configuration as for all plots, Pydantic Model. Used to manage common arguments."""
 
     filename: str | None = Field(default=None)
-    figsize: Tuple[float, float] = Field((6, 6))
+    figsize: tuple[float, float] = Field((6, 6))
     format: str = Field(default="jpg")
     layout: Literal["constrained", "compressed", "tight", "none"] = Field(
         default="compressed"
     )
     dpi: int = Field(default=400)
     transparent: bool = Field(default=False)
-    domains: List[str] = Field(default_factory=list)
-    vars: str | List[str] | Dict[str, str]
+    domains: list[str] = Field(default_factory=list)
+    vars: str | list[str] | dict[str, str]
 
 
 class TimeSeriesConfig(BasePlotConfig):
@@ -43,9 +77,9 @@ class TimeSeriesConfig(BasePlotConfig):
 
     type: Literal["timeseries", "ts", "time-series"]
     base: str
-    other_data: str | List[str] | None = Field(default=None)
+    other_data: str | list[str] | None = Field(default=None)
     radius_of_influence: int | None = Field(default=None)
-    time_interval: str | List[str] | None = Field(default=None)
+    time_interval: str | list[str] | None = Field(default=None)
     timestep: TimestepEnum | None = Field(default=None)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
     colors: str | None = Field(default=None)  # TODO: implement
@@ -106,14 +140,16 @@ class Timeseries(Plot):
             if not isinstance(self.plot_config.other_data, list):
                 self.plot_config.other_data = [self.plot_config.other_data]
             other_data = {
-                    name_: base.resample_vars(
+                name_: base.resample_vars(
                     data,
                     vars,
                     radius_of_influence=radius_of_influence,
                     timestep=timestep,
                     time_interval=time_interval,
                 )
-                for name_, data in {name: self.data[name] for name in self.plot_config.other_data}.items()
+                for name_, data in {
+                    name: self.data[name] for name in self.plot_config.other_data
+                }.items()
             }
             other_data[self.plot_config.base] = base_obj
             all_data = other_data
@@ -170,7 +206,7 @@ class Timeseries(Plot):
                 start, end = manage_time_interval(time_interval)
                 format = self.plot_kwargs.get("format", "jpg")
                 filename = (
-                    f"ts-{dom_name}-{variable}-{start.strftime("%d-%m-%Y")}_{end.strftime("%d-%m-%Y")}.{format}"
+                    f"ts-{dom_name}-{variable}-{start.strftime('%d-%m-%Y')}_{end.strftime('%d-%m-%Y')}.{format}"
                     if self.plot_config.filename is None
                     else self.plot_config.filename
                 )
@@ -240,7 +276,7 @@ class Scatter(Plot):
             base.obj, timestep=timestep, time_interval=time_interval
         )
         for var in vars:
-            unit = base.vars[var]["unit"] if isinstance(vars, List | str) else vars[var]
+            unit = base.vars[var]["unit"] if isinstance(vars, list | str) else vars[var]
             base_obj[var] = change_unit(
                 base_obj[var], base.vars[var]["unit"], vars[var]
             )
@@ -282,7 +318,7 @@ class Scatter(Plot):
             for variable, unit in vars.items():
                 unit = (
                     base.vars[variable]["unit"]
-                    if isinstance(vars, List | str)
+                    if isinstance(vars, list | str)
                     else vars[variable]
                 )
                 figure = plt.figure(
@@ -294,9 +330,10 @@ class Scatter(Plot):
                     other_obj_dom[f"{variable}__{other.name}"],
                 )
                 ax = figure.add_subplot(1, 1, 1)
-                min_val, max_val = math.floor(
-                    np.nanmin([np.nanmin(base_var), np.nanmin(other_var)])
-                ), math.ceil(np.nanmax([np.nanmax(base_var), np.nanmax(other_var)]))
+                min_val, max_val = (
+                    math.floor(np.nanmin([np.nanmin(base_var), np.nanmin(other_var)])),
+                    math.ceil(np.nanmax([np.nanmax(base_var), np.nanmax(other_var)])),
+                )
 
                 title = self.plot_kwargs.get(
                     "title",
@@ -324,7 +361,7 @@ class Scatter(Plot):
                 start, end = manage_time_interval(time_interval)
                 format = self.plot_kwargs.get("format", "jpg")
                 filename = (
-                    f"scatter-{dom_name}-{variable}-{start.strftime("%d-%m-%Y")}_{end.strftime("%d-%m-%Y")}.{format}"
+                    f"scatter-{dom_name}-{variable}-{start.strftime('%d-%m-%Y')}_{end.strftime('%d-%m-%Y')}.{format}"
                     if self.plot_config.filename is None
                     else self.plot_config.filename
                 )
@@ -344,7 +381,9 @@ class SpatialOverlayConfig(BasePlotConfig):
     coastlines: bool = Field(default=True)
     borders: bool = Field(default=True)
     cmap: str = Field(default="viridis")
-    bbox: List[float | int] = Field(default=None)
+    bbox: list[float | int] = Field(default=None)
+    padding: float = Field(default=0.05)
+    drop_nans: bool = Field(default=False)
 
 
 class SpatialOverlay(Plot):
@@ -434,36 +473,39 @@ class SpatialOverlay(Plot):
                     f"Spatial overlay comparison of {var} between {base.name} and {superposed.name}"
                 )
 
-                vmin, vmax = np.nanmin(
-                    [base_var.min(), superposed_var.min()]
-                ), np.nanmax([base_var.max(), superposed_var.max()])
+                vmin, vmax = (
+                    np.nanmin([base_var.min(), superposed_var.min()]),
+                    np.nanmax([base_var.max(), superposed_var.max()]),
+                )
+
+                # Superposed (point) coords/values, optionally dropping the
+                # stations whose reduced observation is NaN so empty sites
+                # neither draw nor stretch the auto extent.
+                sup_lons = superposed_var["longitude"].values
+                sup_lats = superposed_var["latitude"].values
+                sup_vals = superposed_var.values
+                if self.plot_config.drop_nans:
+                    sup_lons, sup_lats, sup_vals = _drop_nan_points(
+                        sup_lons, sup_lats, sup_vals
+                    )
 
                 if self.plot_config.bbox is not None:
                     lon_min, lat_min, lon_max, lat_max = self.plot_config.bbox
                 else:
                     lon_min = np.nanmax(
-                        [
-                            np.nanmin(base_var["longitude"]),
-                            np.nanmin(superposed_var["longitude"]),
-                        ]
+                        [np.nanmin(base_var["longitude"]), np.nanmin(sup_lons)]
                     )
                     lat_min = np.nanmax(
-                        [
-                            np.nanmin(base_var["latitude"]),
-                            np.nanmin(superposed_var["latitude"]),
-                        ]
+                        [np.nanmin(base_var["latitude"]), np.nanmin(sup_lats)]
                     )
                     lon_max = np.nanmin(
-                        [
-                            np.nanmax(base_var["longitude"]),
-                            np.nanmax(superposed_var["longitude"]),
-                        ]
+                        [np.nanmax(base_var["longitude"]), np.nanmax(sup_lons)]
                     )
                     lat_max = np.nanmin(
-                        [
-                            np.nanmax(base_var["latitude"]),
-                            np.nanmax(superposed_var["latitude"]),
-                        ]
+                        [np.nanmax(base_var["latitude"]), np.nanmax(sup_lats)]
+                    )
+                    lon_min, lon_max, lat_min, lat_max = _pad_extent(
+                        lon_min, lon_max, lat_min, lat_max, self.plot_config.padding
                     )
 
                 norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
@@ -479,9 +521,9 @@ class SpatialOverlay(Plot):
                 )
 
                 ax.scatter(
-                    superposed_var["longitude"].values,
-                    superposed_var["latitude"].values,
-                    c=superposed_var.values,
+                    sup_lons,
+                    sup_lats,
+                    c=sup_vals,
                     transform=superposed.crs.crs(),
                     cmap=self.plot_config.cmap,
                     norm=norm,
@@ -499,20 +541,184 @@ class SpatialOverlay(Plot):
                 start, end = manage_time_interval(time_interval)
                 format = self.plot_kwargs.get("format", "jpg")
                 filename = (
-                    f"spatial_overlay-{dom_name}-{var}-{base.name}-{superposed.name}-{start.strftime("%d-%m-%Y")}_{end.strftime("%d-%m-%Y")}.{format}"
+                    f"spatial_overlay-{dom_name}-{var}-{base.name}-{superposed.name}-{start.strftime('%d-%m-%Y')}_{end.strftime('%d-%m-%Y')}.{format}"
                     if self.plot_config.filename is None
                     else self.plot_config.filename
                 )
 
                 self.savefig(figure, filename)
 
+
+class SpatialMapConfig(BasePlotConfig):
+    """SpatialMap single-dataset map plot configuration Pydantic model."""
+
+    type: Literal["spatial-map", "spatialmap", "map", "sm"]
+    data: str
+    time_interval: str
+    levels: int = Field(default=10)
+    reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
+    crs: CRSEnum | None = Field(default=None)
+    coastlines: bool = Field(default=True)
+    borders: bool = Field(default=True)
+    cmap: str = Field(default="viridis")
+    bbox: list[float | int] | None = Field(default=None)
+    markersize: float = Field(default=40.0)
+    padding: float = Field(default=0.05)
+    drop_nans: bool = Field(default=False)
+
+
+class SpatialMap(Plot):
+    """SpatialMap plot class. Plots a single dataset over a map.
+
+    The rendering style is chosen from the dataset topology: spatially
+    distributed data (``RegularGrid``) is drawn as a filled contour
+    (``contourf``); in-situ data (``PointSurface`` and any other topology)
+    is drawn as a coloured ``scatter`` of points. It is, in essence, one
+    half of ``SpatialOverlay`` applied to a single dataset.
+    """
+
+    aliases = ["spatial-map", "spatialmap", "map", "sm"]
+    config = SpatialMapConfig
+
+    def plot(self):
+        """plot Spatial Map plotting method.
+        The process goes as follows:
+        1) Process arguments.
+        2) Iterate through Domains.
+            2.1) Apply domain to the data object.
+            2.2) Time alignment.
+            2.3) Reduce variable to latitude and longitude.
+            2.4) Iterate through Variables
+                2.4.1) Contourf for RegularGrid data, scatter otherwise.
+                2.4.2) Save figure.
+        """
+        # Get relevant data from the config
+        data: RegularGrid | PointSurface = self.data[self.plot_config.data]
+        vars = self.plot_config.vars
+        time_interval = self.plot_config.time_interval
+        crs = data.crs.crs if self.plot_config.crs is None else self.plot_config.crs.crs
+        domains = {
+            name: dom
+            for name, dom in self.domains.items()
+            if name in self.plot_config.domains
+        }
+        if not domains:
+            domains = {"": None}
+
+        # RegularGrid renders as a filled contour, everything else as points.
+        is_grid = isinstance(data, RegularGrid)
+
+        for dom_name, dom in domains.items():
+            for var in vars:
+                data_var = data.obj[var]
+                if dom is not None:
+                    data_var = dom.apply(data_var)
+
+                unit = (
+                    data.vars[var]["unit"]
+                    if isinstance(vars, list | str)
+                    else vars[var]
+                )
+
+                # Time alignment
+                data_var = time_resampling(data_var, time_interval=time_interval)
+
+                # Reduction down to the spatial dims (latitude, longitude).
+                reduction_dims = [x for x in ["time", "z"] if x in data.dims]
+                data_var = data_var.reduce(
+                    self.plot_config.reduction_method.func, reduction_dims
+                )
+
+                # Unit conversion
+                data_var = change_unit(data_var, data.vars[var]["unit"], unit)
+
+                # Plotting
+                figure = plt.figure(
+                    figsize=self.plot_kwargs.get("figsize", [6, 6]),
+                    layout=self.plot_kwargs.get("layout", "constrained"),
+                )
+
+                ax = figure.add_subplot(1, 1, 1, projection=crs())
+
+                if self.plot_config.coastlines:
+                    ax.coastlines()
+                if self.plot_config.borders:
+                    ax.add_feature(cfeature.BORDERS)
+
+                figure.suptitle(
+                    self.plot_kwargs.get(
+                        "title", f"Spatial map of {var} for {data.name}"
+                    )
+                )
+
+                vmin, vmax = np.nanmin(data_var), np.nanmax(data_var)
+                norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
+
+                lons = data_var["longitude"].values
+                lats = data_var["latitude"].values
+
+                if is_grid:
+                    ax.contourf(
+                        lons,
+                        lats,
+                        data_var.values,
+                        transform=data.crs.crs(),
+                        cmap=self.plot_config.cmap,
+                        norm=norm,
+                        levels=self.plot_config.levels,
+                    )
+                else:
+                    vals = data_var.values
+                    # Drop stations whose reduced observation is NaN so empty
+                    # sites neither draw nor stretch the auto extent.
+                    if self.plot_config.drop_nans:
+                        lons, lats, vals = _drop_nan_points(lons, lats, vals)
+                    ax.scatter(
+                        lons,
+                        lats,
+                        c=vals,
+                        s=self.plot_config.markersize,
+                        transform=data.crs.crs(),
+                        cmap=self.plot_config.cmap,
+                        norm=norm,
+                        edgecolor="k",
+                    )
+
+                if self.plot_config.bbox is not None:
+                    lon_min, lat_min, lon_max, lat_max = self.plot_config.bbox
+                else:
+                    lon_min, lon_max = np.nanmin(lons), np.nanmax(lons)
+                    lat_min, lat_max = np.nanmin(lats), np.nanmax(lats)
+                    lon_min, lon_max, lat_min, lat_max = _pad_extent(
+                        lon_min, lon_max, lat_min, lat_max, self.plot_config.padding
+                    )
+
+                ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=crs())
+
+                sm = mpl.cm.ScalarMappable(norm=norm, cmap=self.plot_config.cmap)
+                figure.colorbar(
+                    sm, ax=ax, orientation="vertical", label=f"{var} [{unit}]"
+                )
+
+                start, end = manage_time_interval(time_interval)
+                format = self.plot_kwargs.get("format", "jpg")
+                filename = (
+                    f"spatial_map-{dom_name}-{var}-{data.name}-{start.strftime('%d-%m-%Y')}_{end.strftime('%d-%m-%Y')}.{format}"
+                    if self.plot_config.filename is None
+                    else self.plot_config.filename
+                )
+
+                self.savefig(figure, filename)
+
+
 class TimeCycleConfig(BasePlotConfig):
     """TimeSeriesConfig Timeseries plot configuration as Pydantic Model."""
+
     type: Literal["timecycle", "time cycle", "cycle"]
     base: str
-    other_data: str | List[str] | None = Field(default=None)
+    other_data: str | list[str] | None = Field(default=None)
     radius_of_influence: int | None = Field(default=None)
-    time_interval: str | List[str] | None = Field(default=None)
+    time_interval: str | list[str] | None = Field(default=None)
     timestep: TimestepEnum | None = Field(default=None)
     time_buckets: TimeBucketEnum = Field(default=TimeBucketEnum.day)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
@@ -523,10 +729,16 @@ class TimeCycleConfig(BasePlotConfig):
             return self
         # map both to hours for comparison
         bucket_hours = {
-            "hour": 1, "day": 24, "month": 720, "dayofyear": 24, "season": 2160
+            "hour": 1,
+            "day": 24,
+            "month": 720,
+            "dayofyear": 24,
+            "season": 2160,
         }
         timestep_hours = {
-            TimestepEnum.hourly: 1, TimestepEnum.daily: 24, TimestepEnum.monthly: 720
+            TimestepEnum.hourly: 1,
+            TimestepEnum.daily: 24,
+            TimestepEnum.monthly: 720,
             # extend as needed
         }
         if timestep_hours[self.timestep] > bucket_hours[self.time_buckets.value]:
@@ -535,6 +747,7 @@ class TimeCycleConfig(BasePlotConfig):
                 f"time_bucket '{self.time_buckets.value}' — std bands will be meaningless"
             )
         return self
+
 
 class TimeCycle(Plot):
     config = TimeCycleConfig
@@ -554,8 +767,10 @@ class TimeCycle(Plot):
         radius_of_influence = self.plot_config.radius_of_influence
         time_interval = self.plot_config.time_interval
         timestep = self.plot_config.timestep
-        time_bucket = self.plot_config.time_buckets.value  # e.g. "hour", "month", "dayofyear"
-        
+        time_bucket = (
+            self.plot_config.time_buckets.value
+        )  # e.g. "hour", "month", "dayofyear"
+
         base = self.data[self.plot_config.base]
         # Base data: time interval filter and unit conversion, no timestep resampling
         # (groupby needs the original time resolution intact)
@@ -572,14 +787,16 @@ class TimeCycle(Plot):
             if not isinstance(self.plot_config.other_data, list):
                 self.plot_config.other_data = [self.plot_config.other_data]
             other_data = {
-                    name_: base.resample_vars(
+                name_: base.resample_vars(
                     data,
                     vars,
                     radius_of_influence=radius_of_influence,
                     timestep=timestep,
                     time_interval=time_interval,
                 )
-                for name_, data in {name: self.data[name] for name in self.plot_config.other_data}.items()
+                for name_, data in {
+                    name: self.data[name] for name in self.plot_config.other_data
+                }.items()
             }
             other_data[self.plot_config.base] = base_obj
             all_data = other_data
@@ -623,19 +840,20 @@ class TimeCycle(Plot):
                     da = data_obj[f"{variable}__{name}"]
 
                     grouped = da.groupby(f"time.{time_bucket}")
-                    mean   = grouped.mean("time", skipna=True)
-                    std    = grouped.std("time",  skipna=True)
+                    mean = grouped.mean("time", skipna=True)
+                    std = grouped.std("time", skipna=True)
 
                     bucket_vals = mean[time_bucket].values
-                    xticklabels = xticklabels if xticklabels is not None else bucket_vals
+                    xticklabels = (
+                        xticklabels if xticklabels is not None else bucket_vals
+                    )
 
                     ax.plot(bucket_vals, mean.values, label=name)
-                    ax.fill_between(bucket_vals,
-                                    (mean - std).values,
-                                    (mean + std).values,
-                                    alpha=0.2)
+                    ax.fill_between(
+                        bucket_vals, (mean - std).values, (mean + std).values, alpha=0.2
+                    )
 
-                title  = self.plot_kwargs.get("title",  f"Diurnal cycle of {variable}")
+                title = self.plot_kwargs.get("title", f"Diurnal cycle of {variable}")
                 xlabel = self.plot_kwargs.get("xlabel", time_bucket.capitalize())
                 ylabel = self.plot_kwargs.get("ylabel", f"{variable} ({unit})")
 
@@ -647,7 +865,7 @@ class TimeCycle(Plot):
                 figure.suptitle(title)
 
                 start, end = manage_time_interval(time_interval)
-                fmt      = self.plot_kwargs.get("format", "jpg")
+                fmt = self.plot_kwargs.get("format", "jpg")
                 filename = (
                     f"cycle-{time_bucket}-{dom_name}-{variable}"
                     f"-{start.strftime('%d-%m-%Y')}_{end.strftime('%d-%m-%Y')}.{fmt}"

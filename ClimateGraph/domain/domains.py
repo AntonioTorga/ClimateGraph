@@ -1,11 +1,11 @@
-from pydantic import BaseModel, Field
-from typing import Literal, List, Dict, Tuple, Any
-import numpy as np
-import regionmask
-import geopandas as gpd
-import shapely.geometry as gm
 from pathlib import Path
+from typing import Any, Literal
+
+import geopandas as gpd
+import regionmask
+import shapely.geometry as gm
 import xarray as xr
+from pydantic import BaseModel
 
 from .domain import Domain
 
@@ -46,7 +46,7 @@ class PolygonConfig(BaseModel):
     """PolygonConfig Pydantic model for the Polygon domain definition in the config file. The only argument is vertex which is a List of tuples representing vertices, or List of vertices (List of List of tuples)"""
 
     type: Literal["polygon", "poly"]
-    vertex: List[Tuple[float, float]] | List[List[Tuple[float, float]]]
+    vertex: list[tuple[float, float]] | list[list[tuple[float, float]]]
 
 
 class Polygon(Domain):

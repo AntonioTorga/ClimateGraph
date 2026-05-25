@@ -1,20 +1,16 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any
+
+import cartopy.crs as ccrs
 import numpy as np
 import xarray as xr
-import cartopy.crs as ccrs
-from typing import Dict
-import pint_xarray
-from pint import Quantity
-from typing import Callable, Any, List, Dict
 from pyresample import kd_tree
-from datetime import datetime
-
 
 from ClimateGraph.reader import Reader
-from ClimateGraph.domain import Domain
-from ClimateGraph.utils.dataset_utils import time_resampling, change_unit
-from ClimateGraph.utils.general_utils import manage_time_interval, ReductionMethodEnum
+from ClimateGraph.reader.reader.reader import ReadSpec
+from ClimateGraph.utils.dataset_utils import change_unit, time_resampling
+from ClimateGraph.utils.general_utils import ReductionMethodEnum
 
 
 class Data(ABC):
@@ -58,10 +54,10 @@ class Data(ABC):
         _name = name.lower()
         try:
             data_class = cls.registry[_name]
-        except KeyError:
+        except KeyError as err:
             raise ValueError(
                 f"No type named {name} recognized. Options are {Data.registry.keys()} (case insensitive)."
-            )
+            ) from err
         return data_class
 
     @classmethod
@@ -86,10 +82,10 @@ class Data(ABC):
         name: str,
         topology: str,
         reader: str,
-        path: Path | List[Path],
-        vars: Dict[str, Dict[str, str]],
+        path: Path | list[Path],
+        vars: dict[str, dict[str, str]],
         crs: ccrs,
-        reader_kwargs: Dict,
+        reader_kwargs: dict,
     ):
         """create Creation of a Data object with the adequate Data subclass
 
@@ -123,10 +119,10 @@ class Data(ABC):
         self,
         name: str,
         path: Path | list[Path],
-        vars: Dict[str, Dict[str, str]],
+        vars: dict[str, dict[str, str]],
         reader: Reader,
         crs: ccrs.CRS,
-        reader_kwargs: Dict[str, Any] | None = None,
+        reader_kwargs: dict[str, Any] | None = None,
     ):
         """__init__ Data initialization dunder method.
 
@@ -218,10 +214,11 @@ class Data(ABC):
         self._bbox = None
         self._geom = None
         self._dims = None
+        self.resampled = None
 
     @property
     def geom(self):
-        if self._geom == None:
+        if self._geom is None:
             self._set_geom()
         return self._geom
 
@@ -235,12 +232,6 @@ class Data(ABC):
             Dictionary where keys are Variable names, and the value is another Dictionary with "name" (with the name of the variable in the files) and "unit" (with the "pint" unit name for this variable) keys.
         """
         return self._vars
-
-    # TODO: decide if it's worth adding the scan_obj, for now this doesn't exist because i don't want anyone being able to set vars except the init
-    # @vars.setter
-    # def vars(self, vars):
-    #     var_names = [var.get("name") for _, var in vars.items()]
-    #     # self._scan_obj(vars=var_names)     #     self._vars = vars
 
     @property
     def dims(self):
@@ -275,33 +266,31 @@ class Data(ABC):
         return self._bbox
 
     def load_obj(self):
-        """load_obj Load the actual data into the obj attribute, using the reader and reader_kwargs attributes.
+        """load_obj Load the actual data into the obj attribute by building
+        a ReadSpec and invoking ``reader.read(spec)``. ``load_mode``,
+        ``cache_dir`` and ``engine`` are pulled out of ``reader_kwargs``
+        if present; the remainder lives on ``spec.extras`` for the
+        subclass to consume.
 
         Returns
         -------
         xr.Dataset
             Xarray dataset of the Data object.
         """
-        self._obj = self.reader.open_mfdataset(
-            self.path, self.vars, **self.reader_kwargs
+        extras = dict(self.reader_kwargs)
+        load_mode = extras.pop("load_mode", "safe")
+        cache_dir = extras.pop("cache_dir", None)
+        engine = extras.pop("engine", None)
+        spec = ReadSpec(
+            paths=self.path if isinstance(self.path, list) else [self.path],
+            vars=self.vars,
+            load_mode=load_mode,
+            cache_dir=cache_dir,
+            engine=engine,
+            extras=extras,
         )
+        self._obj = self.reader.read(spec)
         return self._obj
-
-    def _scan_obj(self):
-        """_scan_obj Method for quickly scanning the obj attribute for errors. Currently only checks if variables actually exist
-
-        Raises
-        ------
-        ValueError
-            Raises an error if anything is wrong with the obj attribute.
-        """
-        glimpse_path = self.path[0] if isinstance(self.path, list) else self.path
-        if isinstance(glimpse_path, list):
-            glimpse_path = glimpse_path[0]
-        with xr.open_dataset(glimpse_path, chunks="auto") as glimpse:
-            for var_name, var_dict in self.vars:
-                if not var_dict["name"] in glimpse and not var_name in glimpse:
-                    raise ValueError(f"Variable {var_name} not in {self.name} dataset.")
 
     # The var_name is the variable name not native to the file but as how it is referred in vars
     def get_var(
@@ -392,7 +381,7 @@ class Data(ABC):
         obj = self.obj
         if isinstance(coord_names, str):
             coord_names = [coord_names]
-        missing_coords = [i for i in coord_names if i not in obj.coords.keys()]
+        missing_coords = [i for i in coord_names if i not in obj.coords]
         if len(missing_coords) > 0:
             raise KeyError(f"Coordinates {missing_coords} not in {self.name} dataset.")
 
@@ -410,7 +399,7 @@ class Data(ABC):
     def resample_vars(
         self,
         other: "Data",
-        vars: str | List[str] | Dict[str, str],
+        vars: str | list[str] | dict[str, str],
         timestep: str | None = None,
         time_interval: str | None = None,
         radius_of_influence: int = 10000,
@@ -477,7 +466,7 @@ class Data(ABC):
                     dist_array,
                     fill_value=np.nan,
                 )
-            
+
             # Here if im resampling into a point surface topology then height will always get dropped. Unless its a point in space not surface.
             resampled = xr.apply_ufunc(
                 _resample,
@@ -486,7 +475,7 @@ class Data(ABC):
                     [d for d in var_src.dims if d != "time"]
                 ],  # remove time from core dims so it loops over just time
                 output_core_dims=[
-                    [d for d in var_dst_dims.keys() if d != "time"]
+                    [d for d in var_dst_dims if d != "time"]
                 ],  # Produces a new array with the new geom minus time
                 vectorize=True,
                 dask="parallelized",

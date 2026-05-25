@@ -1,102 +1,267 @@
-from abc import ABC, abstractmethod
+from __future__ import annotations
+
+import logging
+from abc import ABC
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, Literal
+
+import pandas as pd
 import xarray as xr
-from typing import Dict, Any
+
+from ClimateGraph.utils.general_utils import manage_path
+
+log = logging.getLogger(__name__)
+
+LoadMode = Literal["safe", "unsafe"]
+
+
+@dataclass
+class ReadSpec:
+    """Bundle of everything a Reader needs to fulfil a read request.
+
+    Carried through every lifecycle hook so subclasses can branch on any
+    field without growing per-hook signatures.
+    """
+
+    paths: list[Path]
+    vars: dict[str, dict[str, str]] | None = None
+    load_mode: LoadMode = "safe"
+    cache_dir: Path | None = None
+    engine: str | None = None
+    extras: dict[str, Any] = field(default_factory=dict)
 
 
 class Reader(ABC):
     """Reader abstract class.
 
-    Implements interface and common logic for readers.
+    Template-method base: ``read(spec)`` walks a fixed lifecycle and
+    subclasses plug into individual hooks. No subclass should override
+    ``read`` itself.
+
+    Lifecycle (per-file hooks run in BOTH modes; the only difference is
+    who drives the per-file loop)::
+
+        read(spec):
+            paths = _resolve_paths(spec)           # download/cache here
+            if safe:
+                ds = _open_many(paths, spec)       # internally calls
+                                                   # _to_xarray + _preprocess
+                                                   # per file via xarray's
+                                                   # open_mfdataset(preprocess=)
+            else:
+                pieces = []
+                for p in paths:
+                    raw   = _open_one(p, spec)
+                    piece = _to_xarray(raw, spec)
+                    piece = _preprocess(piece, spec)
+                    pieces.append(piece)
+                ds = _join(pieces, spec)
+            ds = _postprocess(ds, spec)
+            ds = _apply_time_offset(ds, spec)   # runs for every reader
     """
 
-    registry: dict[str, type["Reader"]] = {}
-    type_aliases: list[str] = list()
+    registry: dict[str, dict[str, type[Reader]]] = {}
+    type_aliases: list[str] = []
     topology: str
 
-    # Allows for self registering, and alias registering, for then looking up the right Data Class.
     def __init_subclass__(cls, **kwargs):
-        """__init_subclass__ This Dunder method is being used to dinamically register all inheriting classes from Reader, this helps with Reader creation."""
         super().__init_subclass__(**kwargs)
 
         if not hasattr(cls, "topology"):
             raise TypeError(f"{cls.__name__} must define a 'topology' attribute.")
 
-        # Create topology bucket if missing
         topology = cls.topology.lower()
         if topology not in Reader.registry:
             Reader.registry[topology] = {}
 
-        # Register under class name
         Reader.registry[topology][cls.__name__.lower()] = cls
 
-        # Register aliases
-        for alias in getattr(cls, "type_aliases", []):
+        # Only honour aliases declared on *this* class. Without the
+        # __dict__ filter, an alias on a parent (e.g. DefaultRegularGrid)
+        # would get re-bound to whichever child was imported last.
+        for alias in cls.__dict__.get("type_aliases", []):
             Reader.registry[topology][alias.lower()] = cls
 
+    # ----- registry lookup ------------------------------------------------
+
     @classmethod
-    def get_reader_subclass(cls, topology: str, reader: str):
-        """get_reader_subclass Method for getting a class object from a string, centralizes the lookup operation for further development of smart lookup.
-
-        Parameters
-        ----------
-        name : str
-            String to lookup in reader class registry.
-
-        Returns
-        -------
-        type
-            Class object of adequate reader subclass.
-        """
+    def get_reader_subclass(cls, topology: str, reader: str) -> type[Reader]:
         topology = topology.lower()
         reader = reader.lower()
-
         if topology not in cls.registry:
             raise ValueError(
                 f"No topology type named {topology}. Please use one of the following: {list(cls.registry.keys())}"
             )
         try:
-            reader_class = cls.registry[topology][reader]
-        except KeyError:
-            raise ValueError(f"No reader {reader} for topology {topology}")
-        return reader_class
+            return cls.registry[topology][reader]
+        except KeyError as err:
+            raise ValueError(f"No reader {reader} for topology {topology}") from err
 
     @classmethod
-    def check_reader_type(cls, topology: str, reader: str):
-        """check_reader_class Method for checking if a string correlates to a reader subclass, meant to have the same lookup mechanism as get_reader_class
-
-        Parameters
-        ----------
-        type : str
-            String to lookup in reader class registry.
-
-        Returns
-        -------
-        bool
-            Boolean representing whether the type string corresponds to any reader subclass.
-        """
+    def check_reader_type(cls, topology: str, reader: str) -> bool:
         return (topology.lower() in cls.registry) and (
             reader.lower() in cls.registry[topology.lower()]
         )
 
+    # ----- public entry point --------------------------------------------
+
+    @classmethod
+    def read(cls, spec: ReadSpec) -> xr.Dataset:
+        """Walk the lifecycle and return the assembled dataset."""
+        local_paths = cls._resolve_paths(spec)
+        if not local_paths:
+            raise ValueError(
+                f"{cls.__name__}._resolve_paths returned no paths for {spec.paths}"
+            )
+
+        # Replace the spec's paths with the resolved local paths so every
+        # downstream hook sees the post-download view.
+        spec = ReadSpec(
+            paths=local_paths,
+            vars=spec.vars,
+            load_mode=spec.load_mode,
+            cache_dir=spec.cache_dir,
+            engine=spec.engine,
+            extras=spec.extras,
+        )
+
+        if spec.load_mode == "safe":
+            # _open_many is contracted to return a fully-preprocessed,
+            # combined Dataset (the default implementation wires
+            # _to_xarray + _preprocess as the open_mfdataset
+            # `preprocess=` callback, per file, in parallel).
+            ds = cls._open_many(local_paths, spec)
+        elif spec.load_mode == "unsafe":
+            pieces = []
+            for path in local_paths:
+                raw = cls._open_one(path, spec)
+                piece = cls._to_xarray(raw, spec)
+                piece = cls._preprocess(piece, spec)
+                pieces.append(piece)
+            ds = cls._join(pieces, spec)
+        else:
+            raise ValueError(
+                f"Unknown load_mode {spec.load_mode!r}; expected 'safe' or 'unsafe'."
+            )
+
+        ds = cls._postprocess(ds, spec)
+        # Applied here rather than inside the _postprocess hook so it runs for
+        # every reader, even those whose _postprocess override doesn't call
+        # super() (e.g. Chimere).
+        ds = cls._apply_time_offset(ds, spec)
+        return ds
+
+    # ----- lifecycle hooks (override these, not read) ---------------------
+
     @staticmethod
-    @abstractmethod
-    def open_mfdataset(
-        files: Path | list[Path], vars: Dict[str, Any] = None, **kwargs
-    ) -> xr.Dataset:
-        """open_mfdataset abstract main method of every reader. Reads files from a set of paths, managing the required arguments.
+    def _apply_time_offset(ds: xr.Dataset, spec: ReadSpec) -> xr.Dataset:
+        """Shift the ``time`` coordinate by ``spec.extras['time_offset']`` hours.
 
-
-        Parameters
-        ----------
-        files : Path | list[Path]
-            _description_
-        vars : Dict[str, Any], optional
-            _description_, by default None
-
-        Returns
-        -------
-        xr.Dataset
-            _description_
+        Optional, off by default. Meant for datasets stored in UTC that the
+        user wants on a local schedule — e.g. ``time_offset: -3`` in the data
+        block reads a UTC file as UTC-3 (Chile). A no-op when the key is
+        absent or zero, or when the dataset has no ``time`` coordinate.
+        Fractional hours are allowed (e.g. ``5.5``).
         """
-        pass
+        offset = spec.extras.get("time_offset")
+        if not offset or "time" not in ds.coords:
+            return ds
+        return ds.assign_coords(
+            time=ds["time"] + pd.to_timedelta(float(offset), unit="h")
+        )
+
+    @classmethod
+    def _resolve_paths(cls, spec: ReadSpec) -> list[Path]:
+        """Turn the user-supplied path spec into a list of local paths.
+
+        Default behaviour: glob-expand local paths via ``manage_path``.
+        Sorted lexicographically for the unsafe path (which concats in
+        input order) so an out-of-order glob doesn't silently produce a
+        non-monotonic time axis. Safe path keeps native glob order
+        because ``xr.open_mfdataset``'s ``combine="by_coords"`` aligns
+        on coords anyway.
+        """
+        return manage_path(spec.paths, sort=spec.load_mode == "unsafe")
+
+    # NetCDF defaults. Override for non-NetCDF formats; downstream
+    # _to_xarray will then turn the returned raw object into a Dataset.
+    # netcdf4 reads metadata via libnetcdf in C — far cheaper than
+    # h5netcdf's Python-level HDF5 dimension-scale walk, which previously
+    # dominated wall time on multi-file Chimere runs. Per-data-block
+    # override available via ``engine:`` in the YAML data entry.
+    open_engine: str = "netcdf4"
+
+    @classmethod
+    def _open_many(cls, paths: list[Path], spec: ReadSpec) -> xr.Dataset:
+        """Open all files (safe path). Default implementation routes
+        per-file ``_to_xarray`` + ``_preprocess`` through
+        ``xr.open_mfdataset(preprocess=)`` so they run in parallel inside
+        xarray's machinery and unused variables get dropped *before*
+        the cross-file combine. Non-NetCDF readers override this entirely.
+
+        ``parallel`` is disabled for ``netcdf4`` because libnetcdf is not
+        thread-safe — concurrent opens raise ``NetCDF: HDF error``. Other
+        engines (e.g. ``h5netcdf``) get parallel opens, so a user who
+        opts into a non-default engine via the YAML ``engine:`` knob can
+        try to amortise opens across threads.
+        """
+
+        def per_file(ds: xr.Dataset) -> xr.Dataset:
+            ds = cls._to_xarray(ds, spec)
+            ds = cls._preprocess(ds, spec)
+            return ds
+
+        engine = spec.engine or cls.open_engine
+        return xr.open_mfdataset(
+            paths,
+            chunks="auto",
+            engine=engine,
+            parallel=engine != "netcdf4",
+            preprocess=per_file,
+        )
+
+    @classmethod
+    def _open_one(cls, path: Path, spec: ReadSpec) -> Any:
+        """Open a single file (unsafe path)."""
+        engine = spec.engine or cls.open_engine
+        return xr.open_dataset(path, chunks="auto", engine=engine)
+
+    @classmethod
+    def _to_xarray(cls, raw: Any, spec: ReadSpec) -> xr.Dataset:
+        """Coerce the raw object returned by ``_open_*`` into an
+        ``xr.Dataset``. No-op for NetCDF readers. CSV/HDF5/GRIB readers
+        override this.
+        """
+        if not isinstance(raw, xr.Dataset):
+            raise TypeError(
+                f"{cls.__name__}._to_xarray default expects xr.Dataset; "
+                f"got {type(raw).__name__}. Override _to_xarray to convert."
+            )
+        return raw
+
+    @classmethod
+    def _preprocess(cls, ds: xr.Dataset, spec: ReadSpec) -> xr.Dataset:
+        """Rename/drop/index. Default: pass-through. Most subclasses override."""
+        return ds
+
+    @classmethod
+    def _join(cls, pieces: list[xr.Dataset], spec: ReadSpec) -> xr.Dataset:
+        """Combine per-file pieces (unsafe path only).
+
+        Default uses ``xr.combine_nested(pieces, concat_dim="time")``,
+        which trusts the input order — safe here because
+        ``_resolve_paths`` sorts paths when ``load_mode == "unsafe"``.
+        Readers whose files share dims but hold different variables
+        (variable-per-file layouts) should override this and call
+        ``xr.merge(pieces)`` instead.
+        """
+        if len(pieces) == 1:
+            return pieces[0]
+        return xr.combine_nested(pieces, concat_dim="time")
+
+    @classmethod
+    def _postprocess(cls, ds: xr.Dataset, spec: ReadSpec) -> xr.Dataset:
+        """Whole-dataset cleanup that must run regardless of load mode.
+        Default: pass-through."""
+        return ds

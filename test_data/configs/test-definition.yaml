@@ -7,7 +7,7 @@ data:
     path: "./test_data/data/wrf-20*.nc"
     topology: RegularGrid
     reader: wrf
-    vars: 
+    vars:
       Temperatura:
         name: T2
         unit: "kelvin"
@@ -25,7 +25,7 @@ data:
       Presion:
         name: presionEstacion
         unit: "hectopascal"
-domains: 
+domains:
   RM:
     type: attr
     field_name: region
@@ -46,13 +46,12 @@ plots:
     time_interval: 1/1/2019-1/2/2019
     timestep: "D"
     radius_of_influence: 10000
-    vars: 
+    vars:
       Temperatura: kelvin
       Presion: pascal
   scatter:
     type: scatter
     base: "DMC"
-    domains: ["Valle"]
     other: "WRF_D02"
     time_interval: 1/1/2019-1/2/2019
     timestep: "D"
@@ -66,8 +65,22 @@ plots:
     base: WRF_D02
     superposed: DMC
     domains: ["Poly1"]
-    vars: 
+    vars:
       Temperatura: kelvin
       Presion: pascal
+    time_interval: 1/1/2019-1/2/2019
+    reduction_method: mean
+  map_grid:
+    type: spatial-map
+    data: WRF_D02
+    vars:
+      Temperatura: kelvin
+    time_interval: 1/1/2019-1/2/2019
+    reduction_method: mean
+  map_point:
+    type: spatial-map
+    data: DMC
+    vars:
+      Temperatura: kelvin
     time_interval: 1/1/2019-1/2/2019
     reduction_method: mean

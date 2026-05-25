@@ -1,10 +1,6 @@
-from .data import Data
-from ..reader import Reader
-from pathlib import Path
 from pyresample import SwathDefinition
-import cartopy.crs as ccrs
 
-ccrs.AzimuthalEquidistant
+from .data import Data
 
 
 class RegularGrid(Data):

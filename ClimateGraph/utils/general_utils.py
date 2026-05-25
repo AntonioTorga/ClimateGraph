@@ -1,14 +1,13 @@
-from typing import List
-from pathlib import Path
-import logging
-import cartopy.crs as ccrs
-import re
-from dateutil import parser
-import glob
-from enum import Enum
-import numpy as np
 import datetime
-from typing import Tuple
+import glob
+import logging
+import re
+from enum import Enum
+from pathlib import Path
+
+import cartopy.crs as ccrs
+import numpy as np
+from dateutil import parser
 
 logging.basicConfig(level=logging.INFO)
 
@@ -32,14 +31,17 @@ class TimestepEnum(str, Enum):
     microseconds = "us"
     nanoseconds = "ns"
 
+
 class TimeBucketEnum(str, Enum):
     """TimeBucketEnum Enum used for timestep handling. Keeps consistent timestep values."""
+
     minute = "minute"
     hour = "hour"
     day = "day"
     season = "season"
     weekly = "week"
     monthly = "quarter"
+
 
 class ReductionMethodEnum(str, Enum):
     """ReductionMethodEnum Enum used for Reduction Method handling. Keeps consistent Reduction methods values."""
@@ -67,13 +69,23 @@ class CRSEnum(str, Enum):
     platecarree = ("platecarree", ccrs.PlateCarree)
 
 
-def manage_path(paths: str | Path | List[str] | List[Path]) -> List[Path]:
+def manage_path(
+    paths: str | Path | list[str] | list[Path],
+    sort: bool = False,
+) -> list[Path]:
     """manage_path Handles paths, including lists of paths and paths with hotkeys (*,?, etc).
-2
+
     Parameters
     ----------
     paths : str | Path | List[str] | List[Path]
         Path or list of paths that compose the data object.
+    sort : bool, optional
+        When True, return paths in lexicographic order. If the post-sort
+        order differs from the input order, log a warning — callers that
+        concat in input order (e.g. the Reader unsafe path) will get a
+        silently non-monotonic time axis if filenames don't embed a
+        sortable timestamp. Default False keeps the historical
+        glob/input order.
 
     Returns
     -------
@@ -89,22 +101,32 @@ def manage_path(paths: str | Path | List[str] | List[Path]) -> List[Path]:
         p = Path(raw) if isinstance(raw, str) else raw
         p = p.resolve() if not p.is_absolute() else p
 
-        # Detect glob pattern
-
         matches = glob.glob(str(p))
-        if not matches:  # is empty
+        if not matches:
             logging.debug(f"No files match pattern: {raw}")
         result.extend(Path(m).resolve() for m in matches if Path(m).exists())
 
-    if not result:  # is empty
+    if not result:
         logging.debug(f"No files exist for paths: {paths}")
+
+    if sort:
+        ordered = sorted(result)
+        if ordered != result:
+            logging.warning(
+                "manage_path: input paths were not in lexicographic order; "
+                "sorted automatically. Confirm filenames embed a sortable "
+                "timestamp or callers that concat in input order will produce "
+                "a non-monotonic time axis. First few: %s",
+                [p.name for p in ordered[:3]],
+            )
+        result = ordered
 
     return result
 
 
 def manage_time_interval(
     time_interval: str,
-) -> Tuple[datetime.datetime, datetime.datetime]:
+) -> tuple[datetime.datetime, datetime.datetime]:
     """manage_time_interval Manages time interval strings in the TIME_INTERVAL_FORMAT.
 
     Parameters

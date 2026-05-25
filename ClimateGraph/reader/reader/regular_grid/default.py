@@ -1,32 +1,29 @@
-from ..reader import Reader
-from pathlib import Path
 import xarray as xr
+
+from ..reader import Reader, ReadSpec
 
 
 class DefaultRegularGridReader(Reader):
     type_aliases = ["DefaultRegularGrid", "DefaultGrid"]
     topology = "RegularGrid"
 
+    # Subclasses set this to map source dim/var names → canonical names.
+    rename: dict[str, str] = {}
+
     @classmethod
-    def open_mfdataset(
-        cls, files: list[Path] | Path, vars: dict, **kwargs
-    ) -> xr.Dataset:
+    def _preprocess(cls, ds: xr.Dataset, spec: ReadSpec) -> xr.Dataset:
+        rename = dict(cls.rename)
+        rename.update(spec.extras.get("rename", {}))
+        if spec.vars is not None:
+            rename.update({d["name"]: name for name, d in spec.vars.items()})
 
-        xrds = xr.open_mfdataset(files, chunks="auto", engine="h5netcdf")
+        ds = ds.rename(rename)
+        ds = ds.reset_coords()
 
-        rename_dict = kwargs.get("rename", {})
-        if vars is not None:
-            rename_dict.update({_dict["name"]: name for name, _dict in vars.items()})
+        if spec.vars is not None:
+            keep = set(spec.vars.keys()) | {"longitude", "latitude", "time"}
+            drop = set(ds.data_vars) - keep
+            ds = ds.drop_vars(drop, errors="ignore")
 
-        xrds = xrds.rename(rename_dict)
-
-        xrds = xrds.reset_coords()
-
-        drop_data_vars = (
-            (set(list(xrds.data_vars)) - set(vars.keys()) - set(("longitude", "latitude", "time"))) if vars != None else set()
-        ) # TEST!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-        xrds = xrds.drop_vars(drop_data_vars, errors="ignore")
-        xrds = xrds.set_coords(["latitude", "longitude"])
-
-        return xrds
+        ds = ds.set_coords(["latitude", "longitude"])
+        return ds

@@ -1,10 +1,9 @@
-from abc import ABC, abstractmethod
-from pydantic import BaseModel, Field
-from typing import Annotated, Union, List
 import logging
-from pathlib import Path
+from abc import ABC, abstractmethod
+from typing import Annotated, Union
 
 import xarray as xr
+from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO)  # TODO: make this settable from yaml file.
 
@@ -19,7 +18,7 @@ class Domain(ABC):
     """
 
     registry: dict[str, type["Domain"]] = dict()
-    aliases: List[str] = list()
+    aliases: list[str] = list()
     config: type["BaseModel"] | None = None
 
     def __init_subclass__(cls, **kwargs):
@@ -41,7 +40,9 @@ class Domain(ABC):
         configs = [
             cls_.config for cls_ in Domain.registry.values() if cls_.config is not None
         ]
-        return Annotated[Union[tuple(configs)], Field(discriminator="type")]
+        # `Union[tuple(configs)]` unpacks the tuple at runtime — Ruff's UP007 must not
+        # rewrite this; doing so strips the Union and breaks Pydantic's discriminator.
+        return Annotated[Union[tuple(configs)], Field(discriminator="type")]  # noqa: UP007
 
     @classmethod
     def create(

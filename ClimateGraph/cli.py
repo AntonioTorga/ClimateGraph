@@ -1,8 +1,9 @@
-from ClimateGraph.appkernel import AppKernel
+from pathlib import Path
+from typing import Annotated
 
 import typer
-from typing import Annotated
-from pathlib import Path
+
+from ClimateGraph.appkernel import AppKernel
 
 app = typer.Typer(
     name="ClimateGraph",

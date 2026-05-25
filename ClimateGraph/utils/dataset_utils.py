@@ -1,9 +1,7 @@
+import pint_xarray  # noqa: F401  — registers the `.pint` accessor on xarray DataArrays
 import xarray as xr
 
-from .general_utils import manage_time_interval, ReductionMethodEnum
-
-import pint_xarray
-from pint import Quantity
+from .general_utils import ReductionMethodEnum, manage_time_interval
 
 # TODO: make this into accessors
 

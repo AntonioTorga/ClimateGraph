@@ -1,7 +1,7 @@
  analysis:
    output_path:  "./test_data/results/sinca"
    debug: True
- 
+
  data:
    SINCA:
       path: "./test_data/data/SINCA*.nc"

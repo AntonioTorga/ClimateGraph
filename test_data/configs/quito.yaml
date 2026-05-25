@@ -1,0 +1,30 @@
+analysis:
+  output_path: "./test_data/results/quito"
+  debug: True
+
+data:
+  QUITO:
+    path: ["./test_data/data/DATOS-INSITU/QUITO/CO_Sep22.csv",
+           "./test_data/data/DATOS-INSITU/QUITO/NO2_Sep22.csv"]
+    topology: PointSurface
+    reader: QUITO
+    metadata: "./test_data/data/DATOS-INSITU/QUITO/EstacionesCoordenadas.xlsx"
+    var_files: {CO: "CO_Sep22.csv", NO2: "NO2_Sep22.csv"}
+    vars:
+      CO:
+        name: CO
+        unit: "mg/m**3"
+      NO2:
+        name: NO2
+        unit: "ug/m**3"
+
+plots:
+  TC:
+    type: timecycle
+    base: "QUITO"
+    time_interval: "1/9/2022-30/9/2022"
+    timestep: "h"
+    time_buckets: "hour"
+    vars:
+      CO: "mg/m**3"
+      NO2: "ug/m**3"

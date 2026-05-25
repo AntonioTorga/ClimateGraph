@@ -3,3 +3,7 @@
 *.egg-info/
 .pytest_cache
 /build/
+ROADMAP.md
+SUBPLAN-insitu-readers.md
+/.ruff_cache/
+**/DATOS-INSITU/*
