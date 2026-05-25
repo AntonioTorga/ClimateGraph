@@ -21,7 +21,40 @@ from ClimateGraph.utils.general_utils import (
 
 from .plot import Plot
 
-# TODO: remove nans
+
+def _drop_nan_points(
+    lons: np.ndarray, lats: np.ndarray, vals: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """_drop_nan_points Drop the entries whose value is NaN, keeping the
+    longitude / latitude / value arrays aligned. Used to strip empty stations
+    from scatter overlays so they neither draw nor stretch the auto extent.
+    """
+    keep = ~np.isnan(vals)
+    return lons[keep], lats[keep], vals[keep]
+
+
+def _pad_extent(
+    lon_min: float,
+    lon_max: float,
+    lat_min: float,
+    lat_max: float,
+    padding: float,
+) -> tuple[float, float, float, float]:
+    """_pad_extent Grow a (lon_min, lon_max, lat_min, lat_max) extent outward by
+    ``padding`` (a fraction of each axis span) so auto-computed map bounds don't
+    clip markers sitting on the edge. A zero-width span (e.g. a single point)
+    falls back to a fixed 0.5-degree pad so ``set_extent`` stays valid.
+    """
+    lon_span = lon_max - lon_min
+    lat_span = lat_max - lat_min
+    lon_pad = lon_span * padding if lon_span else 0.5
+    lat_pad = lat_span * padding if lat_span else 0.5
+    return (
+        lon_min - lon_pad,
+        lon_max + lon_pad,
+        lat_min - lat_pad,
+        lat_max + lat_pad,
+    )
 
 
 class BasePlotConfig(BaseModel):
@@ -349,6 +382,8 @@ class SpatialOverlayConfig(BasePlotConfig):
     borders: bool = Field(default=True)
     cmap: str = Field(default="viridis")
     bbox: list[float | int] = Field(default=None)
+    padding: float = Field(default=0.05)
+    drop_nans: bool = Field(default=False)
 
 
 class SpatialOverlay(Plot):
@@ -443,32 +478,34 @@ class SpatialOverlay(Plot):
                     np.nanmax([base_var.max(), superposed_var.max()]),
                 )
 
+                # Superposed (point) coords/values, optionally dropping the
+                # stations whose reduced observation is NaN so empty sites
+                # neither draw nor stretch the auto extent.
+                sup_lons = superposed_var["longitude"].values
+                sup_lats = superposed_var["latitude"].values
+                sup_vals = superposed_var.values
+                if self.plot_config.drop_nans:
+                    sup_lons, sup_lats, sup_vals = _drop_nan_points(
+                        sup_lons, sup_lats, sup_vals
+                    )
+
                 if self.plot_config.bbox is not None:
                     lon_min, lat_min, lon_max, lat_max = self.plot_config.bbox
                 else:
                     lon_min = np.nanmax(
-                        [
-                            np.nanmin(base_var["longitude"]),
-                            np.nanmin(superposed_var["longitude"]),
-                        ]
+                        [np.nanmin(base_var["longitude"]), np.nanmin(sup_lons)]
                     )
                     lat_min = np.nanmax(
-                        [
-                            np.nanmin(base_var["latitude"]),
-                            np.nanmin(superposed_var["latitude"]),
-                        ]
+                        [np.nanmin(base_var["latitude"]), np.nanmin(sup_lats)]
                     )
                     lon_max = np.nanmin(
-                        [
-                            np.nanmax(base_var["longitude"]),
-                            np.nanmax(superposed_var["longitude"]),
-                        ]
+                        [np.nanmax(base_var["longitude"]), np.nanmax(sup_lons)]
                     )
                     lat_max = np.nanmin(
-                        [
-                            np.nanmax(base_var["latitude"]),
-                            np.nanmax(superposed_var["latitude"]),
-                        ]
+                        [np.nanmax(base_var["latitude"]), np.nanmax(sup_lats)]
+                    )
+                    lon_min, lon_max, lat_min, lat_max = _pad_extent(
+                        lon_min, lon_max, lat_min, lat_max, self.plot_config.padding
                     )
 
                 norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
@@ -484,9 +521,9 @@ class SpatialOverlay(Plot):
                 )
 
                 ax.scatter(
-                    superposed_var["longitude"].values,
-                    superposed_var["latitude"].values,
-                    c=superposed_var.values,
+                    sup_lons,
+                    sup_lats,
+                    c=sup_vals,
                     transform=superposed.crs.crs(),
                     cmap=self.plot_config.cmap,
                     norm=norm,
@@ -505,6 +542,168 @@ class SpatialOverlay(Plot):
                 format = self.plot_kwargs.get("format", "jpg")
                 filename = (
                     f"spatial_overlay-{dom_name}-{var}-{base.name}-{superposed.name}-{start.strftime('%d-%m-%Y')}_{end.strftime('%d-%m-%Y')}.{format}"
+                    if self.plot_config.filename is None
+                    else self.plot_config.filename
+                )
+
+                self.savefig(figure, filename)
+
+
+class SpatialMapConfig(BasePlotConfig):
+    """SpatialMap single-dataset map plot configuration Pydantic model."""
+
+    type: Literal["spatial-map", "spatialmap", "map", "sm"]
+    data: str
+    time_interval: str
+    levels: int = Field(default=10)
+    reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
+    crs: CRSEnum | None = Field(default=None)
+    coastlines: bool = Field(default=True)
+    borders: bool = Field(default=True)
+    cmap: str = Field(default="viridis")
+    bbox: list[float | int] | None = Field(default=None)
+    markersize: float = Field(default=40.0)
+    padding: float = Field(default=0.05)
+    drop_nans: bool = Field(default=False)
+
+
+class SpatialMap(Plot):
+    """SpatialMap plot class. Plots a single dataset over a map.
+
+    The rendering style is chosen from the dataset topology: spatially
+    distributed data (``RegularGrid``) is drawn as a filled contour
+    (``contourf``); in-situ data (``PointSurface`` and any other topology)
+    is drawn as a coloured ``scatter`` of points. It is, in essence, one
+    half of ``SpatialOverlay`` applied to a single dataset.
+    """
+
+    aliases = ["spatial-map", "spatialmap", "map", "sm"]
+    config = SpatialMapConfig
+
+    def plot(self):
+        """plot Spatial Map plotting method.
+        The process goes as follows:
+        1) Process arguments.
+        2) Iterate through Domains.
+            2.1) Apply domain to the data object.
+            2.2) Time alignment.
+            2.3) Reduce variable to latitude and longitude.
+            2.4) Iterate through Variables
+                2.4.1) Contourf for RegularGrid data, scatter otherwise.
+                2.4.2) Save figure.
+        """
+        # Get relevant data from the config
+        data: RegularGrid | PointSurface = self.data[self.plot_config.data]
+        vars = self.plot_config.vars
+        time_interval = self.plot_config.time_interval
+        crs = data.crs.crs if self.plot_config.crs is None else self.plot_config.crs.crs
+        domains = {
+            name: dom
+            for name, dom in self.domains.items()
+            if name in self.plot_config.domains
+        }
+        if not domains:
+            domains = {"": None}
+
+        # RegularGrid renders as a filled contour, everything else as points.
+        is_grid = isinstance(data, RegularGrid)
+
+        for dom_name, dom in domains.items():
+            for var in vars:
+                data_var = data.obj[var]
+                if dom is not None:
+                    data_var = dom.apply(data_var)
+
+                unit = (
+                    data.vars[var]["unit"]
+                    if isinstance(vars, list | str)
+                    else vars[var]
+                )
+
+                # Time alignment
+                data_var = time_resampling(data_var, time_interval=time_interval)
+
+                # Reduction down to the spatial dims (latitude, longitude).
+                reduction_dims = [x for x in ["time", "z"] if x in data.dims]
+                data_var = data_var.reduce(
+                    self.plot_config.reduction_method.func, reduction_dims
+                )
+
+                # Unit conversion
+                data_var = change_unit(data_var, data.vars[var]["unit"], unit)
+
+                # Plotting
+                figure = plt.figure(
+                    figsize=self.plot_kwargs.get("figsize", [6, 6]),
+                    layout=self.plot_kwargs.get("layout", "constrained"),
+                )
+
+                ax = figure.add_subplot(1, 1, 1, projection=crs())
+
+                if self.plot_config.coastlines:
+                    ax.coastlines()
+                if self.plot_config.borders:
+                    ax.add_feature(cfeature.BORDERS)
+
+                figure.suptitle(
+                    self.plot_kwargs.get(
+                        "title", f"Spatial map of {var} for {data.name}"
+                    )
+                )
+
+                vmin, vmax = np.nanmin(data_var), np.nanmax(data_var)
+                norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
+
+                lons = data_var["longitude"].values
+                lats = data_var["latitude"].values
+
+                if is_grid:
+                    ax.contourf(
+                        lons,
+                        lats,
+                        data_var.values,
+                        transform=data.crs.crs(),
+                        cmap=self.plot_config.cmap,
+                        norm=norm,
+                        levels=self.plot_config.levels,
+                    )
+                else:
+                    vals = data_var.values
+                    # Drop stations whose reduced observation is NaN so empty
+                    # sites neither draw nor stretch the auto extent.
+                    if self.plot_config.drop_nans:
+                        lons, lats, vals = _drop_nan_points(lons, lats, vals)
+                    ax.scatter(
+                        lons,
+                        lats,
+                        c=vals,
+                        s=self.plot_config.markersize,
+                        transform=data.crs.crs(),
+                        cmap=self.plot_config.cmap,
+                        norm=norm,
+                        edgecolor="k",
+                    )
+
+                if self.plot_config.bbox is not None:
+                    lon_min, lat_min, lon_max, lat_max = self.plot_config.bbox
+                else:
+                    lon_min, lon_max = np.nanmin(lons), np.nanmax(lons)
+                    lat_min, lat_max = np.nanmin(lats), np.nanmax(lats)
+                    lon_min, lon_max, lat_min, lat_max = _pad_extent(
+                        lon_min, lon_max, lat_min, lat_max, self.plot_config.padding
+                    )
+
+                ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=crs())
+
+                sm = mpl.cm.ScalarMappable(norm=norm, cmap=self.plot_config.cmap)
+                figure.colorbar(
+                    sm, ax=ax, orientation="vertical", label=f"{var} [{unit}]"
+                )
+
+                start, end = manage_time_interval(time_interval)
+                format = self.plot_kwargs.get("format", "jpg")
+                filename = (
+                    f"spatial_map-{dom_name}-{var}-{data.name}-{start.strftime('%d-%m-%Y')}_{end.strftime('%d-%m-%Y')}.{format}"
                     if self.plot_config.filename is None
                     else self.plot_config.filename
                 )

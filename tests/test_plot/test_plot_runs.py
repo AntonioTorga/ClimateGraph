@@ -15,6 +15,8 @@ mpl.use("Agg")
 from ClimateGraph.plot.plots import (
     Scatter,
     ScatterConfig,
+    SpatialMap,
+    SpatialMapConfig,
     SpatialOverlay,
     SpatialOverlayConfig,
     TimeCycle,
@@ -136,6 +138,73 @@ class TestSpatialOverlayPlot:
         )
         plot.plot()
         assert _outputs(tmp_output_dir, "so")
+
+
+class TestSpatialMapPlot:
+    def test_runs_with_grid_contourf(self, regular_grid_data, tmp_output_dir):
+        # RegularGrid takes the contourf branch.
+        regular_grid_data.crs = CRSEnum.platecarree
+
+        cfg = SpatialMapConfig(
+            type="map",
+            data="grid_stub",
+            time_interval=TIME_INTERVAL,
+            vars=["Temperatura"],
+        )
+        plot = SpatialMap(
+            name="map_grid",
+            plot_config=cfg,
+            data_registry={"grid_stub": regular_grid_data},
+            domain_registry={},
+            output_path=tmp_output_dir,
+        )
+        plot.plot()
+        assert _outputs(tmp_output_dir, "map_grid")
+
+    def test_runs_with_point_scatter(self, point_surface_data, tmp_output_dir):
+        # PointSurface takes the scatter branch.
+        point_surface_data.crs = CRSEnum.platecarree
+
+        cfg = SpatialMapConfig(
+            type="spatial-map",
+            data="point_stub",
+            time_interval=TIME_INTERVAL,
+            vars={"Temperatura": "kelvin"},
+        )
+        plot = SpatialMap(
+            name="map_point",
+            plot_config=cfg,
+            data_registry={"point_stub": point_surface_data},
+            domain_registry={},
+            output_path=tmp_output_dir,
+        )
+        plot.plot()
+        assert _outputs(tmp_output_dir, "map_point")
+
+    def test_drop_nans_runs_with_empty_station(
+        self, point_surface_data, tmp_output_dir
+    ):
+        # Blank out one station entirely so its reduced obs is NaN; drop_nans
+        # should let the scatter branch render without it.
+        point_surface_data.crs = CRSEnum.platecarree
+        point_surface_data.obj["Temperatura"][:, 0] = float("nan")
+
+        cfg = SpatialMapConfig(
+            type="map",
+            data="point_stub",
+            time_interval=TIME_INTERVAL,
+            vars=["Temperatura"],
+            drop_nans=True,
+        )
+        plot = SpatialMap(
+            name="map_drop",
+            plot_config=cfg,
+            data_registry={"point_stub": point_surface_data},
+            domain_registry={},
+            output_path=tmp_output_dir,
+        )
+        plot.plot()
+        assert _outputs(tmp_output_dir, "map_drop")
 
 
 class TestScatterPlot:

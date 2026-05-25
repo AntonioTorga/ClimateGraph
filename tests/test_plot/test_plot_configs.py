@@ -3,6 +3,7 @@ from pydantic import ValidationError
 
 from ClimateGraph.plot.plots import (
     ScatterConfig,
+    SpatialMapConfig,
     SpatialOverlayConfig,
     TimeCycleConfig,
     TimeSeriesConfig,
@@ -62,6 +63,32 @@ class TestSpatialOverlayConfig:
         )
         assert cfg.coastlines is True
         assert cfg.cmap == "viridis"
+        assert cfg.padding == 0.05
+        assert cfg.drop_nans is False
+
+
+class TestSpatialMapConfig:
+    def test_minimal(self):
+        cfg = SpatialMapConfig(
+            type="map",
+            data="WRF",
+            time_interval="1/1/2019 - 1/2/2019",
+            vars=["T"],
+        )
+        assert cfg.data == "WRF"
+        assert cfg.coastlines is True
+        assert cfg.cmap == "viridis"
+        assert cfg.markersize == 40.0
+        assert cfg.padding == 0.05
+        assert cfg.drop_nans is False
+
+    def test_data_required(self):
+        with pytest.raises(ValidationError):
+            SpatialMapConfig(
+                type="sm",
+                time_interval="1/1/2019 - 1/2/2019",
+                vars="T",
+            )
 
 
 class TestTimeCycleConfig:

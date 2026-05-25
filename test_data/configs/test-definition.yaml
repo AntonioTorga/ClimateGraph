@@ -70,3 +70,17 @@ plots:
       Presion: pascal
     time_interval: 1/1/2019-1/2/2019
     reduction_method: mean
+  map_grid:
+    type: spatial-map
+    data: WRF_D02
+    vars:
+      Temperatura: kelvin
+    time_interval: 1/1/2019-1/2/2019
+    reduction_method: mean
+  map_point:
+    type: spatial-map
+    data: DMC
+    vars:
+      Temperatura: kelvin
+    time_interval: 1/1/2019-1/2/2019
+    reduction_method: mean

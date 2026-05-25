@@ -141,6 +141,25 @@ The parameters specific to each plot are as follows:
     - coastlines: boolean flag for adding coastlines to the plot.
     - borders: boolean flag for adding political borders to the plot.
     - cmap: colormap used for plotting.
+    - bbox: optional [lon_min, lat_min, lon_max, lat_max] map extent; defaults to the intersection of the two datasets' bounds.
+    - padding: fraction of each axis span added as a margin when the extent is computed automatically (i.e. when `bbox` is not set), so edge points aren't clipped (defaults to 0.05). A single point falls back to a fixed 0.5° margin.
+    - drop_nans: boolean flag; when true, point stations whose reduced observation is NaN are dropped so they neither draw nor stretch the auto extent (defaults to false).
+
+- **Spatial Map** (accepted type values: "spatial-map", "spatialmap", "map", "sm")
+
+    A single-dataset map: it renders the chosen variable on top of a map. The rendering style is picked from the dataset topology — a filled contour (`contourf`) for spatially distributed data (`RegularGrid`), or a coloured scatter of points for in-situ data (`PointSurface` and other topologies). It is, in essence, one half of Spatial Overlay applied to a single dataset.
+    - data: name of the data item to plot (the only dataset this plot takes).
+    - time_interval: time interval to use for plot in "d/m/yyyy-d/m/yyyy" format, where day and month can also be double-digitted.
+    - levels: integer value for the amount of levels used in the contourf, only used for `RegularGrid` data (defaults to 10).
+    - markersize: marker area for the scatter, only used for point-like data (defaults to 40).
+    - reduction_method: method for the reduction of other dimensions (time for example). Supports 'mean', 'min', 'max'.
+    - crs: Coordinate Reference System. Managed with cartopy but currently only manages 'platecarree'.
+    - coastlines: boolean flag for adding coastlines to the plot.
+    - borders: boolean flag for adding political borders to the plot.
+    - cmap: colormap used for plotting.
+    - bbox: optional [lon_min, lat_min, lon_max, lat_max] map extent; defaults to the data's own bounds.
+    - padding: fraction of each axis span added as a margin when the extent is computed automatically (i.e. when `bbox` is not set), so edge points aren't clipped (defaults to 0.05). A single point falls back to a fixed 0.5° margin.
+    - drop_nans: boolean flag; for point data, stations whose reduced observation is NaN are dropped so they neither draw nor stretch the auto extent (defaults to false). Has no effect on the `RegularGrid` contourf path.
 
 - **Timeseries** (accepted type values: "spatial-overlay", "spatialoverlay", "so")
     - base: name of a data item. The "other_data" will be resampled to the "base" geometry.

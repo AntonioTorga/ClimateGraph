@@ -51,6 +51,14 @@ EXPECTED_FILES = {
         "spatial_overlay-Poly1-Temperatura-WRF_D02-DMC-01-01-2019_01-02-2019.jpg",
         "spatial_overlay-Poly1-Presion-WRF_D02-DMC-01-01-2019_01-02-2019.jpg",
     ],
+    # SpatialMap takes a single dataset and no `domains:` key → blank domain
+    # slot. WRF_D02 (RegularGrid) renders contourf, DMC (PointSurface) scatter.
+    "map_grid": [
+        "spatial_map--Temperatura-WRF_D02-01-01-2019_01-02-2019.jpg",
+    ],
+    "map_point": [
+        "spatial_map--Temperatura-DMC-01-01-2019_01-02-2019.jpg",
+    ],
 }
 
 # Per-pixel RMS over 0-255 channels. Empirically, identical figures rendered on
