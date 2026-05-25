@@ -19,7 +19,8 @@ It is designed to be:
 
 - **WRF (Weather Research and Forecasting)** model outputs (gridded data)
 - **CHIMERE** model outputs (gridded data)
-- **DMC network** (point surface observations)
+- **DMC** and **SINCA** networks (point surface observations, NetCDF)
+- **CSV / Excel in-situ data**: SINCA (Chile), São Paulo and Quito readers
 
 - Designed for future support:
   - Satellite swath data
@@ -31,13 +32,23 @@ It is designed to be:
 
 - **Spatial Overlay**
 
-  - Overlay points of data over spatially distributed data.
+  - Overlay point data over spatially distributed data.
   - Uses contour maps + scatter overlays
+
+- **Spatial Map**
+
+  - Single-dataset map of one variable.
+  - `contourf` for gridded data, scatter for point data (picked from topology).
 
 - **Timeseries**
 
   - Compare temporal evolution across datasets
   - Supports spatial resampling and time resampling and alignment.
+
+- **Time Cycle**
+
+  - Average cycle over a time bucket (hour, day, season, ...).
+  - Std-deviation band on the base dataset; other datasets drawn as lines.
 
 - **Scatter**
 
@@ -164,7 +175,7 @@ The parameters specific to each plot are as follows:
     - padding: fraction of each axis span added as a margin when the extent is computed automatically (i.e. when `bbox` is not set), so edge points aren't clipped (defaults to 0.05). A single point falls back to a fixed 0.5° margin.
     - drop_nans: boolean flag; for point data, stations whose reduced observation is NaN are dropped so they neither draw nor stretch the auto extent (defaults to false). Has no effect on the `RegularGrid` contourf path.
 
-- **Timeseries** (accepted type values: "spatial-overlay", "spatialoverlay", "so")
+- **Timeseries** (accepted type values: "timeseries", "ts", "time-series")
     - base: name of a data item. The "other_data" will be resampled to the "base" geometry.
     - other_data: name or list of names of other data items.
     - radius_of_influence: radius of influence for resampling with Nearest Neighbor
@@ -180,6 +191,15 @@ The parameters specific to each plot are as follows:
     - timestep: timestep used to resample time. Only worth using if dimension is "time"
     - dimension: For this plot data needs to be 1D, so this string parameter allows you to change that dimension (defaults to "time").
     - reduction_method: method used for reducing to 1D. Supports 'mean', 'min', 'max'.
+
+- **Time Cycle** (accepted type values: "timecycle", "time cycle", "cycle")
+    - base: name of a data item; other_data is resampled to its geometry. Only the base draws a shaded ±1σ standard-deviation band; other_data is drawn as a line only.
+    - other_data: name or list of names of other data items (lines only, no std band).
+    - radius_of_influence: radius of influence for resampling with Nearest Neighbor.
+    - time_interval: time interval in "d/m/yyyy-d/m/yyyy" format.
+    - timestep: optional timestep to resample time before bucketing (must not be coarser than time_buckets).
+    - time_buckets: cycle period to group by. Accepted values: "minute", "hour", "day", "season", "week", "quarter" (default "day"). The plot title reflects the chosen bucket.
+    - reduction_method: reduces spatial dims before grouping. Supports 'mean', 'min', 'max'.
 
 ### ▶ Run
 
