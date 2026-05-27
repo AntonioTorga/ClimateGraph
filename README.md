@@ -74,6 +74,12 @@ cd ClimateGraph
 pip install .
 ```
 
+In cloning the git-lfs managed data isn't pulled. But if you want to run the configuration files inside of test_data/configs please run the following command:
+
+```bash
+git lfs pull --include "*" --exclude ""
+```
+
 ---
 
 ## Repository structure

@@ -77,8 +77,8 @@ class TimeSeriesConfig(BasePlotConfig):
 
     type: Literal["timeseries", "ts", "time-series"]
     base: str
-    other_data: str | list[str] | None = Field(default=None)
     radius_of_influence: int | None = Field(default=None)
+    other_data: str | list[str] | None = Field(default=None)
     time_interval: str | list[str] | None = Field(default=None)
     timestep: TimestepEnum | None = Field(default=None)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)

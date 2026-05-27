@@ -4,6 +4,7 @@ from typing import Any
 
 import cartopy.crs as ccrs
 import numpy as np
+import pandas as pd
 import xarray as xr
 from pyresample import kd_tree
 
@@ -403,6 +404,7 @@ class Data(ABC):
         timestep: str | None = None,
         time_interval: str | None = None,
         radius_of_influence: int = 10000,
+        time_tolerance: str | None = "30min",
         # reduction_dims: str | List[str] | None = None, reduction_func: Callable | None = None
     ) -> xr.DataArray | xr.Dataset:
         """resample_vars Resample the requested vars using Pyresample and the geom attributes. Until now only NearestNeighbour method is being used.
@@ -419,6 +421,8 @@ class Data(ABC):
             Time interval in dd/mm/yyyy-dd/mm/yyyy or d/m/yyyy-d/m/yyyy, by default None
         radius_of_influence : int, optional
             Radius length in meters to use for resampling with nearest neighbours. Lower improves computation time but may result in less resulting data, by default 10000
+        time_tolerance : str | None, optional
+            Pandas-style timedelta used as the tolerance when snapping ``other``'s time axis onto ``self``'s via nearest-neighbour reindex. Handles cases where the two sources are on the same cadence but offset (e.g. CHIMERE at HH:30 vs. point-surface at HH:00). Set to ``None`` to disable snapping. Default ``"30min"``.
 
         Returns
         -------
@@ -438,6 +442,16 @@ class Data(ABC):
             neighbours=1,
         )
 
+        # Establish the destination time grid up front so var_src can be snapped onto
+        # it before resampling. Without this, sources whose time axis is offset from
+        # self's (e.g. CHIMERE labelled at HH:30 vs point-surface at HH:00) end up
+        # producing a resampled array whose time length doesn't match self's.
+        if self.resampled is None:
+            self.resampled = self.obj.drop_vars(list(self.obj.data_vars))
+            self.resampled = time_resampling(
+                self.resampled, timestep=timestep, time_interval=time_interval
+            )
+
         new_vars = []
         for var in vars:
             var_dst_dims = self.get_var(var).sizes
@@ -454,6 +468,13 @@ class Data(ABC):
             var_src = time_resampling(
                 var_src, timestep=timestep, time_interval=time_interval
             )
+
+            if time_tolerance is not None and "time" in var_src.dims:
+                var_src = var_src.reindex(
+                    time=self.resampled["time"],
+                    method="nearest",
+                    tolerance=pd.Timedelta(time_tolerance),
+                )
 
             def _resample(x):
                 return kd_tree.get_sample_from_neighbour_info(
@@ -488,12 +509,6 @@ class Data(ABC):
                     }
                 },
             )
-
-            if self.resampled is None:
-                self.resampled = self.obj.drop_vars(list(self.obj.data_vars))
-                self.resampled = time_resampling(
-                    self.resampled, timestep=timestep, time_interval=time_interval
-                )
 
             new_name = f"{var}__{other.name}"
             self.resampled[new_name] = (var_dst_dims, resampled.data)

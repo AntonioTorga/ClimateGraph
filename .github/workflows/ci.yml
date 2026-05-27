@@ -23,8 +23,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        # Skip LFS pull: slow tests auto-skip when the NetCDF samples are
-        # missing (see tests/conftest.py), and we don't run them in CI.
+        # The committed .lfsconfig sets `fetchexclude = *` so neither clones
+        # nor this checkout pull LFS data. CI runs only the in-memory tests
+        # (the @slow tests that need NetCDF samples are filtered out below).
         with:
           lfs: false
 
