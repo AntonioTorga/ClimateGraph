@@ -9,6 +9,7 @@ from typing import Any, Literal
 import pandas as pd
 import xarray as xr
 
+from ClimateGraph.utils.dataset_utils import apply_operation
 from ClimateGraph.utils.general_utils import manage_path
 
 log = logging.getLogger(__name__)
@@ -58,7 +59,8 @@ class Reader(ABC):
                     pieces.append(piece)
                 ds = _join(pieces, spec)
             ds = _postprocess(ds, spec)
-            ds = _apply_time_offset(ds, spec)   # runs for every reader
+            ds = _finalize(ds, spec)            # spec-driven adjustments;
+                                                # runs for every reader
     """
 
     registry: dict[str, dict[str, type[Reader]]] = {}
@@ -146,10 +148,50 @@ class Reader(ABC):
             )
 
         ds = cls._postprocess(ds, spec)
-        # Applied here rather than inside the _postprocess hook so it runs for
-        # every reader, even those whose _postprocess override doesn't call
-        # super() (e.g. Chimere).
+        ds = cls._finalize(ds, spec)
+        return ds
+
+    # ----- finalization (spec-driven, runs for every reader) --------------
+
+    @classmethod
+    def _finalize(cls, ds: xr.Dataset, spec: ReadSpec) -> xr.Dataset:
+        """Apply spec-driven adjustments after ``_postprocess``.
+
+        Grouped here rather than appended to ``read`` so the lifecycle keeps a
+        single finalization seam: new config-driven transforms get sequenced
+        in this method, not tacked onto ``read``. Runs for every reader,
+        independent of which hooks a subclass overrode (e.g. a ``_postprocess``
+        override that doesn't call ``super()``).
+
+        Order: time-coordinate shaping before value shaping. The two are
+        independent today (offset touches only ``time``, operations only data
+        values), but the convention keeps the sequence predictable.
+        """
         ds = cls._apply_time_offset(ds, spec)
+        ds = cls._apply_operations(ds, spec)
+        return ds
+
+    @staticmethod
+    def _apply_operations(ds: xr.Dataset, spec: ReadSpec) -> xr.Dataset:
+        """Apply each variable's optional ``operation`` to its values.
+
+        For unit conversions pint can't express (e.g. ug/m**3 -> ppb): the
+        var's declared ``unit`` is the unit *after* this runs. A no-op when no
+        var declares an ``operation``. See
+        ``dataset_utils.apply_operation`` for the accepted syntax.
+        """
+        if not spec.vars:
+            return ds
+        for var_name, var_spec in spec.vars.items():
+            operation = var_spec.get("operation")
+            if not operation:
+                continue
+            # The dataset may key the var by its config name or its file-native
+            # name depending on whether a reader renamed it; resolve both.
+            name = var_name if var_name in ds else var_spec.get("name")
+            if name not in ds:
+                continue
+            ds[name] = apply_operation(ds[name], operation)
         return ds
 
     # ----- lifecycle hooks (override these, not read) ---------------------

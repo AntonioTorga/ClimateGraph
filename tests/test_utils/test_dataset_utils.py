@@ -1,7 +1,9 @@
 import numpy as np
+import pytest
 import xarray as xr
 
 from ClimateGraph.utils.dataset_utils import (
+    apply_operation,
     change_unit,
     time_resampling,
 )
@@ -62,3 +64,48 @@ class TestChangeUnit:
         )
         out = change_unit(xa, "kelvin", "degC")
         assert "time" in out.coords
+
+
+class TestApplyOperation:
+    def _xa(self):
+        return xr.DataArray(
+            np.array([1.0, 2.0, 3.0]),
+            dims="time",
+            coords={"time": [0, 1, 2]},
+            name="PM25",
+        )
+
+    def test_leading_operator_shorthand_multiply(self):
+        out = apply_operation(self._xa(), "*3")
+        np.testing.assert_allclose(out.values, [3.0, 6.0, 9.0])
+
+    def test_leading_operator_divide(self):
+        out = apply_operation(self._xa(), "/2")
+        np.testing.assert_allclose(out.values, [0.5, 1.0, 1.5])
+
+    def test_power_shorthand(self):
+        # "**2" starts with "*", so the shorthand expands to "x**2".
+        out = apply_operation(self._xa(), "**2")
+        np.testing.assert_allclose(out.values, [1.0, 4.0, 9.0])
+
+    def test_explicit_x_expression(self):
+        out = apply_operation(self._xa(), "x / 48 * 24.45")
+        np.testing.assert_allclose(out.values, np.array([1.0, 2.0, 3.0]) / 48 * 24.45)
+
+    def test_negative_constant_via_unary(self):
+        # "*-0.8" -> "x*-0.8"; the -0.8 is UnaryOp(USub, 0.8), not a literal.
+        out = apply_operation(self._xa(), "*-0.8")
+        np.testing.assert_allclose(out.values, np.array([1.0, 2.0, 3.0]) * -0.8)
+
+    def test_name_and_coords_preserved(self):
+        out = apply_operation(self._xa(), "*3")
+        assert out.name == "PM25"
+        assert "time" in out.coords
+
+    @pytest.mark.parametrize(
+        "bad",
+        ["__import__('os')", "x.values", "foo * 2", "x + y"],
+    )
+    def test_rejects_non_arithmetic(self, bad):
+        with pytest.raises(ValueError):
+            apply_operation(self._xa(), bad)

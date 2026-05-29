@@ -52,6 +52,8 @@ class VarModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str
     unit: str
+    # Optional operation applied over the variable at reader time, soon to be able to compose different variables as well.
+    operation: str | None = None
 
 
 class DataModel(BaseModel):

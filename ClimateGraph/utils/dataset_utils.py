@@ -1,9 +1,82 @@
+import ast
+import operator as _op
+
 import pint_xarray  # noqa: F401  — registers the `.pint` accessor on xarray DataArrays
 import xarray as xr
 
 from .general_utils import ReductionMethodEnum, manage_time_interval
 
 # TODO: make this into accessors
+
+# Arithmetic allowed inside a var-level `operation:` expression. Deliberately
+# tiny: binary/unary arithmetic on the variable `x` and numeric constants.
+# No attribute access, calls or names other than `x`, so a config string can't
+# execute arbitrary code.
+_ALLOWED_BINOPS = {
+    ast.Add: _op.add,
+    ast.Sub: _op.sub,
+    ast.Mult: _op.mul,
+    ast.Div: _op.truediv,
+    ast.Pow: _op.pow,
+    ast.Mod: _op.mod,
+}
+_ALLOWED_UNARYOPS = {ast.UAdd: _op.pos, ast.USub: _op.neg}
+
+
+def apply_operation(xa: xr.DataArray, operation: str) -> xr.DataArray:
+    """apply_operation Apply a scalar arithmetic operation to a variable.
+
+    Meant for unit conversions that pint can't express — e.g. mass/volume
+    (``ug/m**3``) to a mixing ratio (``ppb``), which is a multiply by a
+    constant factor for a given temperature and pressure.
+
+    ``operation`` is a small arithmetic expression in the variable ``x``,
+    e.g. ``"x * 0.8"`` or ``"x / 48 * 24.45"``. As a shorthand, a leading
+    binary operator implies ``x`` on the left: ``"*3"`` means ``"x * 3"``,
+    ``"/48"`` means ``"x / 48"``, ``"**2"`` means ``"x ** 2"``. Only
+    arithmetic on ``x`` and numeric constants is permitted.
+
+    Parameters
+    ----------
+    xa : xr.DataArray
+        Variable to transform.
+    operation : str
+        Arithmetic expression (see above).
+
+    Returns
+    -------
+    xr.DataArray
+        The transformed variable. Name and coordinates are preserved.
+
+    Raises
+    ------
+    ValueError
+        If the expression contains anything other than arithmetic on ``x``
+        and numeric constants.
+    """
+    expr = operation.strip()
+    # Leading-operator shorthand: "*3" -> "x*3". `**` starts with `*` too,
+    # so "**2" -> "x**2" falls out for free.
+    if expr[:1] in {"*", "/", "+", "-"}:
+        expr = "x" + expr
+
+    def _eval(node):
+        if isinstance(node, ast.Expression):
+            return _eval(node.body)
+        if isinstance(node, ast.BinOp) and type(node.op) in _ALLOWED_BINOPS:
+            return _ALLOWED_BINOPS[type(node.op)](_eval(node.left), _eval(node.right))
+        if isinstance(node, ast.UnaryOp) and type(node.op) in _ALLOWED_UNARYOPS:
+            return _ALLOWED_UNARYOPS[type(node.op)](_eval(node.operand))
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return node.value
+        if isinstance(node, ast.Name) and node.id == "x":
+            return xa
+        raise ValueError(
+            f"Unsupported operation {operation!r}: only arithmetic on `x` "
+            "and numeric constants is allowed."
+        )
+
+    return _eval(ast.parse(expr, mode="eval"))
 
 
 def variable_aggregation(ds: xr.Dataset, aggregation_dict: dict) -> xr.Dataset:
