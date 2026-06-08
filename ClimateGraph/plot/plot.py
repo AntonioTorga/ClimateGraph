@@ -211,9 +211,7 @@ class Plot(ABC):
             Kwargs ready to splat into ``plt.figure``.
         """
         merged = {"figsize": (6, 6), "layout": "constrained", **defaults}
-        merged.update(
-            {k: v for k, v in self.plot_kwargs.items() if k in FIGURE_KWARGS}
-        )
+        merged.update({k: v for k, v in self.plot_kwargs.items() if k in FIGURE_KWARGS})
         return merged
 
     def savefig_kwargs(self, **defaults) -> dict:
