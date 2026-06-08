@@ -5,7 +5,7 @@ import cartopy.feature as cfeature
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 mpl.use("Agg")
 
@@ -60,14 +60,9 @@ def _pad_extent(
 class BasePlotConfig(BaseModel):
     """BasePlotConfig Base configuration as for all plots, Pydantic Model. Used to manage common arguments."""
 
+    model_config = ConfigDict(extra="allow")
+
     filename: str | None = Field(default=None)
-    figsize: tuple[float, float] = Field((6, 6))
-    format: str = Field(default="jpg")
-    layout: Literal["constrained", "compressed", "tight", "none"] = Field(
-        default="compressed"
-    )
-    dpi: int = Field(default=400)
-    transparent: bool = Field(default=False)
     domains: list[str] = Field(default_factory=list)
     vars: str | list[str] | dict[str, str]
 
@@ -180,10 +175,7 @@ class Timeseries(Plot):
                     if not isinstance(vars, dict)
                     else vars[variable]
                 )
-                figure = plt.figure(
-                    figsize=self.plot_kwargs.get("figsize", [6, 6]),
-                    layout=self.plot_kwargs.get("layout", "constrained"),
-                )
+                figure = plt.figure(**self.figure_kwargs())
                 ax = figure.add_subplot(1, 1, 1)
 
                 for name, data_obj in all_data_dom.items():
@@ -321,10 +313,7 @@ class Scatter(Plot):
                     if isinstance(vars, list | str)
                     else vars[variable]
                 )
-                figure = plt.figure(
-                    figsize=self.plot_kwargs.get("figsize", [6, 6]),
-                    layout=self.plot_kwargs.get("layout", "constrained"),
-                )
+                figure = plt.figure(**self.figure_kwargs())
                 base_var, other_var = (
                     base_obj_dom[f"{variable}__{base.name}"],
                     other_obj_dom[f"{variable}__{other.name}"],
@@ -457,10 +446,7 @@ class SpatialOverlay(Plot):
                 )
 
                 # Plotting
-                figure = plt.figure(
-                    figsize=self.plot_kwargs.get("figsize", [6, 6]),
-                    layout=self.plot_kwargs.get("layout", "constrained"),
-                )
+                figure = plt.figure(**self.figure_kwargs())
 
                 ax = figure.add_subplot(1, 1, 1, projection=crs())
 
@@ -633,10 +619,7 @@ class SpatialMap(Plot):
                 data_var = change_unit(data_var, data.vars[var]["unit"], unit)
 
                 # Plotting
-                figure = plt.figure(
-                    figsize=self.plot_kwargs.get("figsize", [6, 6]),
-                    layout=self.plot_kwargs.get("layout", "constrained"),
-                )
+                figure = plt.figure(**self.figure_kwargs())
 
                 ax = figure.add_subplot(1, 1, 1, projection=crs())
 
@@ -828,10 +811,7 @@ class TimeCycle(Plot):
                     else vars[variable]
                 )
 
-                figure = plt.figure(
-                    figsize=self.plot_kwargs.get("figsize", [8, 5]),
-                    layout=self.plot_kwargs.get("layout", "constrained"),
-                )
+                figure = plt.figure(**self.figure_kwargs(figsize=(8, 5)))
                 ax = figure.add_subplot(1, 1, 1)
 
                 xticklabels = None

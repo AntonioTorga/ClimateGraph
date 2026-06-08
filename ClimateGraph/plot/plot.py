@@ -14,6 +14,33 @@ from ClimateGraph.domain import Domain
 
 logging.basicConfig(level=logging.INFO)  # TODO: make this settable from yaml file.
 
+# Which keys in plot_kwargs get routed to which matplotlib call. A given key
+# may legitimately belong to more than one sink (e.g. `dpi` applies to both
+# the figure and savefig), so the sets overlap on purpose. matplotlib rejects
+# kwargs it doesn't recognise (plt.figure -> Figure.set() AttributeError,
+# savefig -> TypeError), so we can't blindly splat all of plot_kwargs into
+# them; anything not listed here (titles, axis labels, ...) is left for the
+# individual plot methods to consume.
+FIGURE_KWARGS = {
+    "figsize",
+    "dpi",
+    "layout",
+    "facecolor",
+    "edgecolor",
+    "frameon",
+    "linewidth",
+}
+SAVEFIG_KWARGS = {
+    "dpi",
+    "format",
+    "transparent",
+    "bbox_inches",
+    "pad_inches",
+    "facecolor",
+    "edgecolor",
+    "orientation",
+}
+
 
 class Plot(ABC):
     """The Plot abstract class.
@@ -163,6 +190,49 @@ class Plot(ABC):
         """plot Abstract method. Run the plot operation with the instance attributes and plot configuration."""
         pass
 
+    def figure_kwargs(self, **defaults) -> dict:
+        """figure_kwargs Build the kwargs for ``plt.figure`` from ``plot_kwargs``.
+
+        Picks the figure-relevant keys (see ``FIGURE_KWARGS``) out of the
+        user-supplied ``plot_kwargs`` and layers them on top of any ``defaults``
+        the caller passes, so a plot method only has to write
+        ``plt.figure(**self.figure_kwargs(figsize=(8, 5)))`` instead of a
+        per-key ``.get`` for each matplotlib knob.
+
+        Parameters
+        ----------
+        **defaults
+            Per-plot fallbacks (e.g. ``figsize``) used when the user didn't
+            supply that key in the YAML.
+
+        Returns
+        -------
+        dict
+            Kwargs ready to splat into ``plt.figure``.
+        """
+        merged = {"figsize": (6, 6), "layout": "constrained", **defaults}
+        merged.update(
+            {k: v for k, v in self.plot_kwargs.items() if k in FIGURE_KWARGS}
+        )
+        return merged
+
+    def savefig_kwargs(self, **defaults) -> dict:
+        """savefig_kwargs Build the kwargs for ``figure.savefig`` from ``plot_kwargs``.
+
+        Same idea as ``figure_kwargs`` but for the save-relevant keys (see
+        ``SAVEFIG_KWARGS``).
+
+        Returns
+        -------
+        dict
+            Kwargs ready to splat into ``figure.savefig``.
+        """
+        merged = {"dpi": 400, "format": "jpg", "transparent": False, **defaults}
+        merged.update(
+            {k: v for k, v in self.plot_kwargs.items() if k in SAVEFIG_KWARGS}
+        )
+        return merged
+
     def savefig(self, figure: mpl.figure.Figure, filename: str):
         """savefig Matplotlib Figure saving. Used by plot function to save to system. Manages kwargs given through the plot configuration relevant to saving.
 
@@ -173,11 +243,6 @@ class Plot(ABC):
         filename : str
             Filename to be used. Doesn't have to include file format, just name.
         """
-        figure.savefig(
-            self.output_path / filename,
-            dpi=self.plot_config.dpi,
-            format=self.plot_config.format,
-            transparent=self.plot_config.transparent,
-        )
+        figure.savefig(self.output_path / filename, **self.savefig_kwargs())
 
         plt.close(fig=figure)
