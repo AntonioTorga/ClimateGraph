@@ -15,6 +15,9 @@ from ClimateGraph.plot import Plot
 from ClimateGraph.reader import Reader
 from ClimateGraph.utils.general_utils import CRSEnum, manage_path
 
+# Plot config fields that name a data block. ``other_data`` may be a str or list.
+_DATASET_REF_FIELDS = ("base", "other", "superposed", "data", "other_data")
+
 
 class AnalysisModel(BaseModel):
     """AnalysisModel Analysis block pydantic model. Just has output_path as a pathlib.Path and a debug flag.
@@ -23,7 +26,7 @@ class AnalysisModel(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     output_path: Path
-    debug: bool
+    debug: bool = Field(default=False)
     workers: int | None = Field(default=None, ge=1)
 
     @field_validator("output_path")
@@ -51,9 +54,11 @@ class VarModel(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     name: str
-    unit: str
+    # Optional: without a unit the variable is left as-is (no conversion) and
+    # plot labels omit the unit. Provide it to enable pint unit conversion.
+    unit: str | None = Field(default=None)
     # Optional operation applied over the variable at reader time, soon to be able to compose different variables as well.
-    operation: str | None = None
+    operation: str | None = Field(default=None)
 
 
 class DataModel(BaseModel):
@@ -69,13 +74,19 @@ class DataModel(BaseModel):
     topology: str
     reader: str
     path: Path | list[Path]
-    vars: dict[str, VarModel]
+    # Optional. A dict maps user-facing names to {name, unit, operation} (units
+    # optional); a plain list[str] selects file-native names with no units; None
+    # (omitted) keeps every variable in the file under its file-native name.
+    vars: dict[str, VarModel] | list[str] | None = Field(default=None)
     crs: CRSEnum = Field(default=CRSEnum.platecarree)
     load_mode: Literal["safe", "unsafe"] = Field(default="safe")
     # Per-data download cache override. If unset, Parser falls back to
     # analysis.output_path/.cache/. Reader._resolve_paths is the only
     # site that consumes this; local-only readers ignore it.
     cache_dir: Path | None = Field(default=None)
+    # Optional destination for the fully-processed dataset. When set,
+
+    save_to: Path | None = Field(default=None)
 
     @field_validator("topology")
     @classmethod
@@ -93,6 +104,19 @@ class DataModel(BaseModel):
         if not path:
             raise ValueError(f"No files found for path {v}")
         return path
+
+    @field_validator("save_to")
+    @classmethod
+    def val_save_to(cls, v: Path | None):
+        # fail at check time for save_to argument
+        if v is None:
+            return v
+        if v.is_dir() or v.suffix.lower() not in Reader.netcdf_suffixes:
+            raise ValueError(
+                f"save_to must be an exact NetCDF file path "
+                f"(one of {Reader.netcdf_suffixes}); got {v!r}."
+            )
+        return v
 
     @model_validator(mode="after")
     def check_type_and_subtype_are_consistent(self):
@@ -129,3 +153,70 @@ class ControlFile(BaseModel):
                     f"Known domains: {sorted(known) or '(none defined)'}."
                 )
         return self
+
+    @model_validator(mode="after")
+    def check_plot_var_refs(self):
+        """Catch plot var names that can't resolve in a referenced dataset.
+
+        With canonical names now optional, a plot's var names must match the
+        names each referenced dataset actually exposes (dict keys, list entries,
+        or — when vars is omitted — the file-native names). We can only check
+        datasets that *declared* their vars (dict or list); datasets with
+        ``vars=None`` expose names we can't know until load, so those defer to
+        the runtime ``KeyError`` in ``Data.get_var``.
+        """
+        if not self.plots:
+            return self
+        for plot_name, plot_model in self.plots.items():
+            plot_vars = _plot_var_names(getattr(plot_model, "vars", None))
+            if not plot_vars:
+                continue
+            for ds_name in _referenced_datasets(plot_model, _DATASET_REF_FIELDS):
+                data_model = self.data.get(ds_name)
+                if data_model is None:
+                    continue
+                declared = _declared_var_names(data_model.vars)
+                if declared is None:
+                    continue  # vars omitted — defer to runtime
+                missing = sorted(plot_vars - declared)
+                if missing:
+                    raise ValueError(
+                        f"Plot {plot_name!r} references variable(s) {missing} "
+                        f"not declared in dataset {ds_name!r}. "
+                        f"Declared vars: {sorted(declared) or '(none)'}."
+                    )
+        return self
+
+
+def _plot_var_names(vars: str | list[str] | dict[str, str] | None) -> set[str]:
+    """Variable names a plot references, regardless of the form ``vars`` took."""
+    if vars is None:
+        return set()
+    if isinstance(vars, str):
+        return {vars}
+    if isinstance(vars, dict):
+        return set(vars.keys())
+    return set(vars)
+
+
+def _declared_var_names(
+    vars: dict[str, VarModel] | list[str] | None,
+) -> set[str] | None:
+    """Names a dataset exposes, or ``None`` when vars was omitted (unknowable)."""
+    if isinstance(vars, dict):
+        return set(vars.keys())
+    if isinstance(vars, list):
+        return set(vars)
+    return None
+
+
+def _referenced_datasets(plot_model, fields: tuple[str, ...]) -> set[str]:
+    """Collect data-block names a plot points at across its reference fields."""
+    names: set[str] = set()
+    for field in fields:
+        value = getattr(plot_model, field, None)
+        if isinstance(value, str):
+            names.add(value)
+        elif isinstance(value, list):
+            names.update(v for v in value if isinstance(v, str))
+    return names

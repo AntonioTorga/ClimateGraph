@@ -163,12 +163,40 @@ class Reader(ABC):
         independent of which hooks a subclass overrode (e.g. a ``_postprocess``
         override that doesn't call ``super()``).
 
-        Order: time-coordinate shaping before value shaping. The two are
-        independent today (offset touches only ``time``, operations only data
-        values), but the convention keeps the sequence predictable.
+        Order: time-coordinate shaping before value shaping, then the
+        optional save. The transforms are independent today (offset touches
+        only ``time``, operations only data values), but the convention keeps
+        the sequence predictable; ``_save`` is queued last so the file on disk
+        reflects every adjustment.
         """
         ds = cls._apply_time_offset(ds, spec)
         ds = cls._apply_operations(ds, spec)
+        ds = cls._save(ds, spec)
+        return ds
+
+    # NetCDF filename suffixes accepted for ``save_to``.
+    netcdf_suffixes: tuple[str, ...] = (".nc", ".nc4", ".netcdf", ".cdf")
+
+    @classmethod
+    def _save(cls, ds: xr.Dataset, spec: ReadSpec) -> xr.Dataset:
+        """Write the finalized dataset to ``spec.extras['save_to']`` as NetCDF.
+
+        ``save_to`` must be an exact NetCDF file path.
+
+        Returns ``ds`` unchanged so it stays chainable in ``_finalize``.
+        """
+        save_to = spec.extras.get("save_to")
+        if not save_to:
+            return ds
+        target = Path(save_to)
+        if target.is_dir() or target.suffix.lower() not in cls.netcdf_suffixes:
+            raise ValueError(
+                f"save_to must be an exact NetCDF file path "
+                f"(one of {cls.netcdf_suffixes}); got {save_to!r}."
+            )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        log.info("Writing processed dataset to %s", target)
+        ds.to_netcdf(target)
         return ds
 
     @staticmethod

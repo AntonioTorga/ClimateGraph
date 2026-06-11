@@ -61,7 +61,11 @@ class Parser:
                 data_model.vars,
                 data_model.crs,
             )
-            _vars = {var: var_model.model_dump() for var, var_model in _vars.items()}
+            # Only necessary for dict, but not REALLY sure how necessary it is
+            if isinstance(_vars, dict):
+                _vars = {
+                    var: var_model.model_dump() for var, var_model in _vars.items()
+                }
 
             # model_extra is reader-specific kwargs (rename overrides,
             # vertical_level for Chimere, etc.). Lifecycle settings
@@ -71,6 +75,7 @@ class Parser:
             reader_kwargs = dict(data_model.model_extra or {})
             reader_kwargs["load_mode"] = data_model.load_mode
             reader_kwargs["cache_dir"] = data_model.cache_dir or default_cache_dir
+            reader_kwargs["save_to"] = data_model.save_to
 
             data_instance = Data.create(
                 _name, _topology, _reader, _path, _vars, _crs, reader_kwargs

@@ -20,6 +20,21 @@ class TestTimeSeriesConfig:
         cfg = TimeSeriesConfig(type="ts", base="DMC", vars="T")
         assert cfg.type == "ts"
 
+    def test_single_string_var_wrapped_in_list(self):
+        # A lone string must become a one-element list, not be iterated char by
+        # char downstream.
+        cfg = TimeSeriesConfig(type="ts", base="DMC", vars="Temperatura")
+        assert cfg.vars == ["Temperatura"]
+
+    def test_list_and_dict_vars_untouched(self):
+        assert TimeSeriesConfig(type="ts", base="DMC", vars=["A", "B"]).vars == [
+            "A",
+            "B",
+        ]
+        assert TimeSeriesConfig(type="ts", base="DMC", vars={"A": "kelvin"}).vars == {
+            "A": "kelvin"
+        }
+
     def test_unknown_type_rejected(self):
         with pytest.raises(ValidationError):
             TimeSeriesConfig(type="nope", base="DMC", vars="T")

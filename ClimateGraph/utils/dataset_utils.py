@@ -1,4 +1,5 @@
 import ast
+import logging
 import operator as _op
 
 import pint_xarray  # noqa: F401  — registers the `.pint` accessor on xarray DataArrays
@@ -79,6 +80,34 @@ def apply_operation(xa: xr.DataArray, operation: str) -> xr.DataArray:
     return _eval(ast.parse(expr, mode="eval"))
 
 
+def normalize_vars(
+    vars: dict[str, dict] | list[str] | None,
+) -> dict[str, dict] | None:
+    """normalize_vars Coerce the user-supplied ``vars`` into the canonical
+    dict-or-None shape the rest of the pipeline expects.
+
+    - a dict returned unchanged (today's full form, units optional);
+    - a plain list[str] of file-native names — expanded to an identity
+      mapping with null units, e.g. ``["PM10"] -> {"PM10": {"name": "PM10",
+      "unit": None, "operation": None}}``.
+    - None (omitted) — returned as ``None`` so the readers keep every
+      variable under its file-native name.
+
+    Parameters
+    ----------
+    vars : dict[str, dict] | list[str] | None
+        The raw vars declaration.
+
+    Returns
+    -------
+    dict[str, dict] | None
+        var dict mapping (cannonical names), or ``None`` when nothing was declared.
+    """
+    if isinstance(vars, list):
+        return {name: {"name": name, "unit": None, "operation": None} for name in vars}
+    return vars
+
+
 def variable_aggregation(ds: xr.Dataset, aggregation_dict: dict) -> xr.Dataset:
     """variable_aggregation Creates new variable from variable aggregation.
 
@@ -143,7 +172,9 @@ def time_resampling(
     return ds
 
 
-def change_unit(xa: xr.DataArray, src_unit: str, dst_unit: str) -> xr.DataArray:
+def change_unit(
+    xa: xr.DataArray, src_unit: str | None, dst_unit: str | None
+) -> xr.DataArray:
     """change_unit Unit conversion method for datasets.
 
     Parameters
@@ -160,6 +191,11 @@ def change_unit(xa: xr.DataArray, src_unit: str, dst_unit: str) -> xr.DataArray:
     xr.DataArray
         Data in the destination measure unit.
     """
+    if src_unit is None or dst_unit is None:
+        logging.info(
+            f"Source unit or destination unit wasn't provided.\nLeaving {xa.name} in the provided unit. This will reflect in graphs."
+        )
+        return xa
     if src_unit == dst_unit:
         return xa  # No sense on performing any operations if it is already in the desired unit.
 

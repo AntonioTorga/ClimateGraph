@@ -10,7 +10,11 @@ from pyresample import kd_tree
 
 from ClimateGraph.reader import Reader
 from ClimateGraph.reader.reader.reader import ReadSpec
-from ClimateGraph.utils.dataset_utils import change_unit, time_resampling
+from ClimateGraph.utils.dataset_utils import (
+    change_unit,
+    normalize_vars,
+    time_resampling,
+)
 from ClimateGraph.utils.general_utils import ReductionMethodEnum
 
 
@@ -84,7 +88,7 @@ class Data(ABC):
         topology: str,
         reader: str,
         path: Path | list[Path],
-        vars: dict[str, dict[str, str]],
+        vars: dict[str, dict[str, str]] | list[str] | None,
         crs: ccrs,
         reader_kwargs: dict,
     ):
@@ -120,7 +124,7 @@ class Data(ABC):
         self,
         name: str,
         path: Path | list[Path],
-        vars: dict[str, dict[str, str]],
+        vars: dict[str, dict[str, str]] | list[str] | None,
         reader: Reader,
         crs: ccrs.CRS,
         reader_kwargs: dict[str, Any] | None = None,
@@ -149,7 +153,10 @@ class Data(ABC):
         # Going to be set later
         self._obj = None
         self._geom = None
-        self._vars = vars
+        # Coerce list / None forms into the canonical dict-or-None shape so the
+        # rest of Data (and the readers) only ever see a dict or None. Idempotent,
+        # so copy() re-passing self.vars is safe.
+        self._vars = normalize_vars(vars)
         self._path = None
         self._bbox = None  # minlon, minlat, maxlon, maxlat
         self._dims = None
@@ -229,10 +236,35 @@ class Data(ABC):
 
         Returns
         -------
-        Dict[str, Dict[str, str]]
-            Dictionary where keys are Variable names, and the value is another Dictionary with "name" (with the name of the variable in the files) and "unit" (with the "pint" unit name for this variable) keys.
+        Dict[str, Dict[str, str]] | None
+            Normalized dict mapping each user-facing variable name to a dict with
+            "name" (file-native name) and "unit" (pint unit, possibly None)
+            keys, or None when the data block declared no vars, and vars will be treated
+            by native file names.
         """
         return self._vars
+
+    def var_unit(self, var_name: str) -> str | None:
+        """var_unit Resolve the declared source unit for ``var_name``.
+
+        Single choke point for reading a variable's declared unit, so callers
+        never index self.vars[...]["unit"]
+
+        Parameters
+        ----------
+        var_name : str
+            User-facing variable name.
+
+        Returns
+        -------
+        str | None
+            The declared pint unit, or ``None`` when vars wasn't declared.
+        """
+        if isinstance(self._vars, dict):
+            entry = self._vars.get(var_name)
+            if entry is not None:
+                return entry.get("unit")
+        return None
 
     @property
     def dims(self):
@@ -330,9 +362,14 @@ class Data(ABC):
         KeyError
             If the variable can't be found in the obj object.
         """
-        if var_name not in self.obj and self.vars[var_name]["name"] not in self.obj:
-            raise KeyError(f"Variable {var_name} not defined for dataset {self.name}.")
-        var_name = var_name if var_name in self.obj else self.vars[var_name]["name"]
+        # After the reader runs the dataset is keyed by the user-facing names
+        # (dict vars are renamed; list/None vars keep their file-native names,
+        # which is what var_name already is), so var_name is the obj key.
+        if var_name not in self.obj:
+            raise KeyError(
+                f"Variable {var_name!r} not found in dataset {self.name!r} "
+                f"(available: {list(self.obj.data_vars)})."
+            )
         xa = self.obj.data_vars[var_name]
 
         if reduction_func is not None:
@@ -346,9 +383,7 @@ class Data(ABC):
             xa = xa.reduce(reduction_func, reduction_dims)
 
         if in_unit is not None:
-            src_unit = self.vars[var_name]["unit"]
-            dst_unit = in_unit
-            xa = change_unit(xa, src_unit, dst_unit)
+            xa = change_unit(xa, self.var_unit(var_name), in_unit)
 
         if as_array:
             xa = xa.to_numpy()
@@ -457,11 +492,11 @@ class Data(ABC):
             var_dst_dims = self.get_var(var).sizes
             var_src = other.get_var(var)
 
-            # assume that the caller wants the var either in a specified unit, or the unit of the base of resampling.
-            dst_unit = (
-                self.vars[var]["unit"] if isinstance(vars, list | str) else vars[var]
-            )
-            src_unit = other.vars[var]["unit"]
+            # The caller wants the var either in a specified unit (dict form) or
+            # in the unit of the resampling base (list/str form). var_unit yields
+            # None when units weren't declared, and change_unit no-ops on None.
+            dst_unit = self.var_unit(var) if isinstance(vars, list | str) else vars[var]
+            src_unit = other.var_unit(var)
             var_src = change_unit(var_src, src_unit, dst_unit)
 
             # time resampling

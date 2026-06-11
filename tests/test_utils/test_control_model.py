@@ -78,6 +78,31 @@ class TestDataModel:
         model = DataModel.model_validate(base_data_block)
         assert model.model_extra == {"custom_kwarg": 42}
 
+    def test_save_to_accepts_netcdf_file(self, base_data_block, tmp_path):
+        base_data_block["save_to"] = str(tmp_path / "out.nc")
+        model = DataModel.model_validate(base_data_block)
+        assert model.save_to == tmp_path / "out.nc"
+
+    def test_save_to_directory_rejected(self, base_data_block, tmp_path):
+        base_data_block["save_to"] = str(tmp_path)
+        with pytest.raises(ValidationError, match="exact NetCDF file path"):
+            DataModel.model_validate(base_data_block)
+
+    def test_save_to_non_netcdf_suffix_rejected(self, base_data_block, tmp_path):
+        base_data_block["save_to"] = str(tmp_path / "out.txt")
+        with pytest.raises(ValidationError, match="exact NetCDF file path"):
+            DataModel.model_validate(base_data_block)
+
+    def test_vars_optional_when_omitted(self, base_data_block):
+        base_data_block.pop("vars")
+        model = DataModel.model_validate(base_data_block)
+        assert model.vars is None
+
+    def test_vars_accepts_bare_list(self, base_data_block):
+        base_data_block["vars"] = ["T2", "PSFC"]
+        model = DataModel.model_validate(base_data_block)
+        assert model.vars == ["T2", "PSFC"]
+
 
 class TestControlFile:
     def test_full_minimal_config(self, tmp_path, base_data_block):
@@ -126,6 +151,34 @@ class TestControlFile:
                     "domains": ["RM"],
                     "base": "WRF",
                 },
+            },
+        }
+        model = ControlFile.model_validate(cfg)
+        assert "TS" in model.plots
+
+    def test_plot_referencing_undeclared_var_rejected(self, tmp_path, base_data_block):
+        # WRF declares only "Temperatura"; the plot asks for "Presion".
+        cfg = {
+            "analysis": {"output_path": str(tmp_path / "out"), "debug": False},
+            "data": {"WRF": base_data_block},
+            "plots": {
+                "TS": {"type": "timeseries", "vars": "Presion", "base": "WRF"},
+            },
+        }
+        with pytest.raises(ValidationError, match="not declared in dataset"):
+            ControlFile.model_validate(cfg)
+
+    def test_plot_var_ref_deferred_when_dataset_vars_omitted(
+        self, tmp_path, base_data_block
+    ):
+        # With vars omitted the exposed names are unknown until load, so the
+        # var-ref check defers (no error here) to the runtime KeyError.
+        base_data_block.pop("vars")
+        cfg = {
+            "analysis": {"output_path": str(tmp_path / "out"), "debug": False},
+            "data": {"WRF": base_data_block},
+            "plots": {
+                "TS": {"type": "timeseries", "vars": "T2", "base": "WRF"},
             },
         }
         model = ControlFile.model_validate(cfg)

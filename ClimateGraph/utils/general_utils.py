@@ -144,6 +144,8 @@ def manage_time_interval(
     ValueError
         Time interval provided doesn't meet the required format.
     """
+    if time_interval is None:
+        return None, None
     time_interval = time_interval.strip()
     if (match := re.match(TIME_INTERVAL_FORMAT, time_interval)) is None:
         raise ValueError(

@@ -5,7 +5,7 @@ import cartopy.feature as cfeature
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 mpl.use("Agg")
 
@@ -57,6 +57,15 @@ def _pad_extent(
     )
 
 
+def _unit_label(name: str, unit: str | None) -> str:
+    """_unit_label Format an axis/colorbar label as ``name [unit]``.
+
+    Single style for every plot (square brackets), and omits the unit entirely
+    when it's unknown (``None``) so labels never read ``"Temperatura [None]"``.
+    """
+    return f"{name} [{unit}]" if unit else name
+
+
 class BasePlotConfig(BaseModel):
     """BasePlotConfig Base configuration as for all plots, Pydantic Model. Used to manage common arguments."""
 
@@ -64,7 +73,16 @@ class BasePlotConfig(BaseModel):
 
     filename: str | None = Field(default=None)
     domains: list[str] = Field(default_factory=list)
-    vars: str | list[str] | dict[str, str]
+    vars: list[str] | dict[str, str]
+
+    @field_validator("vars", mode="before")
+    @classmethod
+    def _wrap_single_var(cls, v):
+        """Coerce a lone ``vars: T2`` string into ``["T2"]`` so plot methods
+        iterate over variable names, not the characters of a single name."""
+        if isinstance(v, str):
+            return [v]
+        return v
 
 
 class TimeSeriesConfig(BasePlotConfig):
@@ -127,7 +145,7 @@ class Timeseries(Plot):
         for var in vars:
             if isinstance(vars, dict):
                 base_obj[var] = change_unit(
-                    base_obj[var], base.vars[var]["unit"], vars[var]
+                    base_obj[var], base.var_unit(var), vars[var]
                 )
         base_obj = base_obj.rename({name: name + "__" + base.name for name in vars})
 
@@ -171,7 +189,7 @@ class Timeseries(Plot):
 
             for variable in vars:
                 unit = (
-                    base.vars[variable]["unit"]
+                    base.var_unit(variable)
                     if not isinstance(vars, dict)
                     else vars[variable]
                 )
@@ -189,16 +207,18 @@ class Timeseries(Plot):
                     "title", f"Timeseries comparison of {variable}"
                 )
                 xlabel = self.plot_kwargs.get("xlabel", "Time")
-                ylabel = self.plot_kwargs.get("ylabel", f"{variable} ({unit})")
+                ylabel = self.plot_kwargs.get("ylabel", _unit_label(variable, unit))
 
                 ax.set_xlabel(xlabel)
                 ax.set_ylabel(ylabel)
                 figure.suptitle(title)
 
                 start, end = manage_time_interval(time_interval)
+                start = "start" if start is None else start.strftime("%d-%m-%Y")
+                end = "end" if end is None else end.strftime("%d-%m-%Y")
                 format = self.plot_kwargs.get("format", "jpg")
                 filename = (
-                    f"ts-{dom_name}-{variable}-{start.strftime('%d-%m-%Y')}_{end.strftime('%d-%m-%Y')}.{format}"
+                    f"ts-{dom_name}-{variable}-{start}_{end}.{format}"
                     if self.plot_config.filename is None
                     else self.plot_config.filename
                 )
@@ -213,7 +233,7 @@ class ScatterConfig(BasePlotConfig):
     base: str
     other: str
     radius_of_influence: int
-    time_interval: str
+    time_interval: str | None = Field(default=None)
     dimension: str = Field(default="time")
     timestep: TimestepEnum | None = Field(default=None)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
@@ -268,10 +288,8 @@ class Scatter(Plot):
             base.obj, timestep=timestep, time_interval=time_interval
         )
         for var in vars:
-            unit = base.vars[var]["unit"] if isinstance(vars, list | str) else vars[var]
-            base_obj[var] = change_unit(
-                base_obj[var], base.vars[var]["unit"], vars[var]
-            )
+            unit = base.var_unit(var) if isinstance(vars, list | str) else vars[var]
+            base_obj[var] = change_unit(base_obj[var], base.var_unit(var), vars[var])
 
         base_obj = base_obj.rename({name: name + "__" + base.name for name in vars})
 
@@ -309,7 +327,7 @@ class Scatter(Plot):
 
             for variable, unit in vars.items():
                 unit = (
-                    base.vars[variable]["unit"]
+                    base.var_unit(variable)
                     if isinstance(vars, list | str)
                     else vars[variable]
                 )
@@ -329,10 +347,10 @@ class Scatter(Plot):
                     f"Scatter comparison of {variable} between {base.name} and {other.name}",
                 )
                 xlabel = self.plot_kwargs.get(
-                    "xlabel", f"{variable} [{unit}], {base.name}"
+                    "xlabel", f"{_unit_label(variable, unit)}, {base.name}"
                 )
                 ylabel = self.plot_kwargs.get(
-                    "ylabel", f"{variable} [{unit}], {other.name}"
+                    "ylabel", f"{_unit_label(variable, unit)}, {other.name}"
                 )
 
                 ax.set_xlabel(xlabel)
@@ -348,9 +366,11 @@ class Scatter(Plot):
                 ax.plot(x, x)
 
                 start, end = manage_time_interval(time_interval)
+                start = "start" if start is None else start.strftime("%d-%m-%Y")
+                end = "end" if end is None else end.strftime("%d-%m-%Y")
                 format = self.plot_kwargs.get("format", "jpg")
                 filename = (
-                    f"scatter-{dom_name}-{variable}-{start.strftime('%d-%m-%Y')}_{end.strftime('%d-%m-%Y')}.{format}"
+                    f"scatter-{dom_name}-{variable}-{start}_{end}.{format}"
                     if self.plot_config.filename is None
                     else self.plot_config.filename
                 )
@@ -363,7 +383,7 @@ class SpatialOverlayConfig(BasePlotConfig):
     type: Literal["spatial-overlay", "spatialoverlay", "so"]
     base: str
     superposed: str
-    time_interval: str
+    time_interval: str | None = Field(default=None)
     levels: int = Field(default=10)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
     crs: CRSEnum | None = Field(default=None)
@@ -418,11 +438,7 @@ class SpatialOverlay(Plot):
                     base_var = dom.apply(base_var)
                     superposed_var = dom.apply(superposed_var)
 
-                unit = (
-                    base.vars[var]["unit"]
-                    if isinstance(vars, list | str)
-                    else vars[var]
-                )
+                unit = base.var_unit(var) if isinstance(vars, list | str) else vars[var]
 
                 # Time alignment
                 base_var = time_resampling(base_var, time_interval=time_interval)
@@ -440,9 +456,9 @@ class SpatialOverlay(Plot):
                 )
 
                 # unit conversion
-                base_var = change_unit(base_var, base.vars[var]["unit"], unit)
+                base_var = change_unit(base_var, base.var_unit(var), unit)
                 superposed_var = change_unit(
-                    superposed_var, superposed.vars[var]["unit"], unit
+                    superposed_var, superposed.var_unit(var), unit
                 )
 
                 # Plotting
@@ -521,13 +537,15 @@ class SpatialOverlay(Plot):
                 sm = mpl.cm.ScalarMappable(norm=norm, cmap=self.plot_config.cmap)
 
                 figure.colorbar(
-                    sm, ax=ax, orientation="vertical", label=f"{var} [{unit}]"
+                    sm, ax=ax, orientation="vertical", label=_unit_label(var, unit)
                 )
 
                 start, end = manage_time_interval(time_interval)
+                start = "start" if start is None else start.strftime("%d-%m-%Y")
+                end = "end" if end is None else end.strftime("%d-%m-%Y")
                 format = self.plot_kwargs.get("format", "jpg")
                 filename = (
-                    f"spatial_overlay-{dom_name}-{var}-{base.name}-{superposed.name}-{start.strftime('%d-%m-%Y')}_{end.strftime('%d-%m-%Y')}.{format}"
+                    f"spatial_overlay-{dom_name}-{var}-{base.name}-{superposed.name}-{start}_{end}.{format}"
                     if self.plot_config.filename is None
                     else self.plot_config.filename
                 )
@@ -540,7 +558,7 @@ class SpatialMapConfig(BasePlotConfig):
 
     type: Literal["spatial-map", "spatialmap", "map", "sm"]
     data: str
-    time_interval: str
+    time_interval: str | None = Field(default=None)
     levels: int = Field(default=10)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
     crs: CRSEnum | None = Field(default=None)
@@ -600,23 +618,19 @@ class SpatialMap(Plot):
                 if dom is not None:
                     data_var = dom.apply(data_var)
 
-                unit = (
-                    data.vars[var]["unit"]
-                    if isinstance(vars, list | str)
-                    else vars[var]
-                )
+                unit = data.var_unit(var) if isinstance(vars, list | str) else vars[var]
 
                 # Time alignment
                 data_var = time_resampling(data_var, time_interval=time_interval)
 
                 # Reduction down to the spatial dims (latitude, longitude).
-                reduction_dims = [x for x in ["time", "z"] if x in data.dims]
+                reduction_dims = [x for x in ["time", "z"] if x in data_var.dims]
                 data_var = data_var.reduce(
                     self.plot_config.reduction_method.func, reduction_dims
                 )
 
                 # Unit conversion
-                data_var = change_unit(data_var, data.vars[var]["unit"], unit)
+                data_var = change_unit(data_var, data.var_unit(var), unit)
 
                 # Plotting
                 figure = plt.figure(**self.figure_kwargs())
@@ -680,13 +694,15 @@ class SpatialMap(Plot):
 
                 sm = mpl.cm.ScalarMappable(norm=norm, cmap=self.plot_config.cmap)
                 figure.colorbar(
-                    sm, ax=ax, orientation="vertical", label=f"{var} [{unit}]"
+                    sm, ax=ax, orientation="vertical", label=_unit_label(var, unit)
                 )
 
                 start, end = manage_time_interval(time_interval)
+                start = "start" if start is None else start.strftime("%d-%m-%Y")
+                end = "end" if end is None else end.strftime("%d-%m-%Y")
                 format = self.plot_kwargs.get("format", "jpg")
                 filename = (
-                    f"spatial_map-{dom_name}-{var}-{data.name}-{start.strftime('%d-%m-%Y')}_{end.strftime('%d-%m-%Y')}.{format}"
+                    f"spatial_map-{dom_name}-{var}-{data.name}-{start}_{end}.{format}"
                     if self.plot_config.filename is None
                     else self.plot_config.filename
                 )
@@ -761,7 +777,7 @@ class TimeCycle(Plot):
         for var in vars:
             if isinstance(vars, dict):
                 base_obj[var] = change_unit(
-                    base_obj[var], base.vars[var]["unit"], vars[var]
+                    base_obj[var], base.var_unit(var), vars[var]
                 )
         base_obj = base_obj.rename({name: name + "__" + base.name for name in vars})
 
@@ -806,7 +822,7 @@ class TimeCycle(Plot):
 
             for variable in vars:
                 unit = (
-                    base.vars[variable]["unit"]
+                    base.var_unit(variable)
                     if not isinstance(vars, dict)
                     else vars[variable]
                 )
@@ -842,7 +858,7 @@ class TimeCycle(Plot):
                     "title", f"{time_bucket.capitalize()} cycle of {variable}"
                 )
                 xlabel = self.plot_kwargs.get("xlabel", time_bucket.capitalize())
-                ylabel = self.plot_kwargs.get("ylabel", f"{variable} ({unit})")
+                ylabel = self.plot_kwargs.get("ylabel", _unit_label(variable, unit))
 
                 ax.set_xlabel(xlabel)
                 ax.set_xticks(list(range(len(xticklabels))))
@@ -852,10 +868,11 @@ class TimeCycle(Plot):
                 figure.suptitle(title)
 
                 start, end = manage_time_interval(time_interval)
+                start = "start" if start is None else start.strftime("%d-%m-%Y")
+                end = "end" if end is None else end.strftime("%d-%m-%Y")
                 fmt = self.plot_kwargs.get("format", "jpg")
                 filename = (
-                    f"cycle-{time_bucket}-{dom_name}-{variable}"
-                    f"-{start.strftime('%d-%m-%Y')}_{end.strftime('%d-%m-%Y')}.{fmt}"
+                    f"cycle-{time_bucket}-{dom_name}-{variable}-{start}_{end}.{fmt}"
                     if self.plot_config.filename is None
                     else self.plot_config.filename
                 )
