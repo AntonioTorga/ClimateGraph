@@ -1,7 +1,7 @@
-import datetime
 import logging
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from ClimateGraph.utils.general_utils import (
@@ -16,15 +16,50 @@ from ClimateGraph.utils.general_utils import (
 
 class TestManageTimeInterval:
     def test_dash_separator_dayfirst(self):
+        # Daily range: each endpoint expands to its full bucket, so the end
+        # covers all of Mar 31st (start of next day minus 1 ns).
         start, end = manage_time_interval("1/2/2019 - 31/3/2019")
-        assert start == datetime.datetime(2019, 2, 1)
-        assert end == datetime.datetime(2019, 3, 31)
+        assert start == pd.Timestamp(2019, 2, 1)
+        assert end == pd.Timestamp("2019-03-31 23:59:59.999999999")
 
     def test_to_separator(self):
         start, end = manage_time_interval("1/1/2020 to 1/2/2020")
         assert start.month == 1 and end.month == 2
 
-    def test_no_separator_raises(self):
+    def test_single_date_spans_its_day(self):
+        # A lone day-resolution date means the whole day.
+        start, end = manage_time_interval("30/1/2001")
+        assert start == pd.Timestamp("2001-01-30 00:00:00")
+        assert end == pd.Timestamp("2001-01-30 23:59:59.999999999")
+
+    def test_subdaily_range_keeps_endpoints(self):
+        # Hour-or-finer resolutions are exact points: no bucket expansion.
+        start, end = manage_time_interval("30/1/2001 10:00:00-30/1/2001 22:00:00")
+        assert start == pd.Timestamp("2001-01-30 10:00:00")
+        assert end == pd.Timestamp("2001-01-30 22:00:00")
+
+    def test_month_resolution_spans_month(self):
+        start, end = manage_time_interval("3/2019")
+        assert start == pd.Timestamp("2019-03-01 00:00:00")
+        assert end == pd.Timestamp("2019-03-31 23:59:59.999999999")
+
+    def test_year_resolution_spans_year(self):
+        start, end = manage_time_interval("2001")
+        assert start == pd.Timestamp("2001-01-01 00:00:00")
+        assert end == pd.Timestamp("2001-12-31 23:59:59.999999999")
+
+    def test_mixed_resolution_warns_not_raises(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            start, end = manage_time_interval("30/1/2001 - 31/1/2001 10:00:00")
+        assert any(
+            "different temporal resolutions" in rec.message for rec in caplog.records
+        )
+        # best-effort: coarse start floored, fine end kept as a point.
+        assert start == pd.Timestamp("2001-01-30 00:00:00")
+        assert end == pd.Timestamp("2001-01-31 10:00:00")
+
+    def test_invalid_single_token_raises(self):
+        # No separator -> treated as a single date; unparseable text still raises.
         with pytest.raises(ValueError):
             manage_time_interval("just a single date")
 

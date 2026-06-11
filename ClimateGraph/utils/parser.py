@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import yaml
+from pydantic import ValidationError
 
 from ClimateGraph.data import Data
 from ClimateGraph.domain import Domain
@@ -37,9 +38,12 @@ class Parser:
 
         try:
             valid = ControlFile.model_validate(control_dict)
-        except Exception as err:
+        except ValidationError as err:
+            error_str = ""
+            for e in err.errors():
+                error_str += f"Error {e['msg']}. Input given:\n{e['input']}\n    See more info at: {e['url']}\n"
             raise ValueError(
-                "Configuration file doesn't meet the input structure. Check the pydantic model in control_model.py to meet the necessary requirements."
+                f"Configuration file {control_path} doesn't meet the input structure.\n\n{error_str}\n\nFix this errors before retrying..."
             ) from err
 
         analysis = valid.analysis.model_dump()

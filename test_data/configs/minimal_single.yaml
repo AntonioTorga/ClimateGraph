@@ -1,12 +1,13 @@
 # Smallest yaml ever!
-
 analysis:
   output_path: "./test_data/results/minimal-single/"
+
 data:
   WRF:
     path: "./test_data/data/wrf-20*.nc"
     topology: RegularGrid
     reader: wrf
+
 plots:
   map:
     type: spatial-map
