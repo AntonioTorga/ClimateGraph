@@ -53,12 +53,25 @@ class VarModel(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid")
-    name: str
+    # Optional: the file-native name to rename from. A composed variable (one
+    # built purely from others via `operation`) has no file name and omits it.
+    name: str | None = Field(default=None)
     # Optional: without a unit the variable is left as-is (no conversion) and
     # plot labels omit the unit. Provide it to enable pint unit conversion.
     unit: str | None = Field(default=None)
-    # Optional operation applied over the variable at reader time, soon to be able to compose different variables as well.
+    # Optional arithmetic applied at reader time. May reference the variable's
+    # own file data (`x`) and other base variables by their canonical name, to
+    # transform units or compose a new variable. See dataset_utils.apply_operation.
     operation: str | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def check_name_or_operation(self):
+        if self.name is None and self.operation is None:
+            raise ValueError(
+                "a variable must declare a 'name' (read from the file) and/or an "
+                "'operation' (composed from other variables); got neither."
+            )
+        return self
 
 
 class DataModel(BaseModel):

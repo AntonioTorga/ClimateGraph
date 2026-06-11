@@ -22,7 +22,10 @@ class DefaultPointSurfaceReader(Reader):
         rename = dict(cls.rename)
         rename.update(spec.extras.get("rename", {}))
         if spec.vars is not None:
-            rename.update({d["name"]: name for name, d in spec.vars.items()})
+            # Skip composed vars with no file name
+            rename.update(
+                {d["name"]: name for name, d in spec.vars.items() if d.get("name")}
+            )
         if "x" in ds.coords and "site" not in ds.coords:
             rename["x"] = "site"
         if cls.restrict_rename_to_present:

@@ -201,25 +201,47 @@ class Reader(ABC):
 
     @staticmethod
     def _apply_operations(ds: xr.Dataset, spec: ReadSpec) -> xr.Dataset:
-        """Apply each variable's optional ``operation`` to its values.
+        """Materialize each variable's optional "operation".
 
-        For unit conversions pint can't express (e.g. ug/m**3 -> ppb): the
-        var's declared ``unit`` is the unit *after* this runs. A no-op when no
-        var declares an ``operation``. See
-        ``dataset_utils.apply_operation`` for the accepted syntax.
+        Single pass, two phases. Variables without an "operation" (the base
+        vars) are exposed first under their canonical name; then each variable
+        with an "operation" is evaluated against those base vars
+        (no operation can reference a composed var, only "pure" vars)
         """
         if not spec.vars:
             return ds
+
+        def _key(var_name: str, var_spec: dict) -> str | None:
+            """The dataset key holding this var (canonical after rename, else the
+            file name), or None when it isn't in the dataset."""
+            if var_name in ds:
+                return var_name
+            native = var_spec.get("name")
+            return native if native in ds else None
+
+        # first get base namespace — vars without an operation, by canonical name.
+        base: dict[str, xr.DataArray] = dict()
+        for var_name, var_spec in spec.vars.items():
+            if var_spec.get("operation"):
+                continue
+            key = _key(var_name, var_spec)
+            if key is not None:
+                base[var_name] = ds[key]
+
+        # evaluate the composed/transform vars against the base namespace.
         for var_name, var_spec in spec.vars.items():
             operation = var_spec.get("operation")
             if not operation:
                 continue
-            # The dataset may key the var by its config name or its file-native
-            # name depending on whether a reader renamed it; resolve both.
-            name = var_name if var_name in ds else var_spec.get("name")
-            if name not in ds:
-                continue
-            ds[name] = apply_operation(ds[name], operation)
+            namespace = base
+            self_key = _key(var_name, var_spec)
+            if self_key is not None:  # in-place transform: expose own data
+                namespace["x"] = ds[self_key]
+                namespace[var_name] = ds[self_key]
+            result = apply_operation(operation, namespace)
+            # Write back to the existing key for a transform, or create the
+            # composed variable under its canonical name.
+            ds[self_key if self_key is not None else var_name] = result
         return ds
 
     # ----- lifecycle hooks (override these, not read) ---------------------

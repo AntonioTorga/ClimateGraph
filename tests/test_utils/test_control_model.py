@@ -50,6 +50,16 @@ class TestVarModel:
         with pytest.raises(ValidationError):
             VarModel(name="T2", unit="kelvin", source="WRF")
 
+    def test_operation_only_without_name(self):
+        # A composed variable has no file-native name.
+        v = VarModel(operation="A + B")
+        assert v.name is None
+        assert v.operation == "A + B"
+
+    def test_requires_name_or_operation(self):
+        with pytest.raises(ValidationError, match=r"name.*and/or.*operation"):
+            VarModel(unit="kelvin")
+
 
 class TestDataModel:
     def test_happy_path(self, base_data_block):

@@ -75,32 +75,45 @@ class TestApplyOperation:
             name="PM25",
         )
 
+    def _vars(self):
+        return {"x": self._xa()}
+
     def test_leading_operator_shorthand_multiply(self):
-        out = apply_operation(self._xa(), "*3")
+        out = apply_operation("*3", self._vars())
         np.testing.assert_allclose(out.values, [3.0, 6.0, 9.0])
 
     def test_leading_operator_divide(self):
-        out = apply_operation(self._xa(), "/2")
+        out = apply_operation("/2", self._vars())
         np.testing.assert_allclose(out.values, [0.5, 1.0, 1.5])
 
     def test_power_shorthand(self):
         # "**2" starts with "*", so the shorthand expands to "x**2".
-        out = apply_operation(self._xa(), "**2")
+        out = apply_operation("**2", self._vars())
         np.testing.assert_allclose(out.values, [1.0, 4.0, 9.0])
 
     def test_explicit_x_expression(self):
-        out = apply_operation(self._xa(), "x / 48 * 24.45")
+        out = apply_operation("x / 48 * 24.45", self._vars())
         np.testing.assert_allclose(out.values, np.array([1.0, 2.0, 3.0]) / 48 * 24.45)
 
     def test_negative_constant_via_unary(self):
         # "*-0.8" -> "x*-0.8"; the -0.8 is UnaryOp(USub, 0.8), not a literal.
-        out = apply_operation(self._xa(), "*-0.8")
+        out = apply_operation("*-0.8", self._vars())
         np.testing.assert_allclose(out.values, np.array([1.0, 2.0, 3.0]) * -0.8)
 
     def test_name_and_coords_preserved(self):
-        out = apply_operation(self._xa(), "*3")
+        out = apply_operation("*3", self._vars())
         assert out.name == "PM25"
         assert "time" in out.coords
+
+    def test_references_other_variables_by_name(self):
+        a = xr.DataArray(np.array([1.0, 2.0]), dims="time", name="A")
+        b = xr.DataArray(np.array([3.0, 4.0]), dims="time", name="B")
+        out = apply_operation("A + B", {"A": a, "B": b})
+        np.testing.assert_allclose(out.values, [4.0, 6.0])
+
+    def test_unknown_name_raises(self):
+        with pytest.raises(ValueError, match="unknown variable 'y'"):
+            apply_operation("x + y", self._vars())
 
     @pytest.mark.parametrize(
         "bad",
@@ -108,4 +121,4 @@ class TestApplyOperation:
     )
     def test_rejects_non_arithmetic(self, bad):
         with pytest.raises(ValueError):
-            apply_operation(self._xa(), bad)
+            apply_operation(bad, self._vars())

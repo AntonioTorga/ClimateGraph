@@ -24,36 +24,35 @@ _ALLOWED_BINOPS = {
 _ALLOWED_UNARYOPS = {ast.UAdd: _op.pos, ast.USub: _op.neg}
 
 
-def apply_operation(xa: xr.DataArray, operation: str) -> xr.DataArray:
-    """apply_operation Apply a scalar arithmetic operation to a variable.
+def apply_operation(operation: str, variables: dict[str, xr.DataArray]) -> xr.DataArray:
+    """apply_operation Evaluate a small arithmetic "operation" over variables.
 
-    Meant for unit conversions that pint can't express — e.g. mass/volume
-    (``ug/m**3``) to a mixing ratio (``ppb``), which is a multiply by a
-    constant factor for a given temperature and pressure.
+    Two uses:
+    - unit conversions pint can't express like operations over the data with constants (+273 for example)
+    - composing a new variable from others
 
-    ``operation`` is a small arithmetic expression in the variable ``x``,
-    e.g. ``"x * 0.8"`` or ``"x / 48 * 24.45"``. As a shorthand, a leading
-    binary operator implies ``x`` on the left: ``"*3"`` means ``"x * 3"``,
-    ``"/48"`` means ``"x / 48"``, ``"**2"`` means ``"x ** 2"``. Only
-    arithmetic on ``x`` and numeric constants is permitted.
+    "operation" is an arithmetic expression whose named vars are looked up in
+    variables (which carries the variable's own data under "x" plus the
+    canonical names of the available base variables). As a shorthand, a leading
+    binary operator implies x on the left: "*3" means "x * 3". Also **, /, and others available
 
     Parameters
     ----------
-    xa : xr.DataArray
-        Variable to transform.
     operation : str
         Arithmetic expression (see above).
+    variables : dict[str, xr.DataArray]
+        Names available to the expression mapped to their data.
 
     Returns
     -------
     xr.DataArray
-        The transformed variable. Name and coordinates are preserved.
+        The evaluated variable.
 
     Raises
     ------
     ValueError
-        If the expression contains anything other than arithmetic on ``x``
-        and numeric constants.
+        If the expression references a name not in variables, or contains
+        anything other than arithmetic and numeric constants.
     """
     expr = operation.strip()
     # Leading-operator shorthand: "*3" -> "x*3". `**` starts with `*` too,
@@ -70,11 +69,15 @@ def apply_operation(xa: xr.DataArray, operation: str) -> xr.DataArray:
             return _ALLOWED_UNARYOPS[type(node.op)](_eval(node.operand))
         if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
             return node.value
-        if isinstance(node, ast.Name) and node.id == "x":
-            return xa
+        if isinstance(node, ast.Name):
+            if node.id in variables:
+                return variables[node.id]
+            raise ValueError(
+                f"Operation {operation!r} references unknown variable "
+                f"{node.id!r}; available: {sorted(variables)}."
+            )
         raise ValueError(
-            f"Unsupported operation {operation!r}: only arithmetic on `x` "
-            "and numeric constants is allowed."
+            f"Unsupported operation {operation!r}: only arithmetic on declared variables and numeric constants is allowed."
         )
 
     return _eval(ast.parse(expr, mode="eval"))

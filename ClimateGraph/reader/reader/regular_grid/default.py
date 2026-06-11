@@ -15,7 +15,10 @@ class DefaultRegularGridReader(Reader):
         rename = dict(cls.rename)
         rename.update(spec.extras.get("rename", {}))
         if spec.vars is not None:
-            rename.update({d["name"]: name for name, d in spec.vars.items()})
+            # Skip composed vars with no file name
+            rename.update(
+                {d["name"]: name for name, d in spec.vars.items() if d.get("name")}
+            )
 
         ds = ds.rename(rename)
         ds = ds.reset_coords()

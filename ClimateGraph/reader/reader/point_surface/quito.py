@@ -46,7 +46,7 @@ class QUITO(CSVPointSurfaceReader):
         # rename maps it to the canonical name (no-op when they match).
         var_name = canonical
         if spec.vars is not None and canonical in spec.vars:
-            var_name = spec.vars[canonical]["name"]
+            var_name = spec.vars[canonical].get("name") or canonical
 
         df = raw.set_index(time_col)
         df.index.name = "time"
