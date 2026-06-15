@@ -9,19 +9,16 @@ from ..reader import ReadSpec
 from .csv_base import CSVPointSurfaceReader
 
 
-class SINCACSV(CSVPointSurfaceReader):
-    """Chile SINCA air-quality reader for the per-station CSV export.
+class StationPerFileReader(CSVPointSurfaceReader):
+    """Reader for the station-per-file CSV layout (one station per file).
 
-    Layout: one CSV per station (``{station_id}.csv``) holding a ``timestamp``
-    column plus one column per pollutant, accompanied by a ``stations.csv``
-    metadata table. The station id is the file's stem.
-
-    Registered under a new name (not ``SINCA``) so the existing NetCDF
-    ``SINCA`` reader, its configs and tests stay intact; ``reader: CHILE`` also
-    resolves here via ``type_aliases``.
+    Layout: one CSV per station (``{station_id}.csv``) holding a time column
+    plus one column per variable, accompanied by a ``stations.csv`` metadata
+    table. The station id is the file's stem. Originally written for the Chile
+    SINCA per-station export, whose defaults this keeps.
     """
 
-    type_aliases = ["CHILE"]
+    type_aliases = ["station-per-file"]
     default_station_key = "station_id"
     default_time_col = "timestamp"
     latlon_aliases = {"latitud": "latitude", "longitud": "longitude"}

@@ -9,15 +9,17 @@ from ..reader import ReadSpec
 from .csv_base import CSVPointSurfaceReader
 
 
-class SAOPAULO(CSVPointSurfaceReader):
-    """São Paulo (CETESB/QUALAR) reader for the single all-stations CSV.
+class SingleFileReader(CSVPointSurfaceReader):
+    """Reader for the single-file CSV layout (one file holds everything).
 
-    Layout: one CSV holding every station's hourly record, keyed by a ``code``
-    column, plus a ``stations.csv`` metadata table. Timestamps in ``local_date``
-    are tz-aware (``-03:00``); we store them as naive local wall-clock to stay
-    consistent with the other two (naive) in-situ readers.
+    Layout: one CSV holding every station's record, keyed by a station-code
+    column, plus a ``stations.csv`` metadata table. Originally written for São
+    Paulo (CETESB/QUALAR), whose defaults this keeps; its timestamps in
+    ``local_date`` are tz-aware (``-03:00``) and stored as naive local
+    wall-clock to stay consistent with the other in-situ readers.
     """
 
+    type_aliases = ["single-file"]
     default_station_key = "code"
     default_time_col = "local_date"
     latlon_aliases = {"lat": "latitude", "lon": "longitude"}

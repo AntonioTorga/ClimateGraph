@@ -6,7 +6,7 @@ data:
   SAOPAULO:
     path: "./test_data/data/DATOS-INSITU/SAOPAULO/obs_sp_aug_sep_2024.csv"
     topology: PointSurface
-    reader: SAOPAULO
+    reader: single-file
     metadata: "./test_data/data/DATOS-INSITU/SAOPAULO/stations.csv"
     vars:
       O3:

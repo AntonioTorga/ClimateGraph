@@ -8,7 +8,7 @@ data:
     # stations.csv metadata sidecar.
     path: "./test_data/data/DATOS-INSITU/CHILE/*[0-9].csv"
     topology: PointSurface
-    reader: CHILE
+    reader: station-per-file
     metadata: "./test_data/data/DATOS-INSITU/CHILE/stations.csv"
     vars:
       PM25:
