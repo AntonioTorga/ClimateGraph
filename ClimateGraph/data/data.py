@@ -11,14 +11,17 @@ from pyresample import kd_tree
 from ClimateGraph.reader import Reader
 from ClimateGraph.reader.reader.reader import ReadSpec
 from ClimateGraph.utils.dataset_utils import (
+    _record,
     change_unit,
+    dim_reduction,
     normalize_vars,
     time_resampling,
 )
 from ClimateGraph.utils.general_utils import ReductionMethodEnum
+from ClimateGraph.utils.registry import RegistryMixin
 
 
-class Data(ABC):
+class Data(RegistryMixin, ABC):
     """The Data abstract class.
 
     A class that abstracts the core nature of environmental data, independent of the topology of the data.
@@ -26,60 +29,16 @@ class Data(ABC):
     """
 
     registry: dict[str, type["Data"]] = {}
-    type_aliases: list[str] = list()
-
-    # Allows for self registering, and alias registering, for then looking up the right Data Class.
-    def __init_subclass__(cls, **kwargs):
-        """__init_subclass__ This Dunder method is being used to dinamically register all inheriting classes from Data, this helps with Data creation."""
-        super().__init_subclass__(**kwargs)
-        Data.registry[cls.__name__.lower()] = cls
-
-        for alias in getattr(cls, "type_aliases", []):
-            Data.registry[alias.lower()] = cls
+    aliases: list[str] = list()
+    geom_dims: tuple[str, ...] = ()
 
     @classmethod
     def get_data_subclass(cls, name: str):
-        """get_data_subclass Method for getting a class object from a string, centralizes the lookup operation for further development of smart lookup.
-
-        Parameters
-        ----------
-        name : str
-            String to use for lookup in the Data registry
-
-        Returns
-        -------
-        type
-            Object of Data subclass requested
-
-        Raises
-        ------
-        ValueError
-            No subclass available for the requested string
-        """
-        _name = name.lower()
-        try:
-            data_class = cls.registry[_name]
-        except KeyError as err:
-            raise ValueError(
-                f"No type named {name} recognized. Options are {Data.registry.keys()} (case insensitive)."
-            ) from err
-        return data_class
+        return cls.get_class(name)
 
     @classmethod
-    def check_topology_type(cls, type: str):
-        """check_topology_type Method for checking if a string correlates to a Data subclass, meant to have the same lookup mechanism as get_data_subclass
-
-        Parameters
-        ----------
-        type : str
-            String to lookup in Data class registry.
-
-        Returns
-        -------
-        boolean
-            Boolean representing existence of a correlation between the provided string and a Data subclass.
-        """
-        return type.lower() in cls.registry
+    def check_topology_type(cls, type: str) -> bool:
+        return cls.check_class(type)
 
     @classmethod
     def create(
@@ -334,6 +293,7 @@ class Data(ABC):
         keep_dims: str | list[str] | None = None,
         reduction_dims: str | list[str] | None = None,
         as_array: bool = False,
+        dim_reduce: dict[str, str | dict] | None = None,
     ) -> xr.DataArray | np.ndarray:
         """get_var Get variable from the obj attribute.
 
@@ -372,6 +332,9 @@ class Data(ABC):
             )
         xa = self.obj.data_vars[var_name]
 
+        if dim_reduce is not None:
+            xa = dim_reduction(xa, dim_reduce, name=var_name)
+
         if reduction_func is not None:
             reduction_func = (
                 ReductionMethodEnum(reduction_func).func
@@ -381,6 +344,10 @@ class Data(ABC):
             if reduction_dims is None and keep_dims is not None:
                 reduction_dims = list(set(self.dims) - set(keep_dims))
             xa = xa.reduce(reduction_func, reduction_dims)
+            _record(
+                xa,
+                f"reduced {var_name!r} over {reduction_dims} with {reduction_func.__name__}",
+            )
 
         if in_unit is not None:
             xa = change_unit(xa, self.var_unit(var_name), in_unit)
@@ -440,7 +407,6 @@ class Data(ABC):
         time_interval: str | None = None,
         radius_of_influence: int = 10000,
         time_tolerance: str | None = "30min",
-        # reduction_dims: str | List[str] | None = None, reduction_func: Callable | None = None
     ) -> xr.DataArray | xr.Dataset:
         """resample_vars Resample the requested vars using Pyresample and the geom attributes. Until now only NearestNeighbour method is being used.
 
@@ -523,16 +489,17 @@ class Data(ABC):
                     fill_value=np.nan,
                 )
 
-            # Here if im resampling into a point surface topology then height will always get dropped. Unless its a point in space not surface.
+            # input_core_dims: only the geom_dims of the source (the horizontal dims
+            # the pyresample geometry was built from). Any extra dims like z are left
+            # out so apply_ufunc loops over them automatically, broadcasting the
+            # horizontal resampling across each vertical level independently.
+            src_geom_dims = [d for d in var_src.dims if d in set(other.geom_dims)]
+            dst_geom_dims = [d for d in var_dst_dims if d in set(self.geom_dims)]
             resampled = xr.apply_ufunc(
                 _resample,
                 var_src,
-                input_core_dims=[
-                    [d for d in var_src.dims if d != "time"]
-                ],  # remove time from core dims so it loops over just time
-                output_core_dims=[
-                    [d for d in var_dst_dims if d != "time"]
-                ],  # Produces a new array with the new geom minus time
+                input_core_dims=[src_geom_dims],
+                output_core_dims=[dst_geom_dims],
                 vectorize=True,
                 dask="parallelized",
                 output_dtypes=[var_src.dtype],
@@ -540,12 +507,26 @@ class Data(ABC):
                     "output_sizes": {
                         name: value
                         for name, value in var_dst_dims.items()
-                        if name != "time"
+                        if name in set(self.geom_dims)
                     }
                 },
             )
 
             new_name = f"{var}__{other.name}"
-            self.resampled[new_name] = (var_dst_dims, resampled.data)
+            self.resampled[new_name] = resampled
             new_vars.append(new_name)
+
+        _record(
+            self.resampled,
+            f"spatially resampled {new_vars} from {other.name} "
+            f"({type(other).__name__}) to {self.name} ({type(self).__name__})",
+        )
+
+        save_to = self.reader_kwargs.get("save_resampled_to")
+        if save_to:
+            target = Path(save_to)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            self.resampled.to_netcdf(target)
+            _record(self.resampled, f"saved resampled data to {target}")
+
         return self.resampled[new_vars]

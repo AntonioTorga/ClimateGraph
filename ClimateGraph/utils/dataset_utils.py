@@ -1,11 +1,71 @@
 import ast
 import logging
 import operator as _op
+from datetime import UTC, datetime
 
 import pint_xarray  # noqa: F401  — registers the `.pint` accessor on xarray DataArrays
 import xarray as xr
 
 from .general_utils import ReductionMethodEnum, manage_time_interval
+
+
+def _record(obj: xr.Dataset | xr.DataArray, entry: str) -> None:
+    """Append a timestamped entry to obj.attrs['history']."""
+    history = obj.attrs.get("history", [])
+    if not isinstance(history, list):
+        history = [history]  # handle pre-existing CF string history
+    log_item = f"{datetime.now(tz=UTC).isoformat(timespec='seconds')} {entry}"
+    history.append(log_item)
+    obj.attrs["history"] = history
+    logging.debug(log_item)
+
+
+def dim_reduction(
+    obj: xr.Dataset | xr.DataArray,
+    spec: dict[str, str | dict],
+    name: str = "",
+) -> xr.Dataset | xr.DataArray:
+    """Apply per-dimension reductions/selections to an xarray object.
+
+    Parameters
+    ----------
+    obj : xr.Dataset | xr.DataArray
+        Data to reduce.
+    spec : dict[str, str | dict]
+        Mapping of dim name → reduction spec. Each value is either:
+        - a string method name (``"mean"``, ``"min"``, ``"max"``)
+        - a dict with ``method`` key plus a ``value`` key for isel/sel:
+          ``{"method": "isel", "value": 0}``
+          ``{"method": "sel", "value": 5.0}``
+          ``{"method": "mean"}``
+    name : str
+        Identifier for history recording (e.g. dataset name or variable name).
+
+    Returns
+    -------
+    xr.Dataset | xr.DataArray
+        The object with the specified dimensions reduced/selected.
+    """
+    for dim, dim_spec in spec.items():
+        if dim not in obj.dims:
+            continue
+        method = (
+            dim_spec if isinstance(dim_spec, str) else dim_spec.get("method", "mean")
+        )
+        value = None if isinstance(dim_spec, str) else dim_spec.get("value")
+        if method == "isel":
+            idx = value if value is not None else 0
+            obj = obj.isel({dim: idx})
+            _record(obj, f"{name} selected {dim}={idx} via isel")
+        elif method == "sel":
+            obj = obj.sel({dim: value})
+            _record(obj, f"{name} selected {dim}={value} via sel")
+        else:
+            func = ReductionMethodEnum(method).func
+            obj = obj.reduce(func, dim)
+            _record(obj, f"{name} reduced {dim!r} with {method}")
+    return obj
+
 
 # TODO: make this into accessors
 
@@ -80,7 +140,9 @@ def apply_operation(operation: str, variables: dict[str, xr.DataArray]) -> xr.Da
             f"Unsupported operation {operation!r}: only arithmetic on declared variables and numeric constants is allowed."
         )
 
-    return _eval(ast.parse(expr, mode="eval"))
+    result = _eval(ast.parse(expr, mode="eval"))
+    _record(result, f"computed: {operation}")
+    return result
 
 
 def normalize_vars(
@@ -170,8 +232,10 @@ def time_resampling(
     if time_interval is not None:
         start, end = manage_time_interval(time_interval)
         ds = ds.sel({"time": slice(start, end)})
+        _record(ds, f"selected time interval {start} to {end}")
     if timestep is not None:
         ds = getattr(ds.resample(time=timestep), reduction_method.value)()
+        _record(ds, f"resampled time to {timestep} ({reduction_method.value})")
     return ds
 
 
@@ -209,4 +273,6 @@ def change_unit(
     xa[var_name] = xa[var_name].pint.to(dst_unit)
     xa[var_name] = xa[var_name].pint.dequantify()
     xa = xa.set_coords(xa_coords)
-    return xa[var_name]
+    xa = xa[var_name]
+    _record(xa, f"converted {var_name} from {src_unit} to {dst_unit}")
+    return xa

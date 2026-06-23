@@ -1,5 +1,7 @@
 from ClimateGraph.domain import Domain
 from ClimateGraph.domain.domains import (
+    All,
+    AllConfig,
     Attribute,
     AttributeConfig,
     Polygon,
@@ -14,6 +16,7 @@ class TestRegistry:
         assert Domain.check_domain_class("attribute")
         assert Domain.check_domain_class("polygon")
         assert Domain.check_domain_class("shapefile")
+        assert Domain.check_domain_class("all")
 
     def test_aliases_registered(self):
         assert Domain.get_domain_class("attr") is Attribute
@@ -92,6 +95,20 @@ class TestPolygonDomain:
         dom = Polygon("multi", domain_config=cfg)
         masked = dom.apply(regular_grid_data.obj)
         assert "Temperatura" in masked
+
+
+class TestAllDomain:
+    def test_apply_is_identity_on_dataset(self, regular_grid_data):
+        cfg = AllConfig(type="all")
+        dom = All("all", domain_config=cfg)
+        result = dom.apply(regular_grid_data.obj)
+        assert result is regular_grid_data.obj
+
+    def test_apply_is_identity_on_point_surface(self, point_surface_data):
+        cfg = AllConfig(type="all")
+        dom = All("all", domain_config=cfg)
+        result = dom.apply(point_surface_data.obj)
+        assert result is point_surface_data.obj
 
 
 class TestShapefileConfig:

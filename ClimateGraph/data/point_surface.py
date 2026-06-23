@@ -9,7 +9,8 @@ class PointSurface(Data):
     A class that gives particular representation to Point Surface data. This data should be in ("time", "site") dimensions.
     """
 
-    type_aliases = ["pt_sfc", "point_surface", "point"]
+    aliases = ["pt_sfc", "point_surface", "point"]
+    geom_dims = ("site",)
 
     def _set_geom(self):
         """_set_geom Method for setting the Pyresample Geometry object used for resampling. In this case it is a SwathDefinition object."""

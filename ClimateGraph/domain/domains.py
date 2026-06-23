@@ -88,6 +88,22 @@ class Polygon(Domain):
         return masked_data
 
 
+class AllConfig(BaseModel):
+    """AllConfig Pydantic model for the All domain — no filtering applied."""
+
+    type: Literal["all"]
+
+
+class All(Domain):
+    """All domain that returns data unchanged — explicit 'use all data' marker."""
+
+    config = AllConfig
+    aliases = ["all"]
+
+    def apply(self, data: xr.Dataset | xr.DataArray) -> xr.Dataset | xr.DataArray:
+        return data
+
+
 class ShapefileConfig(BaseModel):
     """ShapefileConfig Pydantic model for the Polygon domain definition in the config file. Receives a local path to the shapefile, and a value for filtering."""
 

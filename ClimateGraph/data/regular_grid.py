@@ -9,7 +9,8 @@ class RegularGrid(Data):
     A class that implements Regular Grid specific logic. This data should be in ("time", "x", "y", "z") dimensions.
     """
 
-    type_aliases = ["regular_grid", "grid", "regulargrid"]
+    aliases = ["regular_grid", "grid", "regulargrid"]
+    geom_dims = ("x", "y")
 
     def _set_geom(self):
         """_set_geom Method for setting the Pyresample Geometry object used for resampling. In this case it is a SwathDefinition object because the AreaDefinition isn't working correctly"""

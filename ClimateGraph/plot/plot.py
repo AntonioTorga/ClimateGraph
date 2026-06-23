@@ -1,16 +1,16 @@
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Annotated, Union
 
 import matplotlib as mpl
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 mpl.use("Agg")
 import matplotlib.pyplot as plt
 
 from ClimateGraph.data import Data
 from ClimateGraph.domain import Domain
+from ClimateGraph.utils.registry import RegistryMixin
 
 logging.basicConfig(level=logging.INFO)  # TODO: make this settable from yaml file.
 
@@ -42,7 +42,7 @@ SAVEFIG_KWARGS = {
 }
 
 
-class Plot(ABC):
+class Plot(RegistryMixin, ABC):
     """The Plot abstract class.
 
     A class that abstracts the plot definition and interface.
@@ -52,29 +52,6 @@ class Plot(ABC):
     registry: dict[str, type["Plot"]] = dict()
     aliases: list[str] = list()
     config: type["BaseModel"] | None = None
-
-    def __init_subclass__(cls, **kwargs):
-        """__init_subclass__ This Dunder method is being used to dinamically register all inheriting classes from Plot, this helps with Plot creation."""
-        super().__init_subclass__(**kwargs)
-        for name in cls.aliases:
-            Plot.registry[name] = cls
-        Plot.registry[cls.__name__.lower()] = cls
-
-    @classmethod
-    def build_config_union(cls) -> Annotated:
-        """build_config_union Build an Annotated Union object used for the Pydantic model.
-
-        Returns
-        -------
-        Annotated
-            Used for the Pydantic model, dicriminates by type used when creating the Plot objects.
-        """
-        configs = [
-            cls_.config for cls_ in Plot.registry.values() if cls_.config is not None
-        ]
-        # `Union[tuple(configs)]` unpacks the tuple at runtime — Ruff's UP007 must not
-        # rewrite this; doing so strips the Union and breaks Pydantic's discriminator.
-        return Annotated[Union[tuple(configs)], Field(discriminator="type")]  # noqa: UP007
 
     @classmethod
     def create(
@@ -155,35 +132,11 @@ class Plot(ABC):
 
     @classmethod
     def check_plot_class(cls, type: str) -> bool:
-        """check_plot_class Method for checking if a string correlates to a Plot subclass, meant to have the same lookup mechanism as get_plot_class
-
-        Parameters
-        ----------
-        type : str
-            String to lookup in Plot class registry.
-
-        Returns
-        -------
-        bool
-            Boolean representing whether the type string corresponds to any Plot subclass.
-        """
-        return type.lower() in cls.registry
+        return cls.check_class(type)
 
     @classmethod
     def get_plot_class(cls, name: str):
-        """get_plot_class Method for getting a class object from a string, centralizes the lookup operation for further development of smart lookup.
-
-        Parameters
-        ----------
-        name : str
-            String to lookup in Plot class registry.
-
-        Returns
-        -------
-        type
-            Class object of adequate plot subclass.
-        """
-        return cls.registry[name.lower()]
+        return cls.get_class(name)
 
     @abstractmethod
     def plot(self):

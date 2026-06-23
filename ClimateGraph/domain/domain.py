@@ -1,16 +1,17 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Annotated, Union
 
 import xarray as xr
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+
+from ClimateGraph.utils.registry import RegistryMixin
 
 logging.basicConfig(level=logging.INFO)  # TODO: make this settable from yaml file.
 
 # TODO: Change the use of BaseModel for actual attributes to improve modularization.
 
 
-class Domain(ABC):
+class Domain(RegistryMixin, ABC):
     """The Domain abstract class.
 
     A class that abstracts the domain definition and interface.
@@ -20,29 +21,6 @@ class Domain(ABC):
     registry: dict[str, type["Domain"]] = dict()
     aliases: list[str] = list()
     config: type["BaseModel"] | None = None
-
-    def __init_subclass__(cls, **kwargs):
-        """__init_subclass__ This Dunder method is being used to dinamically register all inheriting classes from Domain, this helps with Domain creation."""
-        super().__init_subclass__(**kwargs)
-        for name in cls.aliases:
-            Domain.registry[name] = cls
-        Domain.registry[cls.__name__.lower()] = cls
-
-    @classmethod
-    def build_config_union(cls) -> Annotated:
-        """build_config_union Build an Annotated Union object used for the Pydantic model.
-
-        Returns
-        -------
-        Annotated
-            Used for the Pydantic model, dicriminates by type used when creating the Domain objects.
-        """
-        configs = [
-            cls_.config for cls_ in Domain.registry.values() if cls_.config is not None
-        ]
-        # `Union[tuple(configs)]` unpacks the tuple at runtime — Ruff's UP007 must not
-        # rewrite this; doing so strips the Union and breaks Pydantic's discriminator.
-        return Annotated[Union[tuple(configs)], Field(discriminator="type")]  # noqa: UP007
 
     @classmethod
     def create(
@@ -94,35 +72,11 @@ class Domain(ABC):
 
     @classmethod
     def check_domain_class(cls, type: str) -> bool:
-        """check_domain_class Method for checking if a string correlates to a Domain subclass, meant to have the same lookup mechanism as get_domain_class
-
-        Parameters
-        ----------
-        type : str
-            String to lookup in Domain class registry.
-
-        Returns
-        -------
-        bool
-            Boolean representing whether the type string corresponds to any Domain subclass.
-        """
-        return type.lower() in cls.registry
+        return cls.check_class(type)
 
     @classmethod
     def get_domain_class(cls, name: str):
-        """get_domain_class Method for getting a class object from a string, centralizes the lookup operation for further development of smart lookup.
-
-        Parameters
-        ----------
-        name : str
-            String to lookup in Domain class registry.
-
-        Returns
-        -------
-        type
-            Class object of adequate domain subclass.
-        """
-        return cls.registry[name.lower()]
+        return cls.get_class(name)
 
     @abstractmethod
     def apply(self, data: xr.Dataset | xr.DataArray) -> xr.Dataset | xr.DataArray:

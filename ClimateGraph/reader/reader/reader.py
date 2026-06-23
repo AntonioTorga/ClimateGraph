@@ -9,7 +9,7 @@ from typing import Any, Literal
 import pandas as pd
 import xarray as xr
 
-from ClimateGraph.utils.dataset_utils import apply_operation
+from ClimateGraph.utils.dataset_utils import _record, apply_operation, dim_reduction
 from ClimateGraph.utils.general_utils import manage_path
 
 log = logging.getLogger(__name__)
@@ -169,8 +169,10 @@ class Reader(ABC):
         the sequence predictable; ``_save`` is queued last so the file on disk
         reflects every adjustment.
         """
+        _record(ds, f"loaded {len(spec.paths)} file(s): {[str(p) for p in spec.paths]}")
         ds = cls._apply_time_offset(ds, spec)
         ds = cls._apply_operations(ds, spec)
+        ds = cls._dim_reduce(ds, spec)
         ds = cls._save(ds, spec)
         return ds
 
@@ -196,8 +198,20 @@ class Reader(ABC):
             )
         target.parent.mkdir(parents=True, exist_ok=True)
         log.info("Writing processed dataset to %s", target)
+        logging.info(f"saved to {target}")
         ds.to_netcdf(target)
         return ds
+
+    @staticmethod
+    def _dim_reduce(ds: xr.Dataset, spec: ReadSpec) -> xr.Dataset:
+        """Apply per-dimension reductions from ``spec.extras['dim_reduce']``.
+
+        No-op when the key is absent.
+        """
+        dr = spec.extras.get("dim_reduce")
+        if not dr:
+            return ds
+        return dim_reduction(ds, dr, name=str(spec.paths[0].stem))
 
     @staticmethod
     def _apply_operations(ds: xr.Dataset, spec: ReadSpec) -> xr.Dataset:
@@ -242,6 +256,7 @@ class Reader(ABC):
             # Write back to the existing key for a transform, or create the
             # composed variable under its canonical name.
             ds[self_key if self_key is not None else var_name] = result
+            _record(ds, f"applied operation on {var_name!r}: {operation}")
         return ds
 
     # ----- lifecycle hooks (override these, not read) ---------------------
@@ -259,9 +274,11 @@ class Reader(ABC):
         offset = spec.extras.get("time_offset")
         if not offset or "time" not in ds.coords:
             return ds
-        return ds.assign_coords(
+        ds = ds.assign_coords(
             time=ds["time"] + pd.to_timedelta(float(offset), unit="h")
         )
+        _record(ds, f"applied time offset {offset}h")
+        return ds
 
     @classmethod
     def _resolve_paths(cls, spec: ReadSpec) -> list[Path]:

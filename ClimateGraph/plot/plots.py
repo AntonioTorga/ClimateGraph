@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 mpl.use("Agg")
 
 from ClimateGraph.data import PointSurface, RegularGrid
-from ClimateGraph.utils.dataset_utils import change_unit, time_resampling
+from ClimateGraph.utils.dataset_utils import change_unit, dim_reduction, time_resampling
 from ClimateGraph.utils.general_utils import (
     CRSEnum,
     ReductionMethodEnum,
@@ -74,6 +74,7 @@ class BasePlotConfig(BaseModel):
     filename: str | None = Field(default=None)
     domains: list[str] = Field(default_factory=list)
     vars: list[str] | dict[str, str]
+    dim_reduce: dict[str, str | dict] | None = Field(default=None)
 
     @field_validator("vars", mode="before")
     @classmethod
@@ -178,7 +179,12 @@ class Timeseries(Plot):
                 else all_data
             )
 
-            # Dimension reduction, TODO: make it so it can be other dim that gets plotted.
+            if self.plot_config.dim_reduce:
+                all_data_dom = {
+                    name: dim_reduction(data, self.plot_config.dim_reduce)
+                    for name, data in all_data_dom.items()
+                }
+
             all_data_dom = {
                 name: data.reduce(
                     self.plot_config.reduction_method.func,
@@ -315,7 +321,12 @@ class Scatter(Plot):
                 base_obj_dom = base_obj
                 other_obj_dom = other_obj
 
-            # Reducing dimensionality
+            if self.plot_config.dim_reduce:
+                base_obj_dom = dim_reduction(base_obj_dom, self.plot_config.dim_reduce)
+                other_obj_dom = dim_reduction(
+                    other_obj_dom, self.plot_config.dim_reduce
+                )
+
             base_obj_dom = base_obj_dom.reduce(
                 self.plot_config.reduction_method.func,
                 list(set(base_obj_dom.dims) - {self.plot_config.dimension}),
@@ -446,8 +457,13 @@ class SpatialOverlay(Plot):
                     superposed_var, time_interval=time_interval
                 )
 
-                # Reduction
-                base_reduction_dims = [x for x in ["time", "z"] if x in base.dims]
+                if self.plot_config.dim_reduce:
+                    base_var = dim_reduction(base_var, self.plot_config.dim_reduce)
+                    superposed_var = dim_reduction(
+                        superposed_var, self.plot_config.dim_reduce
+                    )
+
+                base_reduction_dims = [x for x in ["time", "z"] if x in base_var.dims]
                 base_var = base_var.reduce(
                     self.plot_config.reduction_method.func, base_reduction_dims
                 )
@@ -623,7 +639,9 @@ class SpatialMap(Plot):
                 # Time alignment
                 data_var = time_resampling(data_var, time_interval=time_interval)
 
-                # Reduction down to the spatial dims (latitude, longitude).
+                if self.plot_config.dim_reduce:
+                    data_var = dim_reduction(data_var, self.plot_config.dim_reduce)
+
                 reduction_dims = [x for x in ["time", "z"] if x in data_var.dims]
                 data_var = data_var.reduce(
                     self.plot_config.reduction_method.func, reduction_dims
@@ -811,7 +829,12 @@ class TimeCycle(Plot):
                 else all_data
             )
 
-            # Reduce all non-time spatial dims before groupby
+            if self.plot_config.dim_reduce:
+                all_data_dom = {
+                    name: dim_reduction(data, self.plot_config.dim_reduce)
+                    for name, data in all_data_dom.items()
+                }
+
             all_data_dom = {
                 name: data.reduce(
                     self.plot_config.reduction_method.func,

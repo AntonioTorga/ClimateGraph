@@ -1,4 +1,8 @@
+from pathlib import Path
+
+import cartopy.crs as ccrs
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 from pyresample.geometry import SwathDefinition
@@ -96,6 +100,51 @@ class TestResampleVars:
             regular_grid_data, "Temperatura", radius_of_influence=500_000
         )
         assert point_surface_data.resampled is not None
+
+    def test_resample_4d_grid_preserves_z(self, point_surface_data):
+        """Resampling a 4D (time, z, y, x) RegularGrid should broadcast across z
+        and produce (time, z, site) output without crashing."""
+        from ClimateGraph.data import RegularGrid
+
+        n_time, n_z, n_y, n_x = 3, 4, 4, 5
+        times = pd.date_range("2019-01-01", periods=n_time, freq="D")
+        lat_1d = np.linspace(-36.0, -33.0, n_y)
+        lon_1d = np.linspace(-73.0, -69.0, n_x)
+        lat2d, lon2d = np.meshgrid(lat_1d, lon_1d, indexing="ij")
+        rng = np.random.default_rng(seed=42)
+        data_4d = rng.normal(size=(n_time, n_z, n_y, n_x))
+
+        ds_4d = xr.Dataset(
+            data_vars={"Temperatura": (("time", "z", "y", "x"), data_4d)},
+            coords={
+                "time": times,
+                "z": np.arange(n_z),
+                "latitude": (("y", "x"), lat2d),
+                "longitude": (("y", "x"), lon2d),
+            },
+        )
+
+        class _StubReader:
+            @staticmethod
+            def read(spec):
+                return ds_4d
+
+        grid_4d = RegularGrid(
+            name="grid_4d",
+            path=Path("memory://grid4d"),
+            vars={"Temperatura": {"name": "Temperatura", "unit": "kelvin"}},
+            reader=_StubReader,
+            crs=ccrs.PlateCarree(),
+        )
+        grid_4d.obj = ds_4d
+
+        result = point_surface_data.resample_vars(
+            grid_4d, "Temperatura", radius_of_influence=500_000
+        )
+        assert "z" in result.dims
+        assert "site" in result.dims
+        assert "time" in result.dims
+        assert result.sizes["z"] == n_z
 
 
 class TestCopy:
