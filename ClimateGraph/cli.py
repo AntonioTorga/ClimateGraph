@@ -24,16 +24,26 @@ def run(
             help="File defining the analysis.",
         ),
     ],
+    debug: Annotated[
+        bool,
+        typer.Option(
+            "--debug",
+            help="Force DEBUG-level logging. ORed with the control file's debug setting.",
+        ),
+    ] = False,
 ):
-    """run Run the ClimateGraph routine with a control file.
+    """Run the ClimateGraph routine with a control file.
 
     Parameters
     ----------
     control_file : Annotated[ Path, typer.Argument, optional
         Path of the configuration file for the ClimateGraph run, by default True, dir_okay=False, file_okay=True, resolve_path=True, help="File defining the analysis.", ), ]
+    debug : Annotated[bool, typer.Option, optional
+        When passed, forces DEBUG-level logging regardless of the control file's
+        debug setting. By default False
     """
     appK = AppKernel()
-    appK.run(control_file)
+    appK.run(control_file, debug_override=debug)
 
 
 @app.command()

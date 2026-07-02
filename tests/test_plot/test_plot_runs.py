@@ -39,7 +39,7 @@ class TestTimeseriesPlot:
             type="timeseries",
             base="grid_stub",
             vars=["Temperatura"],
-            time_interval=TIME_INTERVAL,
+            time=TIME_INTERVAL,
         )
         plot = Timeseries(
             name="ts_list",
@@ -59,7 +59,7 @@ class TestTimeseriesPlot:
             type="ts",
             base="grid_stub",
             vars={"Temperatura": "kelvin"},
-            time_interval=TIME_INTERVAL,
+            time=TIME_INTERVAL,
         )
         plot = Timeseries(
             name="ts_dict",
@@ -76,7 +76,7 @@ class TestTimeseriesPlot:
             type="ts",
             base="grid_stub",
             vars=["Temperatura"],
-            time_interval=TIME_INTERVAL,
+            time=TIME_INTERVAL,
             filename="custom.jpg",
         )
         plot = Timeseries(
@@ -89,6 +89,30 @@ class TestTimeseriesPlot:
         plot.plot()
         assert (tmp_output_dir / "ts_named" / "custom.jpg").exists()
 
+    def test_list_time_produces_one_output_per_entry(
+        self, regular_grid_data, tmp_output_dir
+    ):
+        # Fixture spans 2019-01-01..06; split into two non-overlapping windows.
+        cfg = TimeSeriesConfig(
+            type="ts",
+            base="grid_stub",
+            vars=["Temperatura"],
+            time=["1/1/2019 - 3/1/2019", "4/1/2019 - 6/1/2019"],
+        )
+        plot = Timeseries(
+            name="ts_multi_time",
+            plot_config=cfg,
+            data_registry={"grid_stub": regular_grid_data},
+            domain_registry={},
+            output_path=tmp_output_dir,
+        )
+        plot.plot()
+        outputs = _outputs(tmp_output_dir, "ts_multi_time")
+        assert len(outputs) == 2
+        names = {p.name for p in outputs}
+        assert any("01-01-2019_03-01-2019" in n for n in names)
+        assert any("04-01-2019_06-01-2019" in n for n in names)
+
 
 class TestTimeCyclePlot:
     def test_runs_with_day_bucket(self, regular_grid_data, tmp_output_dir):
@@ -96,7 +120,7 @@ class TestTimeCyclePlot:
             type="cycle",
             base="grid_stub",
             vars=["Temperatura"],
-            time_interval=TIME_INTERVAL,
+            time=TIME_INTERVAL,
             time_buckets="day",
         )
         plot = TimeCycle(
@@ -134,7 +158,7 @@ class TestTimeCyclePlot:
             other_data=["point_stub"],
             radius_of_influence=500_000,
             vars=["Temperatura"],
-            time_interval=TIME_INTERVAL,
+            time=TIME_INTERVAL,
             time_buckets="hour",
         )
         plot = TimeCycle(
@@ -168,7 +192,7 @@ class TestSpatialOverlayPlot:
             type="so",
             base="grid_stub",
             superposed="point_stub",
-            time_interval=TIME_INTERVAL,
+            time=TIME_INTERVAL,
             vars=["Temperatura"],
         )
         plot = SpatialOverlay(
@@ -193,7 +217,7 @@ class TestSpatialMapPlot:
         cfg = SpatialMapConfig(
             type="map",
             data="grid_stub",
-            time_interval=TIME_INTERVAL,
+            time=TIME_INTERVAL,
             vars=["Temperatura"],
         )
         plot = SpatialMap(
@@ -213,7 +237,7 @@ class TestSpatialMapPlot:
         cfg = SpatialMapConfig(
             type="spatial-map",
             data="point_stub",
-            time_interval=TIME_INTERVAL,
+            time=TIME_INTERVAL,
             vars={"Temperatura": "kelvin"},
         )
         plot = SpatialMap(
@@ -237,7 +261,7 @@ class TestSpatialMapPlot:
         cfg = SpatialMapConfig(
             type="map",
             data="point_stub",
-            time_interval=TIME_INTERVAL,
+            time=TIME_INTERVAL,
             vars=["Temperatura"],
             drop_nans=True,
         )
@@ -262,7 +286,7 @@ class TestScatterPlot:
             base="grid_stub",
             other="point_stub",
             radius_of_influence=500_000,
-            time_interval=TIME_INTERVAL,
+            time=TIME_INTERVAL,
             vars={"Temperatura": "kelvin"},
         )
         plot = Scatter(

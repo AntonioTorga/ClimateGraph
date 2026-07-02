@@ -10,8 +10,6 @@ import numpy as np
 import pandas as pd
 from dateutil import parser
 
-logging.basicConfig(level=logging.INFO)
-
 CRS_TYPES = {"platecarree": ccrs.PlateCarree}
 TIME_INTERVAL_FORMAT = r"^(.+?)\s*(?:-|to)\s*(.+)$"  # Accepts "date - date" or "date to date" and a date should be in dayfirst format.
 
@@ -231,3 +229,23 @@ def manage_time_interval(
         )
 
     return start_val, _bucket_end(end_val, end_res)
+
+
+def normalize_time(time: str | list[str] | None) -> list[str | None]:
+    """normalize_time Coerce a plot's ``time`` field into a list of entries to
+    iterate over. A single date/interval/None becomes a one-element list; a
+    list passes through unchanged, fanning the plot out into one output per entry.
+
+    Parameters
+    ----------
+    time : str | list[str] | None
+        A single date/interval string, a list of them, or None.
+
+    Returns
+    -------
+    list[str | None]
+        Entries to iterate over, each independently valid for manage_time_interval.
+    """
+    if isinstance(time, list):
+        return time
+    return [time]

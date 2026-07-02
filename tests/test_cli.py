@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 from typer.testing import CliRunner
 
@@ -37,7 +39,7 @@ data:
 plots:
   Timeseries:
     type: timeseries
-    time_interval: 1/1/2019 - 28/2/2019
+    time: 1/1/2019 - 28/2/2019
     timestep: D
     radius_of_influence: 10000
     base: DMC
@@ -59,3 +61,23 @@ def test_run_command(tmp_path):
 def test_run_command_nonexistent_file():
     result = runner.invoke(app, ["run", "nonexistent.yaml"])
     assert result.exit_code != 0
+
+
+def test_debug_flag_passed_through(tmp_path):
+    f = tmp_path / "config.yaml"
+    f.write_text(SAMPLE_YAML)
+
+    with patch("ClimateGraph.cli.AppKernel.run") as mock_run:
+        result = runner.invoke(app, ["run", str(f), "--debug"])
+        assert result.exit_code == 0
+        mock_run.assert_called_once_with(f.resolve(), debug_override=True)
+
+
+def test_debug_flag_omitted_defaults_false(tmp_path):
+    f = tmp_path / "config.yaml"
+    f.write_text(SAMPLE_YAML)
+
+    with patch("ClimateGraph.cli.AppKernel.run") as mock_run:
+        result = runner.invoke(app, ["run", str(f)])
+        assert result.exit_code == 0
+        mock_run.assert_called_once_with(f.resolve(), debug_override=False)

@@ -31,7 +31,7 @@ plots:
   TC:
     type: timecycle
     base: "CHIMERE"
-    time_interval: "1/6/2021-30/6/2021"
+    time: "1/6/2021-30/6/2021"
     timestep: "h"
     time_buckets: "hour"
     vars:

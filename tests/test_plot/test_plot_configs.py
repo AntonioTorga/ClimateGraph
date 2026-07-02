@@ -51,7 +51,7 @@ class TestScatterConfig:
             base="DMC",
             other="WRF",
             radius_of_influence=1000,
-            time_interval="1/1/2019 - 1/2/2019",
+            time="1/1/2019 - 1/2/2019",
             vars={"T": "kelvin"},
         )
         assert cfg.dimension == "time"
@@ -62,7 +62,7 @@ class TestScatterConfig:
                 type="sc",
                 base="A",
                 other="B",
-                time_interval="1/1/2019 - 1/2/2019",
+                time="1/1/2019 - 1/2/2019",
                 vars="T",
             )
 
@@ -73,7 +73,7 @@ class TestSpatialOverlayConfig:
             type="so",
             base="WRF",
             superposed="DMC",
-            time_interval="1/1/2019 - 1/2/2019",
+            time="1/1/2019 - 1/2/2019",
             vars=["T"],
         )
         assert cfg.coastlines is True
@@ -87,7 +87,7 @@ class TestSpatialMapConfig:
         cfg = SpatialMapConfig(
             type="map",
             data="WRF",
-            time_interval="1/1/2019 - 1/2/2019",
+            time="1/1/2019 - 1/2/2019",
             vars=["T"],
         )
         assert cfg.data == "WRF"
@@ -101,7 +101,7 @@ class TestSpatialMapConfig:
         with pytest.raises(ValidationError):
             SpatialMapConfig(
                 type="sm",
-                time_interval="1/1/2019 - 1/2/2019",
+                time="1/1/2019 - 1/2/2019",
                 vars="T",
             )
 

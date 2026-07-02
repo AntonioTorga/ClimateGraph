@@ -17,6 +17,7 @@ from ClimateGraph.utils.general_utils import (
     TimeBucketEnum,
     TimestepEnum,
     manage_time_interval,
+    normalize_time,
 )
 
 from .plot import Plot
@@ -93,7 +94,7 @@ class TimeSeriesConfig(BasePlotConfig):
     base: str
     radius_of_influence: int | None = Field(default=None)
     other_data: str | list[str] | None = Field(default=None)
-    time_interval: str | list[str] | None = Field(default=None)
+    time: str | list[str] | None = Field(default=None)
     timestep: TimestepEnum | None = Field(default=None)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
     colors: str | None = Field(default=None)  # TODO: implement
@@ -106,7 +107,12 @@ class Timeseries(Plot):
     aliases = ["ts", "time-series"]
 
     def plot(self):
-        """plot Timeseries plotting method.
+        """plot Iterate over self.plot_config.time entries, rendering once per entry."""
+        for time_interval in normalize_time(self.plot_config.time):
+            self._plot_one(time_interval)
+
+    def _plot_one(self, time_interval: str | None):
+        """_plot_one Timeseries plotting method for a single time entry.
         The process goes as follows:
         1) Process arguments.
         2) Process base data: Time resampling and aligning, and unit conversion.
@@ -131,7 +137,6 @@ class Timeseries(Plot):
 
         radius_of_influence = self.plot_config.radius_of_influence
         timestep = self.plot_config.timestep
-        time_interval = self.plot_config.time_interval
 
         base = self.data[self.plot_config.base]
 
@@ -239,7 +244,7 @@ class ScatterConfig(BasePlotConfig):
     base: str
     other: str
     radius_of_influence: int
-    time_interval: str | None = Field(default=None)
+    time: str | list[str] | None = Field(default=None)
     dimension: str = Field(default="time")
     timestep: TimestepEnum | None = Field(default=None)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
@@ -259,7 +264,12 @@ class Scatter(Plot):
     aliases = ["sc"]
 
     def plot(self):
-        """plot Scatter plotting method.
+        """plot Iterate over self.plot_config.time entries, rendering once per entry."""
+        for time_interval in normalize_time(self.plot_config.time):
+            self._plot_one(time_interval)
+
+    def _plot_one(self, time_interval: str | None):
+        """_plot_one Scatter plotting method for a single time entry.
         The process goes as follows:
         1) Process arguments.
         2) Process base data: Time resampling and aligning, and unit conversion.
@@ -277,7 +287,6 @@ class Scatter(Plot):
         vars = self.plot_config.vars
         radius_of_influence = self.plot_config.radius_of_influence
         timestep = self.plot_config.timestep
-        time_interval = self.plot_config.time_interval
         domains = {
             name: dom
             for name, dom in self.domains.items()
@@ -394,7 +403,7 @@ class SpatialOverlayConfig(BasePlotConfig):
     type: Literal["spatial-overlay", "spatialoverlay", "so"]
     base: str
     superposed: str
-    time_interval: str | None = Field(default=None)
+    time: str | list[str] | None = Field(default=None)
     levels: int = Field(default=10)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
     crs: CRSEnum | None = Field(default=None)
@@ -413,7 +422,12 @@ class SpatialOverlay(Plot):
     config = SpatialOverlayConfig
 
     def plot(self):
-        """plot Spatial Overlay plotting method.
+        """plot Iterate over self.plot_config.time entries, rendering once per entry."""
+        for time_interval in normalize_time(self.plot_config.time):
+            self._plot_one(time_interval)
+
+    def _plot_one(self, time_interval: str | None):
+        """_plot_one Spatial Overlay plotting method for a single time entry.
         The process goes as follows:
         1) Process arguments.
         2) Iterate through Domains.
@@ -429,7 +443,6 @@ class SpatialOverlay(Plot):
         base: RegularGrid = self.data[self.plot_config.base]
         superposed: PointSurface = self.data[self.plot_config.superposed]
         vars = self.plot_config.vars
-        time_interval = self.plot_config.time_interval
         crs = (
             base.crs.crs if self.plot_config.crs is None else self.plot_config.crs.crs
         )  # TODO: make this simpler haha
@@ -574,7 +587,7 @@ class SpatialMapConfig(BasePlotConfig):
 
     type: Literal["spatial-map", "spatialmap", "map", "sm"]
     data: str
-    time_interval: str | None = Field(default=None)
+    time: str | list[str] | None = Field(default=None)
     levels: int = Field(default=10)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
     crs: CRSEnum | None = Field(default=None)
@@ -601,7 +614,12 @@ class SpatialMap(Plot):
     config = SpatialMapConfig
 
     def plot(self):
-        """plot Spatial Map plotting method.
+        """plot Iterate over self.plot_config.time entries, rendering once per entry."""
+        for time_interval in normalize_time(self.plot_config.time):
+            self._plot_one(time_interval)
+
+    def _plot_one(self, time_interval: str | None):
+        """_plot_one Spatial Map plotting method for a single time entry.
         The process goes as follows:
         1) Process arguments.
         2) Iterate through Domains.
@@ -615,7 +633,6 @@ class SpatialMap(Plot):
         # Get relevant data from the config
         data: RegularGrid | PointSurface = self.data[self.plot_config.data]
         vars = self.plot_config.vars
-        time_interval = self.plot_config.time_interval
         crs = data.crs.crs if self.plot_config.crs is None else self.plot_config.crs.crs
         domains = {
             name: dom
@@ -735,7 +752,7 @@ class TimeCycleConfig(BasePlotConfig):
     base: str
     other_data: str | list[str] | None = Field(default=None)
     radius_of_influence: int | None = Field(default=None)
-    time_interval: str | list[str] | None = Field(default=None)
+    time: str | list[str] | None = Field(default=None)
     timestep: TimestepEnum | None = Field(default=None)
     time_buckets: TimeBucketEnum = Field(default=TimeBucketEnum.day)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
@@ -771,6 +788,11 @@ class TimeCycle(Plot):
     aliases = ["time cycle", "cycle"]
 
     def plot(self):
+        """plot Iterate over self.plot_config.time entries, rendering once per entry."""
+        for time_interval in normalize_time(self.plot_config.time):
+            self._plot_one(time_interval)
+
+    def _plot_one(self, time_interval: str | None):
         # Get relevant data from the config
         vars = self.plot_config.vars
         domains = {
@@ -782,7 +804,6 @@ class TimeCycle(Plot):
             domains = {"": None}
 
         radius_of_influence = self.plot_config.radius_of_influence
-        time_interval = self.plot_config.time_interval
         timestep = self.plot_config.timestep
         time_bucket = (
             self.plot_config.time_buckets.value

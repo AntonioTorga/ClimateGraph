@@ -1,4 +1,3 @@
-import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
 
@@ -11,8 +10,6 @@ import matplotlib.pyplot as plt
 from ClimateGraph.data import Data
 from ClimateGraph.domain import Domain
 from ClimateGraph.utils.registry import RegistryMixin
-
-logging.basicConfig(level=logging.INFO)  # TODO: make this settable from yaml file.
 
 # Which keys in plot_kwargs get routed to which matplotlib call. A given key
 # may legitimately belong to more than one sink (e.g. `dpi` applies to both

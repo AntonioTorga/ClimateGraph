@@ -22,7 +22,7 @@ plots:
   TC:
     type: timecycle
     base: "QUITO"
-    time_interval: "1/9/2022-30/9/2022"
+    time: "1/9/2022-30/9/2022"
     timestep: "h"
     time_buckets: "hour"
     vars:

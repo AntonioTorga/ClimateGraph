@@ -1,12 +1,9 @@
-import logging
 from abc import ABC, abstractmethod
 
 import xarray as xr
 from pydantic import BaseModel
 
 from ClimateGraph.utils.registry import RegistryMixin
-
-logging.basicConfig(level=logging.INFO)  # TODO: make this settable from yaml file.
 
 # TODO: Change the use of BaseModel for actual attributes to improve modularization.
 

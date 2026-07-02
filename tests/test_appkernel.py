@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -60,3 +61,40 @@ class TestSetAnalysisData:
         kernel.set_analysis_data()
         assert kernel.debug is True
         assert kernel.output_path == Path("/tmp/foo")
+
+
+class TestConfigureLogging:
+    def test_debug_true_sets_debug_level(self):
+        kernel = AppKernel()
+        kernel.debug = True
+        kernel._configure_logging()
+        assert logging.getLogger().level == logging.DEBUG
+
+    def test_debug_false_sets_info_level(self):
+        kernel = AppKernel()
+        kernel.debug = False
+        kernel._configure_logging()
+        assert logging.getLogger().level == logging.INFO
+
+
+class TestDebugOverride:
+    def test_override_true_wins_over_config_false(self, stubbed_parser, tmp_path):
+        analysis, _, _, _, _ = stubbed_parser
+        analysis["debug"] = False
+        kernel = AppKernel()
+        kernel.run(tmp_path / "ignored.yaml", debug_override=True)
+        assert kernel.debug is True
+
+    def test_override_false_keeps_config_true(self, stubbed_parser, tmp_path):
+        analysis, _, _, _, _ = stubbed_parser
+        analysis["debug"] = True
+        kernel = AppKernel()
+        kernel.run(tmp_path / "ignored.yaml", debug_override=False)
+        assert kernel.debug is True
+
+    def test_override_false_keeps_config_false(self, stubbed_parser, tmp_path):
+        analysis, _, _, _, _ = stubbed_parser
+        analysis["debug"] = False
+        kernel = AppKernel()
+        kernel.run(tmp_path / "ignored.yaml", debug_override=False)
+        assert kernel.debug is False

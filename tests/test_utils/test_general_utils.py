@@ -11,6 +11,7 @@ from ClimateGraph.utils.general_utils import (
     TimestepEnum,
     manage_path,
     manage_time_interval,
+    normalize_time,
 )
 
 
@@ -67,6 +68,18 @@ class TestManageTimeInterval:
         # dateutil.parser.parse raises ParserError (a ValueError subclass) on garbage.
         with pytest.raises(ValueError):
             manage_time_interval("not-a-date - also-not")
+
+
+class TestNormalizeTime:
+    def test_none_becomes_single_none_entry(self):
+        assert normalize_time(None) == [None]
+
+    def test_single_string_becomes_one_element_list(self):
+        assert normalize_time("1/1/2019 - 1/2/2019") == ["1/1/2019 - 1/2/2019"]
+
+    def test_list_passes_through_unchanged(self):
+        entries = ["1/1/2019 - 1/2/2019", "1/3/2019 - 1/4/2019"]
+        assert normalize_time(entries) is entries
 
 
 class TestManagePath:

@@ -4,8 +4,6 @@ from pathlib import Path
 
 from ClimateGraph.utils.parser import Parser
 
-logging.basicConfig(level=logging.INFO)
-
 
 class AppKernel:
     """ClimateGraph execution and state manager. Orquestrates the other modules."""
@@ -65,19 +63,34 @@ class AppKernel:
         self.output_path = analysis.get("output_path", Path("./"))
         self.workers = analysis.get("workers")
 
-    def run(self, control_path: Path):
+    def _configure_logging(self):
+        """_configure_logging Set the root logger level from self.debug.
+
+        The only place in the codebase that calls ``logging.basicConfig``.
+        ``force=True`` so this always wins regardless of import order, even if
+        some other library configured logging before this runs.
+        """
+        level = logging.DEBUG if self.debug else logging.INFO
+        logging.basicConfig(level=level, force=True)
+
+    def run(self, control_path: Path, debug_override: bool = False):
         """run Run the ClimateGraph routine.
 
         Parameters
         ----------
         control_path : Path
             Path of the configuration file for the ClimateGraph run.
+        debug_override : bool, optional
+            CLI override for the control file's ``debug`` setting. ORed with
+            the control file's value, so passing True always wins. By default False
         """
         self.analysis, self.data, self.plots, self.domains = self.read_control(
             control_path
         )
 
         self.set_analysis_data()
+        self.debug = debug_override or self.debug
+        self._configure_logging()
         # if self.eager : self.load_data()
         with self._dask_client():
             self.plot()

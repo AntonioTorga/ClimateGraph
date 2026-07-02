@@ -3,7 +3,7 @@ import logging
 import operator as _op
 from datetime import UTC, datetime
 
-import pint_xarray  # noqa: F401  — registers the `.pint` accessor on xarray DataArrays
+import pint_xarray  # noqa: F401
 import xarray as xr
 
 from .general_utils import ReductionMethodEnum, manage_time_interval

@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 
 import yaml
@@ -10,6 +11,46 @@ from ClimateGraph.plot import Plot
 from ClimateGraph.utils.control_model import ControlFile
 
 FILE_READERS = {".json": json.load, ".yaml": yaml.safe_load, ".yml": yaml.safe_load}
+
+
+def _expand_domains(domain_models: dict) -> tuple[dict, dict[str, list[str]]]:
+    """Expand domain configs flagged ``one_for_each`` into one config per value.
+
+    Only ``AttributeConfig`` carries ``one_for_each``; other domain types don't
+    have the attribute, so ``getattr(..., False)`` makes them a no-op here.
+
+    Returns
+    -------
+    tuple[dict, dict[str, list[str]]]
+        The expanded {name: domain_model} dict (un-flagged domains pass through
+        unchanged), and a {original_name: [expanded_names]} rewrite map used to
+        resolve plot ``domains:`` references that still point at the original name.
+    """
+    expanded = {}
+    rewrite_map = {}
+    for name, model in domain_models.items():
+        if not getattr(model, "one_for_each", False):
+            expanded[name] = model
+            continue
+
+        field_value = model.field_value
+        if not isinstance(field_value, list):
+            expanded[name] = model
+            logging.debug(
+                f"Attempted expansion of domain {name} but there was no expansible value en field_value. Left as is."
+            )
+            continue
+
+        generated_names = []
+        for value in field_value:
+            new_name = f"{name}__{value}"
+            expanded[new_name] = model.model_copy(
+                update={"field_value": value, "one_for_each": False}
+            )
+            generated_names.append(new_name)
+        rewrite_map[name] = generated_names
+
+    return expanded, rewrite_map
 
 
 class Parser:
@@ -87,13 +128,21 @@ class Parser:
 
             data[_name] = data_instance
 
+        rewrite_map = {}
         if valid.domains:
-            for domain_name, domain_model in valid.domains.items():
+            expanded_domains, rewrite_map = _expand_domains(valid.domains)
+            for domain_name, domain_model in expanded_domains.items():
                 _type = domain_model.type
                 domain_instance = Domain.create(domain_name, _type, domain_model)
                 domains[domain_name] = domain_instance
         if valid.plots:
             for plot_name, plot_model in valid.plots.items():
+                if rewrite_map and getattr(plot_model, "domains", None):
+                    resolved = []
+                    for ref in plot_model.domains:
+                        resolved.extend(rewrite_map.get(ref, [ref]))
+                    plot_model.domains = resolved
+
                 _type = plot_model.type
                 plot_instance = Plot.create(
                     plot_name,

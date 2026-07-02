@@ -6,7 +6,6 @@ import cartopy.crs as ccrs
 import numpy as np
 import pandas as pd
 import xarray as xr
-from pyresample import kd_tree
 
 from ClimateGraph.reader import Reader
 from ClimateGraph.reader.reader.reader import ReadSpec
@@ -19,6 +18,7 @@ from ClimateGraph.utils.dataset_utils import (
 )
 from ClimateGraph.utils.general_utils import ReductionMethodEnum
 from ClimateGraph.utils.registry import RegistryMixin
+from ClimateGraph.utils.resample_engine import ResampleEngine, get_engine
 
 
 class Data(RegistryMixin, ABC):
@@ -398,7 +398,6 @@ class Data(RegistryMixin, ABC):
             coords = coords[0]
         return coords
 
-    # Might need to become a whole pairing engine in some time. But for now this will do
     def resample_vars(
         self,
         other: "Data",
@@ -407,8 +406,10 @@ class Data(RegistryMixin, ABC):
         time_interval: str | None = None,
         radius_of_influence: int = 10000,
         time_tolerance: str | None = "30min",
+        engine: str | ResampleEngine = "pyresample",
+        engine_kwargs: dict | None = None,
     ) -> xr.DataArray | xr.Dataset:
-        """resample_vars Resample the requested vars using Pyresample and the geom attributes. Until now only NearestNeighbour method is being used.
+        """Resample the requested vars using the specified ResampleEngine.
 
         Parameters
         ----------
@@ -421,9 +422,15 @@ class Data(RegistryMixin, ABC):
         time_interval : str | None, optional
             Time interval in dd/mm/yyyy-dd/mm/yyyy or d/m/yyyy-d/m/yyyy, by default None
         radius_of_influence : int, optional
-            Radius length in meters to use for resampling with nearest neighbours. Lower improves computation time but may result in less resulting data, by default 10000
+            Radius length in meters to use for resampling. by default 10000
         time_tolerance : str | None, optional
-            Pandas-style timedelta used as the tolerance when snapping ``other``'s time axis onto ``self``'s via nearest-neighbour reindex. Handles cases where the two sources are on the same cadence but offset (e.g. CHIMERE at HH:30 vs. point-surface at HH:00). Set to ``None`` to disable snapping. Default ``"30min"``.
+            Pandas-style timedelta used as the tolerance when snapping ``other``'s
+            time axis onto ``self``'s via nearest-neighbour reindex. Default ``"30min"``.
+        engine : str | ResampleEngine, optional
+            Resample backend name or instance. Default ``"pyresample"``.
+        engine_kwargs : dict | None, optional
+            Extra kwargs forwarded to the engine constructor
+            (e.g. ``method``, ``sigmas``). Default None.
 
         Returns
         -------
@@ -433,20 +440,17 @@ class Data(RegistryMixin, ABC):
         if isinstance(vars, str):
             vars = [vars]
 
+        resample_engine = get_engine(engine, **(engine_kwargs or {}))
         src_geom = other.geom
         dst_geom = self.geom
 
-        valid_input, valid_output, index_array, dist_array = kd_tree.get_neighbour_info(
+        info = resample_engine.prepare(
             src_geom,
             dst_geom,
             radius_of_influence=radius_of_influence,
-            neighbours=1,
         )
+        _resample = resample_engine.make_resampler(info, dst_geom.shape)
 
-        # Establish the destination time grid up front so var_src can be snapped onto
-        # it before resampling. Without this, sources whose time axis is offset from
-        # self's (e.g. CHIMERE labelled at HH:30 vs point-surface at HH:00) end up
-        # producing a resampled array whose time length doesn't match self's.
         if self.resampled is None:
             self.resampled = self.obj.drop_vars(list(self.obj.data_vars))
             self.resampled = time_resampling(
@@ -458,14 +462,10 @@ class Data(RegistryMixin, ABC):
             var_dst_dims = self.get_var(var).sizes
             var_src = other.get_var(var)
 
-            # The caller wants the var either in a specified unit (dict form) or
-            # in the unit of the resampling base (list/str form). var_unit yields
-            # None when units weren't declared, and change_unit no-ops on None.
             dst_unit = self.var_unit(var) if isinstance(vars, list | str) else vars[var]
             src_unit = other.var_unit(var)
             var_src = change_unit(var_src, src_unit, dst_unit)
 
-            # time resampling
             var_src = time_resampling(
                 var_src, timestep=timestep, time_interval=time_interval
             )
@@ -477,22 +477,6 @@ class Data(RegistryMixin, ABC):
                     tolerance=pd.Timedelta(time_tolerance),
                 )
 
-            def _resample(x):
-                return kd_tree.get_sample_from_neighbour_info(
-                    "nn",
-                    dst_geom.shape,
-                    x,
-                    valid_input,
-                    valid_output,
-                    index_array,
-                    dist_array,
-                    fill_value=np.nan,
-                )
-
-            # input_core_dims: only the geom_dims of the source (the horizontal dims
-            # the pyresample geometry was built from). Any extra dims like z are left
-            # out so apply_ufunc loops over them automatically, broadcasting the
-            # horizontal resampling across each vertical level independently.
             src_geom_dims = [d for d in var_src.dims if d in set(other.geom_dims)]
             dst_geom_dims = [d for d in var_dst_dims if d in set(self.geom_dims)]
             resampled = xr.apply_ufunc(

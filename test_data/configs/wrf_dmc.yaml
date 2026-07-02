@@ -51,7 +51,7 @@ plots:
     base: "DMC"
     other_data: ["WRF_D02"]
     domains: ["RM", "Litoral"]
-    time_interval: 1/1/2010-1/4/2019
+    time: 1/1/2010-1/4/2019
     timestep: "ME"
     radius_of_influence: 10000
     vars:
@@ -62,7 +62,7 @@ plots:
     base: "DMC"
     domains: ["RM","Litoral"]
     other: "WRF_D02"
-    time_interval: 1/1/2010-1/4/2019
+    time: 1/1/2010-1/4/2019
     timestep: "ME"
     radius_of_influence: 10000
     dimension: time

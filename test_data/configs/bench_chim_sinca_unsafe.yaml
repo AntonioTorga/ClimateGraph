@@ -32,7 +32,7 @@ plots:
     type: timeseries
     base: "SINCA"
     other_data: ["CHIMERE"]
-    time_interval: "1/6/2021-30/6/2021"
+    time: "1/6/2021-30/6/2021"
     timestep: "D"
     radius_of_influence: 10000
     vars:

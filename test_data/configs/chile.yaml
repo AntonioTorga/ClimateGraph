@@ -22,7 +22,7 @@ plots:
   ts:
     type: timeseries
     base: "CHILE"
-    time_interval: "1/7/2022-1/8/2022"
+    time: "1/7/2022-1/8/2022"
     timestep: "h"
     vars:
       PM25: "ug/m**3"
@@ -30,7 +30,7 @@ plots:
   TC:
     type: timecycle
     base: "CHILE"
-    time_interval: "1/7/2022-1/8/2022"
+    time: "1/7/2022-1/8/2022"
     timestep: "h"
     time_buckets: "hour"
     vars:

@@ -56,6 +56,20 @@ class TestAttributeDomain:
         filtered = dom.apply(point_surface_data.obj)
         assert filtered.sizes["site"] == 0
 
+    def test_list_field_value_combines_via_isin(self, point_surface_data):
+        # Fixture regions are (13, 13, 5); a list should match all three together.
+        cfg = AttributeConfig(type="attr", field_name="region", field_value=[13, 5])
+        dom = Attribute("combined", domain_config=cfg)
+        filtered = dom.apply(point_surface_data.obj)
+        assert filtered.sizes["site"] == 3
+
+    def test_list_field_value_partial_match(self, point_surface_data):
+        cfg = AttributeConfig(type="attr", field_name="region", field_value=[5, 9999])
+        dom = Attribute("partial", domain_config=cfg)
+        filtered = dom.apply(point_surface_data.obj)
+        assert filtered.sizes["site"] == 1
+        assert all(filtered["region"].values == 5)
+
 
 class TestPolygonDomain:
     def test_apply_masks_outside_polygon(self, regular_grid_data):

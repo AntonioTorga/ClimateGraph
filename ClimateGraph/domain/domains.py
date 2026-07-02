@@ -16,6 +16,10 @@ class AttributeConfig(BaseModel):
     type: Literal["attribute", "attr"]
     field_name: str
     field_value: Any
+    one_for_each: bool = False
+    """When field_value is a list and this is True, the parser expands this
+    single domain block into one Attribute domain per value. When False (default),
+    the set is analyzed together."""
 
 
 class Attribute(Domain):
@@ -39,7 +43,11 @@ class Attribute(Domain):
         """
         field_name = self.domain_config.field_name
         field_value = self.domain_config.field_value
-        return data.where((data[field_name] == field_value).compute(), drop=True)
+        if isinstance(field_value, list):
+            mask = data[field_name].isin(field_value)
+        else:
+            mask = data[field_name] == field_value
+        return data.where(mask.compute(), drop=True)
 
 
 class PolygonConfig(BaseModel):

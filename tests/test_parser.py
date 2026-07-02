@@ -1,8 +1,10 @@
+import pytest
 import yaml
 
 from ClimateGraph import Data, Plot
+from ClimateGraph.domain.domains import AttributeConfig
 from ClimateGraph.utils.control_model import ControlFile
-from ClimateGraph.utils.parser import Parser
+from ClimateGraph.utils.parser import Parser, _expand_domains
 
 SAMPLE_YAML = """
 analysis:
@@ -36,7 +38,7 @@ data:
 plots:
   Timeseries:
     type: timeseries
-    time_interval: 1/1/2019 - 28/2/2019
+    time: 1/1/2019 - 28/2/2019
     timestep: h
     base: DMC
     other_data: WRF_D02
@@ -91,3 +93,98 @@ def test_input_reader_yml(tmp_path):
         assert isinstance(plot_instance, Plot)
 
     assert analysis["debug"] is True
+
+
+class TestExpandDomains:
+    def test_passthrough_when_one_for_each_false(self):
+        models = {
+            "station": AttributeConfig(
+                type="attr", field_name="station_id", field_value="STA01"
+            )
+        }
+        expanded, rewrite_map = _expand_domains(models)
+        assert expanded == models
+        assert rewrite_map == {}
+
+    def test_expands_list_into_one_domain_per_value(self):
+        models = {
+            "station": AttributeConfig(
+                type="attr",
+                field_name="station_id",
+                field_value=["STA01", "STA02", "STA03"],
+                one_for_each=True,
+            )
+        }
+        expanded, rewrite_map = _expand_domains(models)
+        assert set(expanded) == {"station__STA01", "station__STA02", "station__STA03"}
+        for name, value in zip(
+            ["station__STA01", "station__STA02", "station__STA03"],
+            ["STA01", "STA02", "STA03"],
+            strict=True,
+        ):
+            assert expanded[name].field_value == value
+            assert expanded[name].one_for_each is False
+        assert rewrite_map == {
+            "station": ["station__STA01", "station__STA02", "station__STA03"]
+        }
+
+    def test_non_list_field_value_with_one_for_each_is_noop(self):
+        models = {
+            "station": AttributeConfig(
+                type="attr",
+                field_name="station_id",
+                field_value="STA01",
+                one_for_each=True,
+            )
+        }
+        expanded, rewrite_map = _expand_domains(models)
+        assert expanded == models
+        assert rewrite_map == {}
+
+    def test_mixed_expanded_and_passthrough_domains(self):
+        models = {
+            "station": AttributeConfig(
+                type="attr",
+                field_name="station_id",
+                field_value=["STA01", "STA02"],
+                one_for_each=True,
+            ),
+            "santiago": AttributeConfig(
+                type="attr", field_name="region", field_value=13
+            ),
+        }
+        expanded, rewrite_map = _expand_domains(models)
+        assert set(expanded) == {"station__STA01", "station__STA02", "santiago"}
+        assert rewrite_map == {"station": ["station__STA01", "station__STA02"]}
+
+
+@pytest.mark.slow
+class TestParseControlDomainExpansion:
+    def test_plot_domains_resolved_to_expanded_names(self, tmp_path):
+        yaml_with_domains = (
+            SAMPLE_YAML
+            + """
+domains:
+  station:
+    type: attr
+    field_name: codigoNacional
+    field_value: [330020, 330021]
+    one_for_each: true
+"""
+        )
+        # Reference the un-expanded domain name from the plot block.
+        yaml_with_domains = yaml_with_domains.replace(
+            "    vars: [Temperatura, Presion]\n",
+            "    vars: [Temperatura, Presion]\n    domains: [station]\n",
+        )
+
+        f = tmp_path / "control.yaml"
+        f.write_text(yaml_with_domains)
+
+        _analysis, _data, plots, domains = Parser.parse_control(f)
+
+        assert set(domains) == {"station__330020", "station__330021"}
+        assert plots["Timeseries"].plot_config.domains == [
+            "station__330020",
+            "station__330021",
+        ]
