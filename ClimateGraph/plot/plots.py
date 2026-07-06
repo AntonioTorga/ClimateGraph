@@ -23,6 +23,37 @@ from ClimateGraph.utils.general_utils import (
 from .plot import Plot
 
 
+def _apply_domain(dom, obj, template):
+    """_apply_domain Apply a Data-in/Data-out domain to an already-prepared xr object.
+
+    The plot pipelines carry bare xr Datasets/DataArrays after time-resampling and
+    variable renaming, but the domain contract operates on ``Data`` objects. This
+    wraps ``obj`` in a copy of ``template`` (whose topology matches ``obj``), applies
+    the domain, and returns the resulting ``.obj``. ``obj`` is returned unchanged when
+    ``dom`` is None.
+
+    Parameters
+    ----------
+    dom : Domain | None
+        Domain to apply, or None for a no-op.
+    obj : xr.Dataset | xr.DataArray
+        Already-prepared data (post resample/rename) to filter.
+    template : Data
+        A Data object whose topology matches ``obj``; copied to host ``obj`` so the
+        domain can be applied through the Data contract.
+
+    Returns
+    -------
+    xr.Dataset | xr.DataArray
+        The filtered object (or ``obj`` unchanged when ``dom`` is None).
+    """
+    if dom is None:
+        return obj
+    wrapper = template.copy()
+    wrapper.obj = obj
+    return dom.apply(wrapper).obj
+
+
 def _drop_nan_points(
     lons: np.ndarray, lats: np.ndarray, vals: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -177,12 +208,12 @@ class Timeseries(Plot):
 
         # Plotting
         for dom_name, dom in domains.items():
-            # Apply dom
-            all_data_dom = (
-                {name: dom.apply(data) for name, data in all_data.items()}
-                if dom is not None
-                else all_data
-            )
+            # Apply dom. Every all_data value lives on base's topology (base_obj is
+            # base's data; resampled others are projected onto base's geometry), so
+            # base.copy() is the correct wrapper for the Data-in/Data-out domain.
+            all_data_dom = {
+                name: _apply_domain(dom, data, base) for name, data in all_data.items()
+            }
 
             if self.plot_config.dim_reduce:
                 all_data_dom = {
@@ -322,13 +353,10 @@ class Scatter(Plot):
         for dom_name, dom in domains.items():
             # Plotting
 
-            # Filtering with domain
-            if dom is not None:
-                base_obj_dom = dom.apply(base_obj)
-                other_obj_dom = dom.apply(other_obj)
-            else:
-                base_obj_dom = base_obj
-                other_obj_dom = other_obj
+            # Filtering with domain. Both base_obj and the resampled other_obj live
+            # on base's topology, so base.copy() is the correct Data wrapper.
+            base_obj_dom = _apply_domain(dom, base_obj, base)
+            other_obj_dom = _apply_domain(dom, other_obj, base)
 
             if self.plot_config.dim_reduce:
                 base_obj_dom = dim_reduction(base_obj_dom, self.plot_config.dim_reduce)
@@ -455,12 +483,11 @@ class SpatialOverlay(Plot):
             domains = {"": None}
 
         for dom_name, dom in domains.items():
+            base_dom = dom.apply(base) if dom is not None else base
+            superposed_dom = dom.apply(superposed) if dom is not None else superposed
             for var in vars:
-                base_var = base.obj[var]
-                superposed_var = superposed.obj[var]
-                if dom is not None:
-                    base_var = dom.apply(base_var)
-                    superposed_var = dom.apply(superposed_var)
+                base_var = base_dom.obj[var]
+                superposed_var = superposed_dom.obj[var]
 
                 unit = base.var_unit(var) if isinstance(vars, list | str) else vars[var]
 
@@ -646,10 +673,9 @@ class SpatialMap(Plot):
         is_grid = isinstance(data, RegularGrid)
 
         for dom_name, dom in domains.items():
+            data_dom = dom.apply(data) if dom is not None else data
             for var in vars:
-                data_var = data.obj[var]
-                if dom is not None:
-                    data_var = dom.apply(data_var)
+                data_var = data_dom.obj[var]
 
                 unit = data.var_unit(var) if isinstance(vars, list | str) else vars[var]
 
@@ -843,12 +869,10 @@ class TimeCycle(Plot):
 
         # Plotting
         for dom_name, dom in domains.items():
-            # Apply domain
-            all_data_dom = (
-                {name: dom.apply(data) for name, data in all_data.items()}
-                if dom is not None
-                else all_data
-            )
+            # Apply domain (all values are on base's topology — see Timeseries note).
+            all_data_dom = {
+                name: _apply_domain(dom, data, base) for name, data in all_data.items()
+            }
 
             if self.plot_config.dim_reduce:
                 all_data_dom = {

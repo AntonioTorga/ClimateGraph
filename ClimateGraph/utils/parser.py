@@ -133,7 +133,19 @@ class Parser:
             expanded_domains, rewrite_map = _expand_domains(valid.domains)
             for domain_name, domain_model in expanded_domains.items():
                 _type = domain_model.type
-                domain_instance = Domain.create(domain_name, _type, domain_model)
+                # Optional resample pre-step: resolve the target dataset name into
+                # the actual Data object so the domain can reproject onto its geometry.
+                target_data = None
+                if getattr(domain_model, "resample_to", None):
+                    target_data = data.get(domain_model.resample_to)
+                    if target_data is None:
+                        raise ValueError(
+                            f"Domain '{domain_name}' resample_to references unknown "
+                            f"dataset '{domain_model.resample_to}'."
+                        )
+                domain_instance = Domain.create(
+                    domain_name, _type, domain_model, target_data=target_data
+                )
                 domains[domain_name] = domain_instance
         if valid.plots:
             for plot_name, plot_model in valid.plots.items():
