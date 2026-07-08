@@ -1,0 +1,38 @@
+
+analysis:
+  output_path: "./test_data/results/showcase-composition/"
+  debug: false
+
+data:
+  WRF:
+    path: "./test_data/data/wrf-2019-*.nc"
+    topology: RegularGrid
+    reader: wrf
+    vars:
+      Temperatura: {name: T2, unit: kelvin}
+  DMC:
+    path: "./test_data/data/dmc*.nc"
+    topology: PointSurface
+    reader: DMC
+    vars:
+      Temperatura: {name: temperatura, unit: kelvin}
+
+plots:
+  model_and_obs:
+    type: custom
+    time: "1/1/2019 - 1/2/2019"
+    vars: [Temperatura]
+    subplots:
+      - type: contourf          # WRF model field (grid layer)
+        dataset: WRF
+        x: longitude
+        y: latitude
+        levels: 12
+        cmap: viridis
+      - type: points            # DMC station observations (point layer)
+        dataset: DMC
+        x: longitude
+        y: latitude
+        markersize: 60
+        drop_nans: true
+    title: "WRF field with DMC station observations overlaid"

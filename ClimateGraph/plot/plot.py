@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 
 from ClimateGraph.data import Data
 from ClimateGraph.domain import Domain
+from ClimateGraph.utils.general_utils import normalize_time
 from ClimateGraph.utils.registry import RegistryMixin
 
 # Which keys in plot_kwargs get routed to which matplotlib call. A given key
@@ -139,6 +140,60 @@ class Plot(RegistryMixin, ABC):
     def plot(self):
         """plot Abstract method. Run the plot operation with the instance attributes and plot configuration."""
         pass
+
+    def resolve_domains(self) -> dict[str, Domain | None]:
+        """resolve_domains Select the domains this plot references from the registry.
+
+        Falls back to a single unnamed no-op slot (``{"": None}``) when the plot
+        declares no domains, so callers can iterate uniformly.
+
+        Returns
+        -------
+        dict[str, Domain | None]
+            Mapping of domain name to Domain (or ``None`` for the no-op slot).
+        """
+        domains = {
+            name: dom
+            for name, dom in self.domains.items()
+            if name in self.plot_config.domains
+        }
+        return domains or {"": None}
+
+    def iterate_contexts(
+        self,
+        times,
+        domains: dict[str, Domain | None],
+        vars: list[str] | None,
+    ):
+        """iterate_contexts Yield the (time, domain, var) render contexts.
+
+        Centralizes the time x domain x var nesting duplicated across the plot
+        classes. Time is normalized here (a single date, an interval, or a list
+        fanning out into N entries). When ``vars`` is ``None`` a single ``None``
+        var slot is yielded per (time, domain) pair — the per-subplot-var-scope
+        case where the var is decided downstream.
+
+        Parameters
+        ----------
+        times : str | list[str] | None
+            The plot's ``time`` field (raw), normalized internally.
+        domains : dict[str, Domain | None]
+            Resolved domains (see ``resolve_domains``).
+        vars : list[str] | None
+            Variable names to fan out over, or ``None`` for a single ``None`` slot.
+
+        Yields
+        ------
+        tuple[str | None, str, Domain | None, str | None]
+            ``(time_interval, domain_name, domain, var)`` tuples.
+        """
+        for time_interval in normalize_time(times):
+            for dom_name, dom in domains.items():
+                if vars is None:
+                    yield time_interval, dom_name, dom, None
+                else:
+                    for var in vars:
+                        yield time_interval, dom_name, dom, var
 
     def figure_kwargs(self, **defaults) -> dict:
         """figure_kwargs Build the kwargs for ``plt.figure`` from ``plot_kwargs``.

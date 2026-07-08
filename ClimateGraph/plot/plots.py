@@ -20,38 +20,14 @@ from ClimateGraph.utils.general_utils import (
     normalize_time,
 )
 
+from . import primitives as _primitives  # noqa: F401  registers primitive configs
 from .plot import Plot
+from .primitive import Primitive
 
-
-def _apply_domain(dom, obj, template):
-    """_apply_domain Apply a Data-in/Data-out domain to an already-prepared xr object.
-
-    The plot pipelines carry bare xr Datasets/DataArrays after time-resampling and
-    variable renaming, but the domain contract operates on ``Data`` objects. This
-    wraps ``obj`` in a copy of ``template`` (whose topology matches ``obj``), applies
-    the domain, and returns the resulting ``.obj``. ``obj`` is returned unchanged when
-    ``dom`` is None.
-
-    Parameters
-    ----------
-    dom : Domain | None
-        Domain to apply, or None for a no-op.
-    obj : xr.Dataset | xr.DataArray
-        Already-prepared data (post resample/rename) to filter.
-    template : Data
-        A Data object whose topology matches ``obj``; copied to host ``obj`` so the
-        domain can be applied through the Data contract.
-
-    Returns
-    -------
-    xr.Dataset | xr.DataArray
-        The filtered object (or ``obj`` unchanged when ``dom`` is None).
-    """
-    if dom is None:
-        return obj
-    wrapper = template.copy()
-    wrapper.obj = obj
-    return dom.apply(wrapper).obj
+# Discriminated union over the registered primitive configs (Series/ContourFill/
+# Points). Built here — after importing `primitives` — so every primitive config
+# is registered before CustomPlotConfig references it.
+PrimitiveModel = Primitive.build_config_union()
 
 
 def _drop_nan_points(
@@ -122,13 +98,16 @@ class TimeSeriesConfig(BasePlotConfig):
     """TimeSeriesConfig Timeseries plot configuration as Pydantic Model."""
 
     type: Literal["timeseries", "ts", "time-series"]
-    base: str
-    radius_of_influence: int | None = Field(default=None)
-    other_data: str | list[str] | None = Field(default=None)
+    data: str | list[str]
     time: str | list[str] | None = Field(default=None)
     timestep: TimestepEnum | None = Field(default=None)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
     colors: str | None = Field(default=None)  # TODO: implement
+
+    @field_validator("data", mode="before")
+    @classmethod
+    def _wrap_single_data(cls, v):
+        return [v] if isinstance(v, str) else v
 
 
 class Timeseries(Plot):
@@ -156,92 +135,49 @@ class Timeseries(Plot):
         """
         # TODO: remove time intervals with nan values.
 
-        # Get relevant data from the config
         vars = self.plot_config.vars
-        domains = {
-            name: dom
-            for name, dom in self.domains.items()
-            if name in self.plot_config.domains
-        }
-        if not domains:
-            domains = {"": None}
-
-        radius_of_influence = self.plot_config.radius_of_influence
+        domains = self.resolve_domains()
         timestep = self.plot_config.timestep
+        data_names = self.plot_config.data
+        first = self.data[data_names[0]]
 
-        base = self.data[self.plot_config.base]
-
-        # Working on base data.
-        # 1) Time resampling.
-        # 2) Converting units if necessary.
-        # 3) Renaming so it meets same standard as resampled data.
-
-        base_obj = time_resampling(
-            base.obj, timestep=timestep, time_interval=time_interval
-        )
-        for var in vars:
-            if isinstance(vars, dict):
-                base_obj[var] = change_unit(
-                    base_obj[var], base.var_unit(var), vars[var]
-                )
-        base_obj = base_obj.rename({name: name + "__" + base.name for name in vars})
-
-        if self.plot_config.other_data is not None:
-            if not isinstance(self.plot_config.other_data, list):
-                self.plot_config.other_data = [self.plot_config.other_data]
-            other_data = {
-                name_: base.resample_vars(
-                    data,
-                    vars,
-                    radius_of_influence=radius_of_influence,
-                    timestep=timestep,
-                    time_interval=time_interval,
-                )
-                for name_, data in {
-                    name: self.data[name] for name in self.plot_config.other_data
-                }.items()
-            }
-            other_data[self.plot_config.base] = base_obj
-            all_data = other_data
-        else:
-            all_data = {self.plot_config.base: base_obj}
-
-        # Plotting
         for dom_name, dom in domains.items():
-            # Apply dom. Every all_data value lives on base's topology (base_obj is
-            # base's data; resampled others are projected onto base's geometry), so
-            # base.copy() is the correct wrapper for the Data-in/Data-out domain.
-            all_data_dom = {
-                name: _apply_domain(dom, data, base) for name, data in all_data.items()
-            }
-
-            if self.plot_config.dim_reduce:
-                all_data_dom = {
-                    name: dim_reduction(data, self.plot_config.dim_reduce)
-                    for name, data in all_data_dom.items()
-                }
-
-            all_data_dom = {
-                name: data.reduce(
-                    self.plot_config.reduction_method.func,
-                    list(set(data.dims) - {"time"}),
+            # Apply the domain to each raw Data object (Data -> Data; resample
+            # domains reproject here), then time-filter. Canonical var names — no
+            # {var}__{dataset} mangling; each dataset is handled on its own.
+            prepared = {}
+            for ds_name in data_names:
+                d = self.data[ds_name]
+                d = dom.apply(d) if dom is not None else d
+                obj = time_resampling(
+                    d.obj, timestep=timestep, time_interval=time_interval
                 )
-                for name, data in all_data_dom.items()
-            }
+                prepared[ds_name] = (d, obj)
 
             for variable in vars:
-                unit = (
-                    base.var_unit(variable)
-                    if not isinstance(vars, dict)
-                    else vars[variable]
+                # dict vars -> convert to the requested unit; list vars -> keep
+                # native (dst None) and label with the first dataset's declared unit.
+                dst_unit = vars[variable] if isinstance(vars, dict) else None
+                label_unit = (
+                    vars[variable]
+                    if isinstance(vars, dict)
+                    else first.var_unit(variable)
                 )
+
                 figure = plt.figure(**self.figure_kwargs())
                 ax = figure.add_subplot(1, 1, 1)
 
-                for name, data_obj in all_data_dom.items():
-                    obj_var = data_obj[f"{variable}__{name}"]
-                    line = obj_var.plot.line(ax=ax)
-                    line[0].set_label(name)
+                for ds_name, (d, obj) in prepared.items():
+                    da = obj[variable]
+                    if self.plot_config.dim_reduce:
+                        da = dim_reduction(da, self.plot_config.dim_reduce)
+                    da = da.reduce(
+                        self.plot_config.reduction_method.func,
+                        list(set(da.dims) - {"time"}),
+                    )
+                    da = change_unit(da, d.var_unit(variable), dst_unit)
+                    line = da.plot.line(ax=ax)
+                    line[0].set_label(ds_name)
 
                 ax.legend()
 
@@ -249,7 +185,9 @@ class Timeseries(Plot):
                     "title", f"Timeseries comparison of {variable}"
                 )
                 xlabel = self.plot_kwargs.get("xlabel", "Time")
-                ylabel = self.plot_kwargs.get("ylabel", _unit_label(variable, unit))
+                ylabel = self.plot_kwargs.get(
+                    "ylabel", _unit_label(variable, label_unit)
+                )
 
                 ax.set_xlabel(xlabel)
                 ax.set_ylabel(ylabel)
@@ -272,14 +210,23 @@ class ScatterConfig(BasePlotConfig):
     """ScatterConfig Scatter plot configuration Pydantic model."""
 
     type: Literal["scatter", "sc"]
-    base: str
-    other: str
-    radius_of_influence: int
+    # Exactly two datasets — [x-axis, y-axis]. Co-location (pairing per site)
+    # is expressed with a `resample_to` domain; pairing per time needs none.
+    data: list[str]
     time: str | list[str] | None = Field(default=None)
     dimension: str = Field(default="time")
     timestep: TimestepEnum | None = Field(default=None)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
     colors: str | None = Field(default=None)  # TODO: implement
+
+    @field_validator("data")
+    @classmethod
+    def _exactly_two(cls, v):
+        if len(v) != 2:
+            raise ValueError(
+                "scatter 'data' must list exactly two datasets: [x-axis, y-axis]."
+            )
+        return v
 
 
 class Scatter(Plot):
@@ -301,104 +248,59 @@ class Scatter(Plot):
 
     def _plot_one(self, time_interval: str | None):
         """_plot_one Scatter plotting method for a single time entry.
-        The process goes as follows:
-        1) Process arguments.
-        2) Process base data: Time resampling and aligning, and unit conversion.
-        3) Process other data: Space and Time resampling. Time alignment and unit conversion.
-        4) Iterate through Domains.
-            4.1) Apply domain to data objects.
-            4.2) Reduce variable to desired dimension.
-            4.3) Iterate through Variables
-                4.3.1) Scatter plot from "base" and "other" variable
-            4.4) Save figure.
+
+        Pairs two datasets value-for-value: ``data[0]`` on x, ``data[1]`` on y.
+        Per domain, each dataset gets the domain applied as a RAW Data object (a
+        resample_to domain co-locates them here), is time-filtered, then reduced
+        over every dim except ``dimension`` so the two align for pairing.
         """
-        # Get relevant data from the config
-        base = self.data[self.plot_config.base]
-        other = self.data[self.plot_config.other]
         vars = self.plot_config.vars
-        radius_of_influence = self.plot_config.radius_of_influence
         timestep = self.plot_config.timestep
-        domains = {
-            name: dom
-            for name, dom in self.domains.items()
-            if name in self.plot_config.domains
-        }
-        if not domains:
-            domains = {"": None}
-
-        # Managing base data:
-        # 1) Time resampling and alignment
-        # 2) Change measure units accordingly
-
-        base_obj = time_resampling(
-            base.obj, timestep=timestep, time_interval=time_interval
-        )
-        for var in vars:
-            unit = base.var_unit(var) if isinstance(vars, list | str) else vars[var]
-            base_obj[var] = change_unit(base_obj[var], base.var_unit(var), vars[var])
-
-        base_obj = base_obj.rename({name: name + "__" + base.name for name in vars})
-
-        # Managing other data:
-        # 1) Space and time resampling. Time alignment.
-
-        other_obj = base.resample_vars(
-            other,
-            vars,
-            radius_of_influence=radius_of_influence,
-            timestep=timestep,
-            time_interval=time_interval,
-        )
+        dimension = self.plot_config.dimension
+        domains = self.resolve_domains()
+        x_name, y_name = self.plot_config.data
 
         for dom_name, dom in domains.items():
-            # Plotting
-
-            # Filtering with domain. Both base_obj and the resampled other_obj live
-            # on base's topology, so base.copy() is the correct Data wrapper.
-            base_obj_dom = _apply_domain(dom, base_obj, base)
-            other_obj_dom = _apply_domain(dom, other_obj, base)
-
-            if self.plot_config.dim_reduce:
-                base_obj_dom = dim_reduction(base_obj_dom, self.plot_config.dim_reduce)
-                other_obj_dom = dim_reduction(
-                    other_obj_dom, self.plot_config.dim_reduce
+            prepared = {}
+            for ds_name in (x_name, y_name):
+                d = self.data[ds_name]
+                d = dom.apply(d) if dom is not None else d
+                obj = time_resampling(
+                    d.obj, timestep=timestep, time_interval=time_interval
                 )
+                prepared[ds_name] = (d, obj)
 
-            base_obj_dom = base_obj_dom.reduce(
-                self.plot_config.reduction_method.func,
-                list(set(base_obj_dom.dims) - {self.plot_config.dimension}),
-            )
-            other_obj_dom = other_obj_dom.reduce(
-                self.plot_config.reduction_method.func,
-                list(set(other_obj_dom.dims) - {self.plot_config.dimension}),
-            )
+            for variable in vars:
+                unit = vars[variable] if isinstance(vars, dict) else None
+                reduced = {}
+                for ds_name, (d, obj) in prepared.items():
+                    da = obj[variable]
+                    if self.plot_config.dim_reduce:
+                        da = dim_reduction(da, self.plot_config.dim_reduce)
+                    da = da.reduce(
+                        self.plot_config.reduction_method.func,
+                        list(set(da.dims) - {dimension}),
+                    )
+                    da = change_unit(da, d.var_unit(variable), unit)
+                    reduced[ds_name] = da
 
-            for variable, unit in vars.items():
-                unit = (
-                    base.var_unit(variable)
-                    if isinstance(vars, list | str)
-                    else vars[variable]
-                )
+                x_var, y_var = reduced[x_name], reduced[y_name]
                 figure = plt.figure(**self.figure_kwargs())
-                base_var, other_var = (
-                    base_obj_dom[f"{variable}__{base.name}"],
-                    other_obj_dom[f"{variable}__{other.name}"],
-                )
                 ax = figure.add_subplot(1, 1, 1)
                 min_val, max_val = (
-                    math.floor(np.nanmin([np.nanmin(base_var), np.nanmin(other_var)])),
-                    math.ceil(np.nanmax([np.nanmax(base_var), np.nanmax(other_var)])),
+                    math.floor(np.nanmin([np.nanmin(x_var), np.nanmin(y_var)])),
+                    math.ceil(np.nanmax([np.nanmax(x_var), np.nanmax(y_var)])),
                 )
 
                 title = self.plot_kwargs.get(
                     "title",
-                    f"Scatter comparison of {variable} between {base.name} and {other.name}",
+                    f"Scatter comparison of {variable} between {x_name} and {y_name}",
                 )
                 xlabel = self.plot_kwargs.get(
-                    "xlabel", f"{_unit_label(variable, unit)}, {base.name}"
+                    "xlabel", f"{_unit_label(variable, unit)}, {x_name}"
                 )
                 ylabel = self.plot_kwargs.get(
-                    "ylabel", f"{_unit_label(variable, unit)}, {other.name}"
+                    "ylabel", f"{_unit_label(variable, unit)}, {y_name}"
                 )
 
                 ax.set_xlabel(xlabel)
@@ -408,7 +310,7 @@ class Scatter(Plot):
                 ax.set_xlim(min_val, max_val)
                 ax.set_ylim(min_val, max_val)
 
-                ax.scatter(base_var.values, other_var.values)
+                ax.scatter(x_var.values, y_var.values)
 
                 x = [min_val + x * (max_val - min_val) / 5 for x in range(5 + 1)]
                 ax.plot(x, x)
@@ -772,16 +674,20 @@ class SpatialMap(Plot):
 
 
 class TimeCycleConfig(BasePlotConfig):
-    """TimeSeriesConfig Timeseries plot configuration as Pydantic Model."""
+    """TimeCycleConfig TimeCycle plot configuration as Pydantic Model."""
 
     type: Literal["timecycle", "time cycle", "cycle"]
-    base: str
-    other_data: str | list[str] | None = Field(default=None)
-    radius_of_influence: int | None = Field(default=None)
+    # One or more datasets; the first is the reference and gets the ± std band.
+    data: str | list[str]
     time: str | list[str] | None = Field(default=None)
     timestep: TimestepEnum | None = Field(default=None)
     time_buckets: TimeBucketEnum = Field(default=TimeBucketEnum.day)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
+
+    @field_validator("data", mode="before")
+    @classmethod
+    def _wrap_single_data(cls, v):
+        return [v] if isinstance(v, str) else v
 
     @model_validator(mode="after")
     def check_timestep_vs_bucket(self) -> "TimeCycleConfig":
@@ -819,80 +725,35 @@ class TimeCycle(Plot):
             self._plot_one(time_interval)
 
     def _plot_one(self, time_interval: str | None):
-        # Get relevant data from the config
         vars = self.plot_config.vars
-        domains = {
-            name: dom
-            for name, dom in self.domains.items()
-            if name in self.plot_config.domains
-        }
-        if not domains:
-            domains = {"": None}
-
-        radius_of_influence = self.plot_config.radius_of_influence
+        domains = self.resolve_domains()
         timestep = self.plot_config.timestep
         time_bucket = (
             self.plot_config.time_buckets.value
         )  # e.g. "hour", "month", "dayofyear"
+        data_names = self.plot_config.data
+        first = self.data[data_names[0]]
+        reference = data_names[0]  # gets the ± std band
 
-        base = self.data[self.plot_config.base]
-        # Base data: time interval filter and unit conversion, no timestep resampling
-        # (groupby needs the original time resolution intact)
-        base_obj = time_resampling(base.obj, timestep=None, time_interval=time_interval)
-        for var in vars:
-            if isinstance(vars, dict):
-                base_obj[var] = change_unit(
-                    base_obj[var], base.var_unit(var), vars[var]
-                )
-        base_obj = base_obj.rename({name: name + "__" + base.name for name in vars})
-
-        # Other data: spatial resampling + time interval, but no timestep resampling
-        if self.plot_config.other_data is not None:
-            if not isinstance(self.plot_config.other_data, list):
-                self.plot_config.other_data = [self.plot_config.other_data]
-            other_data = {
-                name_: base.resample_vars(
-                    data,
-                    vars,
-                    radius_of_influence=radius_of_influence,
-                    timestep=timestep,
-                    time_interval=time_interval,
-                )
-                for name_, data in {
-                    name: self.data[name] for name in self.plot_config.other_data
-                }.items()
-            }
-            other_data[self.plot_config.base] = base_obj
-            all_data = other_data
-        else:
-            all_data = {self.plot_config.base: base_obj}
-
-        # Plotting
         for dom_name, dom in domains.items():
-            # Apply domain (all values are on base's topology — see Timeseries note).
-            all_data_dom = {
-                name: _apply_domain(dom, data, base) for name, data in all_data.items()
-            }
-
-            if self.plot_config.dim_reduce:
-                all_data_dom = {
-                    name: dim_reduction(data, self.plot_config.dim_reduce)
-                    for name, data in all_data_dom.items()
-                }
-
-            all_data_dom = {
-                name: data.reduce(
-                    self.plot_config.reduction_method.func,
-                    list(set(data.dims) - {"time"}),
+            # Domain applied to each raw Data (resample domains reproject here);
+            # optional timestep pre-aggregation is applied uniformly so each period
+            # contributes one value per bucket, then groupby builds the cycle.
+            prepared = {}
+            for ds_name in data_names:
+                d = self.data[ds_name]
+                d = dom.apply(d) if dom is not None else d
+                obj = time_resampling(
+                    d.obj, timestep=timestep, time_interval=time_interval
                 )
-                for name, data in all_data_dom.items()
-            }
+                prepared[ds_name] = (d, obj)
 
             for variable in vars:
-                unit = (
-                    base.var_unit(variable)
-                    if not isinstance(vars, dict)
-                    else vars[variable]
+                dst_unit = vars[variable] if isinstance(vars, dict) else None
+                label_unit = (
+                    vars[variable]
+                    if isinstance(vars, dict)
+                    else first.var_unit(variable)
                 )
 
                 figure = plt.figure(**self.figure_kwargs(figsize=(8, 5)))
@@ -900,8 +761,15 @@ class TimeCycle(Plot):
 
                 xticklabels = None
 
-                for name, data_obj in all_data_dom.items():
-                    da = data_obj[f"{variable}__{name}"]
+                for ds_name, (d, obj) in prepared.items():
+                    da = obj[variable]
+                    if self.plot_config.dim_reduce:
+                        da = dim_reduction(da, self.plot_config.dim_reduce)
+                    da = da.reduce(
+                        self.plot_config.reduction_method.func,
+                        list(set(da.dims) - {"time"}),
+                    )
+                    da = change_unit(da, d.var_unit(variable), dst_unit)
 
                     grouped = da.groupby(f"time.{time_bucket}")
                     mean = grouped.mean("time", skipna=True)
@@ -912,9 +780,9 @@ class TimeCycle(Plot):
                         xticklabels if xticklabels is not None else bucket_vals
                     )
 
-                    ax.plot(bucket_vals, mean.values, label=name)
-                    # Std band only for the base dataset; other_data is a line.
-                    if name == self.plot_config.base:
+                    ax.plot(bucket_vals, mean.values, label=ds_name)
+                    # ± std band only for the reference (first) dataset.
+                    if ds_name == reference:
                         ax.fill_between(
                             bucket_vals,
                             (mean - std).values,
@@ -926,7 +794,9 @@ class TimeCycle(Plot):
                     "title", f"{time_bucket.capitalize()} cycle of {variable}"
                 )
                 xlabel = self.plot_kwargs.get("xlabel", time_bucket.capitalize())
-                ylabel = self.plot_kwargs.get("ylabel", _unit_label(variable, unit))
+                ylabel = self.plot_kwargs.get(
+                    "ylabel", _unit_label(variable, label_unit)
+                )
 
                 ax.set_xlabel(xlabel)
                 ax.set_xticks(list(range(len(xticklabels))))
@@ -946,3 +816,169 @@ class TimeCycle(Plot):
                 )
 
                 self.savefig(figure, filename)
+
+
+class CustomPlotConfig(BasePlotConfig):
+    """CustomPlotConfig Free-form composition of primitives on shared axes.
+
+    Var-scope is mutually exclusive: EITHER ``vars`` is set at the plot level
+    (the whole composition re-renders once per var, every subplot sees that
+    var) OR each subplot declares its own ``var`` (a fixed composition — e.g. a
+    NO2 contour overlaid with a CO line). Never both.
+    """
+
+    type: Literal["custom"]
+    # Optional here (unlike BasePlotConfig where vars is required): omitted means
+    # every subplot supplies its own var.
+    vars: list[str] | dict[str, str] | None = Field(default=None)
+    time: str | list[str] | None = Field(default=None)
+    timestep: TimestepEnum | None = Field(default=None)
+    subplots: list[PrimitiveModel] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def check_var_scope(self) -> "CustomPlotConfig":
+        plot_vars_set = self.vars is not None
+        subplot_vars = [getattr(sp, "var", None) for sp in self.subplots]
+        any_subplot_var = any(v is not None for v in subplot_vars)
+        all_subplot_vars = all(v is not None for v in subplot_vars)
+        if plot_vars_set and any_subplot_var:
+            raise ValueError(
+                "custom plot: set 'vars' at the plot level OR a 'var' on every "
+                "subplot, not both."
+            )
+        if not plot_vars_set and not all_subplot_vars:
+            raise ValueError(
+                "custom plot: when plot-level 'vars' is omitted, every subplot "
+                "must declare its own 'var'."
+            )
+        return self
+
+
+class Custom(Plot):
+    """Custom plot: overlay primitives on one shared set of axes.
+
+    The orchestrator owns all data preparation; primitives only draw. For each
+    (time, domain, var) context it prepares each subplot's data — resolve
+    dataset/var, apply domain, filter time, per-dim reduce (plot-level merged
+    with subplot-level, subplot wins), blanket-reduce the remaining non-axis
+    dims, convert units — then calls ``primitive.render`` and assembles the
+    figure-level legend/colorbar.
+    """
+
+    config = CustomPlotConfig
+    aliases = ["custom"]
+
+    def plot(self):
+        """plot Render one figure per (time, domain, var) context."""
+        domains = self.resolve_domains()
+        plot_vars = self.plot_config.vars
+        # dict form ({var: unit}) fans out over its keys; None → single None slot.
+        var_list = list(plot_vars) if plot_vars is not None else None
+        for time_interval, dom_name, dom, var in self.iterate_contexts(
+            self.plot_config.time, domains, var_list
+        ):
+            self._render_composition(time_interval, dom_name, dom, var)
+
+    @staticmethod
+    def _resolve_keep_dims(data, x: str | None, y: str | None) -> set[str]:
+        """Dims the x/y coordinate names depend on — the axes to preserve.
+
+        Names a *coordinate* (which may be N-D, e.g. RegularGrid ``longitude``
+        over ``(y, x)``), falling back to treating the name as a literal dim.
+        Everything not returned here gets reduced away before rendering.
+        """
+        keep: set[str] = set()
+        for coord in (x, y):
+            if coord is None:
+                continue
+            if coord in data.coords:
+                keep.update(data[coord].dims)
+            elif coord in data.dims:
+                keep.add(coord)
+        return keep
+
+    def _prepare_subplot_data(self, subplot, dom, var, time_interval):
+        """Full data-prep pipeline for one subplot; returns the drawable DataArray."""
+        data = self.data[subplot.dataset]
+        data = dom.apply(data) if dom is not None else data
+        da = data.obj[var]
+
+        # Per-subplot time wins over the plot-level iteration time (lets different
+        # windows overlay on one figure); falls back to the iteration otherwise.
+        effective_time = subplot.time if subplot.time is not None else time_interval
+        da = time_resampling(
+            da, timestep=self.plot_config.timestep, time_interval=effective_time
+        )
+
+        # Per-dim reductions: plot-level defaults merged with subplot overrides.
+        merged_dim_reduce = {}
+        if self.plot_config.dim_reduce:
+            merged_dim_reduce.update(self.plot_config.dim_reduce)
+        if subplot.dim_reduce:
+            merged_dim_reduce.update(subplot.dim_reduce)
+        if merged_dim_reduce:
+            da = dim_reduction(da, merged_dim_reduce, name=var)
+
+        # Keep the axis dims (resolved after dim_reduce so dim-dropping selections
+        # are reflected); blanket-reduce whatever is left.
+        keep = self._resolve_keep_dims(da, subplot.x, subplot.y)
+        reduction_dims = [d for d in da.dims if d not in keep]
+        if reduction_dims:
+            da = da.reduce(subplot.reduction_method.func, reduction_dims)
+
+        # Unit precedence: subplot.unit wins over a plot-level vars-dict unit.
+        plot_vars = self.plot_config.vars
+        dst_unit = subplot.unit
+        if dst_unit is None and isinstance(plot_vars, dict):
+            dst_unit = plot_vars.get(var)
+        da = change_unit(da, data.var_unit(var), dst_unit)
+        return da, dst_unit
+
+    def _render_composition(self, time_interval, dom_name, dom, plot_var):
+        figure = plt.figure(**self.figure_kwargs())
+        ax = figure.add_subplot(1, 1, 1)
+
+        colorbar = None  # (mappable, label) for the first colour primitive
+        has_legend = False
+        used_vars = []
+
+        for subplot in self.plot_config.subplots:
+            var = plot_var if plot_var is not None else subplot.var
+            used_vars.append(var)
+
+            da, dst_unit = self._prepare_subplot_data(subplot, dom, var, time_interval)
+
+            primitive = Primitive.get_primitive_class(subplot.type)(self.name, subplot)
+            label = subplot.label if subplot.label is not None else var
+            artist = primitive.render(ax, da, x=subplot.x, y=subplot.y, label=label)
+
+            if primitive.wants_colorbar and colorbar is None:
+                colorbar = (artist, _unit_label(var, dst_unit))
+            if primitive.wants_legend:
+                has_legend = True
+
+        if colorbar is not None:
+            mappable, clabel = colorbar
+            figure.colorbar(mappable, ax=ax, orientation="vertical", label=clabel)
+        if has_legend:
+            ax.legend()
+
+        figure.suptitle(self.plot_kwargs.get("title", self.name))
+
+        start, end = manage_time_interval(time_interval)
+        start = "start" if start is None else start.strftime("%d-%m-%Y")
+        end = "end" if end is None else end.strftime("%d-%m-%Y")
+        fmt = self.plot_kwargs.get("format", "jpg")
+        # var token: the single plot-level var, or the distinct subplot vars
+        # (declaration order) joined with "+", e.g. "NO2+CO".
+        var_token = (
+            plot_var
+            if plot_var is not None
+            else "+".join(dict.fromkeys(str(v) for v in used_vars))
+        )
+        filename = (
+            f"custom-{dom_name}-{var_token}-{start}_{end}.{fmt}"
+            if self.plot_config.filename is None
+            else self.plot_config.filename
+        )
+        self.savefig(figure, filename)

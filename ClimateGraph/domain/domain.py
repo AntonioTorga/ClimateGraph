@@ -138,10 +138,20 @@ class Domain(RegistryMixin, ABC):
         Data
             The source data on the target's topology.
         """
+        # Self-projection is identity: when the incoming data IS the resample
+        # target, skip the resampling
+        if data is self._resample_target:
+            return data
         vars_list = list(data.obj.data_vars)
+        # Pin dst-unit = src-unit so resample_vars does PURE spatial resampling
+        # with no unit conversion — the result keeps the SOURCE's units, which is
+        # what `result._vars = data.vars` records below. (Otherwise resample_vars
+        # would convert to the target's declared unit while the metadata still
+        # said the source's, and a later change_unit would double-convert.)
+        pinned = {v: data.var_unit(v) for v in vars_list}
         resampled_ds = self._resample_target.resample_vars(
             data,
-            vars_list,
+            pinned,
             radius_of_influence=self.domain_config.radius_of_influence,
             engine=self.domain_config.engine,
             engine_kwargs=self.domain_config.engine_kwargs,

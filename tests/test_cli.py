@@ -41,9 +41,7 @@ plots:
     type: timeseries
     time: 1/1/2019 - 28/2/2019
     timestep: D
-    radius_of_influence: 10000
-    base: DMC
-    other_data: WRF_D02
+    data: [DMC, WRF_D02]
     vars: [Temperatura, Presion]
 """
 

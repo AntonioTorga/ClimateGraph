@@ -12,58 +12,67 @@ from ClimateGraph.plot.plots import (
 
 class TestTimeSeriesConfig:
     def test_minimal(self):
-        cfg = TimeSeriesConfig(type="timeseries", base="DMC", vars=["T"])
-        assert cfg.base == "DMC"
+        cfg = TimeSeriesConfig(type="timeseries", data="DMC", vars=["T"])
+        assert cfg.data == ["DMC"]  # single dataset wrapped into a list
         assert cfg.reduction_method.value == "mean"
 
     def test_alias_type_accepted(self):
-        cfg = TimeSeriesConfig(type="ts", base="DMC", vars="T")
+        cfg = TimeSeriesConfig(type="ts", data="DMC", vars="T")
         assert cfg.type == "ts"
+
+    def test_multiple_datasets(self):
+        cfg = TimeSeriesConfig(type="ts", data=["DMC", "WRF"], vars=["T"])
+        assert cfg.data == ["DMC", "WRF"]
 
     def test_single_string_var_wrapped_in_list(self):
         # A lone string must become a one-element list, not be iterated char by
         # char downstream.
-        cfg = TimeSeriesConfig(type="ts", base="DMC", vars="Temperatura")
+        cfg = TimeSeriesConfig(type="ts", data="DMC", vars="Temperatura")
         assert cfg.vars == ["Temperatura"]
 
     def test_list_and_dict_vars_untouched(self):
-        assert TimeSeriesConfig(type="ts", base="DMC", vars=["A", "B"]).vars == [
+        assert TimeSeriesConfig(type="ts", data="DMC", vars=["A", "B"]).vars == [
             "A",
             "B",
         ]
-        assert TimeSeriesConfig(type="ts", base="DMC", vars={"A": "kelvin"}).vars == {
+        assert TimeSeriesConfig(type="ts", data="DMC", vars={"A": "kelvin"}).vars == {
             "A": "kelvin"
         }
 
     def test_unknown_type_rejected(self):
         with pytest.raises(ValidationError):
-            TimeSeriesConfig(type="nope", base="DMC", vars="T")
+            TimeSeriesConfig(type="nope", data="DMC", vars="T")
 
     def test_invalid_timestep_rejected(self):
         with pytest.raises(ValidationError):
-            TimeSeriesConfig(type="ts", base="DMC", vars="T", timestep="zzz")
+            TimeSeriesConfig(type="ts", data="DMC", vars="T", timestep="zzz")
 
 
 class TestScatterConfig:
     def test_minimal(self):
         cfg = ScatterConfig(
             type="scatter",
-            base="DMC",
-            other="WRF",
-            radius_of_influence=1000,
+            data=["DMC", "WRF"],
             time="1/1/2019 - 1/2/2019",
             vars={"T": "kelvin"},
         )
         assert cfg.dimension == "time"
+        assert cfg.data == ["DMC", "WRF"]
 
-    def test_radius_required(self):
-        with pytest.raises(ValidationError):
+    def test_exactly_two_datasets_required(self):
+        with pytest.raises(ValidationError, match="exactly two"):
             ScatterConfig(
                 type="sc",
-                base="A",
-                other="B",
+                data=["A"],
                 time="1/1/2019 - 1/2/2019",
-                vars="T",
+                vars={"T": "kelvin"},
+            )
+        with pytest.raises(ValidationError, match="exactly two"):
+            ScatterConfig(
+                type="sc",
+                data=["A", "B", "C"],
+                time="1/1/2019 - 1/2/2019",
+                vars={"T": "kelvin"},
             )
 
 
@@ -110,15 +119,16 @@ class TestTimeCycleConfig:
     def test_minimal(self):
         cfg = TimeCycleConfig(
             type="timecycle",
-            base="SINCA",
+            data="SINCA",
             vars=["PM10"],
         )
+        assert cfg.data == ["SINCA"]
         assert cfg.time_buckets.value == "day"
 
     def test_timestep_finer_than_bucket_ok(self):
         cfg = TimeCycleConfig(
             type="cycle",
-            base="X",
+            data="X",
             vars="PM10",
             timestep="h",
             time_buckets="day",
@@ -129,7 +139,7 @@ class TestTimeCycleConfig:
         with pytest.raises(ValidationError, match="coarser"):
             TimeCycleConfig(
                 type="cycle",
-                base="X",
+                data="X",
                 vars="PM10",
                 timestep="D",
                 time_buckets="hour",

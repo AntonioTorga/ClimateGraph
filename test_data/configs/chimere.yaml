@@ -28,9 +28,10 @@ data:
           unit: "ppb"
 
 plots:
+  # --- Diurnal cycle (single dataset) --------------------------------------
   TC:
     type: timecycle
-    base: "CHIMERE"
+    data: "CHIMERE"
     time: "1/6/2021-30/6/2021"
     timestep: "h"
     time_buckets: "hour"
@@ -41,3 +42,63 @@ plots:
       CO: "ppb"
       SO2: "ppb"
       NO2: "ppb"
+
+  # --- Surface maps --------------------------------------------------------
+  # dim_reduce pins the surface vertical level (isel z=0) before the daily mean.
+  surface_map:
+    type: spatial-map
+    data: "CHIMERE"
+    time: "15/6/2021"
+    dim_reduce:
+      z: {method: isel, value: 0}
+    reduction_method: mean
+    levels: 12
+    vars:
+      PM25: "ug/m**3"
+      NO2: "ppb"
+
+  # --- Vertical cross-section (compares ALL layers at once) ----------------
+  # A lat x height contourf: x = latitude, y = z. Zonal mean (mean over the x
+  # dim) collapses longitude so latitude becomes 1-D and z stays as the height
+  # axis — every vertical layer shown in one panel.
+  cross_section:
+    type: custom
+    time: "15/6/2021"
+    dim_reduce:
+      time: mean
+      x: mean
+    vars: [PM25]
+    subplots:
+      - type: contourf
+        dataset: CHIMERE
+        x: latitude
+        y: z
+        levels: 14
+        cmap: viridis
+    title: "PM2.5 latitude-height cross-section (zonal mean)"
+
+  # --- Compare TWO specific layers as lines --------------------------------
+  # Graph composition: two `series` of the same var at different vertical
+  # levels overlaid on one figure (surface vs an upper level), each a zonal
+  # mean along latitude. Per-subplot dim_reduce picks the level.
+  layer_compare:
+    type: custom
+    time: "15/6/2021"
+    dim_reduce:
+      time: mean
+      x: mean
+    vars: [NO2]
+    subplots:
+      - type: series
+        dataset: CHIMERE
+        x: latitude
+        dim_reduce: {z: {method: isel, value: 0}}
+        label: "surface (z=0)"
+        color: black
+      - type: series
+        dataset: CHIMERE
+        x: latitude
+        dim_reduce: {z: {method: isel, value: 5}}
+        label: "upper level (z=5)"
+        color: tab:red
+    title: "NO2 at two vertical levels"

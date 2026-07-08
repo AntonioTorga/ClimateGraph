@@ -17,7 +17,7 @@
  plots:
    TC:
      type: timecycle
-     base: "SINCA"
+     data: "SINCA"
      time: "1/1/2010-1/1/2025"
      timestep: "D"
      time_buckets: "day"

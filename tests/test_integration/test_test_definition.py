@@ -42,10 +42,10 @@ EXPECTED_FILES = {
         "ts-RM-Presion-01-01-2019_01-02-2019.jpg",
     ],
     "scatter": [
-        # Scatter has no `domains:` key in the YAML → empty-domain default,
-        # so the slot between the two `-` is blank.
-        "scatter--Temperatura-01-01-2019_01-02-2019.jpg",
-        "scatter--Presion-01-01-2019_01-02-2019.jpg",
+        # Scatter uses the RM resample domain (obs vs model co-located at the
+        # region-13 stations), so the domain slot reads `RM`.
+        "scatter-RM-Temperatura-01-01-2019_01-02-2019.jpg",
+        "scatter-RM-Presion-01-01-2019_01-02-2019.jpg",
     ],
     "so": [
         "spatial_overlay-Poly1-Temperatura-WRF_D02-DMC-01-01-2019_01-02-2019.jpg",

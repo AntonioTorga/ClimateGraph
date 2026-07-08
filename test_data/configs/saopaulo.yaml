@@ -19,7 +19,7 @@ data:
 plots:
   TC:
     type: timecycle
-    base: "SAOPAULO"
+    data: "SAOPAULO"
     time: "1/8/2024-30/9/2024"
     timestep: "h"
     time_buckets: "hour"

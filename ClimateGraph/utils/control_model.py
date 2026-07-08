@@ -15,8 +15,7 @@ from ClimateGraph.plot import Plot
 from ClimateGraph.reader import Reader
 from ClimateGraph.utils.general_utils import CRSEnum, manage_path
 
-# Plot config fields that name a data block. ``other_data`` may be a str or list.
-_DATASET_REF_FIELDS = ("base", "other", "superposed", "data", "other_data")
+_DATASET_REF_FIELDS = ("base", "superposed", "data")
 
 
 class AnalysisModel(BaseModel):
@@ -196,6 +195,43 @@ class ControlFile(BaseModel):
                     raise ValueError(
                         f"Plot {plot_name!r} references variable(s) {missing} "
                         f"not declared in dataset {ds_name!r}. "
+                        f"Declared vars: {sorted(declared) or '(none)'}."
+                    )
+        return self
+
+    @model_validator(mode="after")
+    def check_custom_subplot_var_refs(self):
+        """Catch ``type: custom`` subplot var names that can't resolve.
+
+        ``check_plot_var_refs`` pairs one flat var-set against every referenced
+        dataset — wrong for a Custom plot, where subplot A's var must check
+        against subplot A's own ``dataset``. This validator does that per subplot:
+        the var it uses (its own ``var`` if set, else the plot-level ``vars``)
+        must be declared in its dataset. Datasets with ``vars=None`` defer to the
+        runtime ``KeyError`` in ``Data.get_var``.
+        """
+        if not self.plots:
+            return self
+        for plot_name, plot_model in self.plots.items():
+            subplots = getattr(plot_model, "subplots", None)
+            if not subplots:
+                continue
+            plot_vars = _plot_var_names(getattr(plot_model, "vars", None))
+            for subplot in subplots:
+                ds_name = getattr(subplot, "dataset", None)
+                data_model = self.data.get(ds_name) if ds_name else None
+                if data_model is None:
+                    continue
+                declared = _declared_var_names(data_model.vars)
+                if declared is None:
+                    continue  # vars omitted — defer to runtime
+                subplot_var = getattr(subplot, "var", None)
+                check_vars = {subplot_var} if subplot_var is not None else plot_vars
+                missing = sorted(v for v in check_vars if v not in declared)
+                if missing:
+                    raise ValueError(
+                        f"Plot {plot_name!r} subplot references variable(s) "
+                        f"{missing} not declared in dataset {ds_name!r}. "
                         f"Declared vars: {sorted(declared) or '(none)'}."
                     )
         return self

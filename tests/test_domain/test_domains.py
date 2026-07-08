@@ -147,6 +147,23 @@ class TestResampleStep:
         assert result.name == "grid_stub"
         assert "Temperatura" in result.obj.data_vars
 
+    def test_resample_does_not_convert_units(
+        self, regular_grid_data, point_surface_data
+    ):
+        # The grid fixture is in kelvin (~285), the point target in degC (~12).
+        # Resampling is PURE spatial projection: the result must keep the source's
+        # kelvin values (and unit), not be silently converted to the target's degC
+        # — otherwise a later change_unit would double-convert.
+        # Wide radius so every station finds a grid neighbour (real, not NaN).
+        cfg = AllConfig(
+            type="all", resample_to="point_stub", radius_of_influence=500_000
+        )
+        dom = All("proj", domain_config=cfg, target_data=point_surface_data)
+        result = dom.apply(regular_grid_data)
+
+        assert result.var_unit("Temperatura") == "kelvin"
+        assert float(result.obj["Temperatura"].mean()) > 100  # still kelvin-scaled
+
     def test_attribute_with_resample_filters_after_projection(
         self, regular_grid_data, point_surface_data
     ):

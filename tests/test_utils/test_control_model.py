@@ -140,7 +140,7 @@ class TestControlFile:
                     "type": "timeseries",
                     "vars": "Temperatura",
                     "domains": ["RM", "does_not_exist"],
-                    "base": "WRF",
+                    "data": "WRF",
                 },
             },
         }
@@ -159,7 +159,7 @@ class TestControlFile:
                     "type": "timeseries",
                     "vars": "Temperatura",
                     "domains": ["RM"],
-                    "base": "WRF",
+                    "data": "WRF",
                 },
             },
         }
@@ -172,7 +172,7 @@ class TestControlFile:
             "analysis": {"output_path": str(tmp_path / "out"), "debug": False},
             "data": {"WRF": base_data_block},
             "plots": {
-                "TS": {"type": "timeseries", "vars": "Presion", "base": "WRF"},
+                "TS": {"type": "timeseries", "vars": "Presion", "data": "WRF"},
             },
         }
         with pytest.raises(ValidationError, match="not declared in dataset"):
@@ -188,8 +188,74 @@ class TestControlFile:
             "analysis": {"output_path": str(tmp_path / "out"), "debug": False},
             "data": {"WRF": base_data_block},
             "plots": {
-                "TS": {"type": "timeseries", "vars": "T2", "base": "WRF"},
+                "TS": {"type": "timeseries", "vars": "T2", "data": "WRF"},
             },
         }
         model = ControlFile.model_validate(cfg)
         assert "TS" in model.plots
+
+    def test_custom_subplot_undeclared_var_rejected(self, tmp_path, base_data_block):
+        # Per-subplot var checked against that subplot's own dataset.
+        cfg = {
+            "analysis": {"output_path": str(tmp_path / "out"), "debug": False},
+            "data": {"WRF": base_data_block},
+            "plots": {
+                "C": {
+                    "type": "custom",
+                    "subplots": [
+                        {
+                            "type": "series",
+                            "dataset": "WRF",
+                            "x": "time",
+                            "var": "Nope",
+                        }
+                    ],
+                },
+            },
+        }
+        with pytest.raises(ValidationError, match="not declared in dataset"):
+            ControlFile.model_validate(cfg)
+
+    def test_custom_plot_level_var_checked_per_subplot(self, tmp_path, base_data_block):
+        # Plot-level vars must resolve in every subplot's dataset.
+        cfg = {
+            "analysis": {"output_path": str(tmp_path / "out"), "debug": False},
+            "data": {"WRF": base_data_block},
+            "plots": {
+                "C": {
+                    "type": "custom",
+                    "vars": ["Nope"],
+                    "subplots": [
+                        {
+                            "type": "contourf",
+                            "dataset": "WRF",
+                            "x": "longitude",
+                            "y": "latitude",
+                        }
+                    ],
+                },
+            },
+        }
+        with pytest.raises(ValidationError, match="not declared in dataset"):
+            ControlFile.model_validate(cfg)
+
+    def test_custom_subplot_known_var_passes(self, tmp_path, base_data_block):
+        cfg = {
+            "analysis": {"output_path": str(tmp_path / "out"), "debug": False},
+            "data": {"WRF": base_data_block},
+            "plots": {
+                "C": {
+                    "type": "custom",
+                    "subplots": [
+                        {
+                            "type": "series",
+                            "dataset": "WRF",
+                            "x": "time",
+                            "var": "Temperatura",
+                        }
+                    ],
+                },
+            },
+        }
+        model = ControlFile.model_validate(cfg)
+        assert "C" in model.plots
