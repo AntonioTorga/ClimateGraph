@@ -64,16 +64,20 @@ class TestSetAnalysisData:
 
 
 class TestConfigureLogging:
-    def test_debug_true_sets_debug_level(self):
+    def test_debug_true_raises_only_climategraph_logger(self):
         kernel = AppKernel()
         kernel.debug = True
         kernel._configure_logging()
-        assert logging.getLogger().level == logging.DEBUG
+        # Debug is scoped to the ClimateGraph package logger; root stays INFO so
+        # third-party libraries (matplotlib, PIL) don't spray DEBUG.
+        assert logging.getLogger("ClimateGraph").level == logging.DEBUG
+        assert logging.getLogger().level == logging.INFO
 
     def test_debug_false_sets_info_level(self):
         kernel = AppKernel()
         kernel.debug = False
         kernel._configure_logging()
+        assert logging.getLogger("ClimateGraph").level == logging.INFO
         assert logging.getLogger().level == logging.INFO
 
 

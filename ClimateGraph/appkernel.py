@@ -4,6 +4,8 @@ from pathlib import Path
 
 from ClimateGraph.utils.parser import Parser
 
+log = logging.getLogger(__name__)
+
 
 class AppKernel:
     """ClimateGraph execution and state manager. Orquestrates the other modules."""
@@ -39,13 +41,13 @@ class AppKernel:
     def load_data(self):
         """load_data Load the data objects."""
         for name, data_obj in self.data.items():
-            logging.info(f"Loading '{name}' dataset.")
+            log.info(f"Loading '{name}' dataset.")
             data_obj.load_obj()
 
     def plot(self):
         """plot Perform plots. Runs the plot method from the plot objects."""
         for name, plot_obj in self.plots.items():
-            logging.info(f"Plotting '{name}'.")
+            log.info(f"Plotting '{name}'.")
             plot_obj.plot()
 
     def set_analysis_data(self, analysis: dict | None = None):
@@ -64,14 +66,22 @@ class AppKernel:
         self.workers = analysis.get("workers")
 
     def _configure_logging(self):
-        """_configure_logging Set the root logger level from self.debug.
+        """_configure_logging Scope ``--debug`` to ClimateGraph's own logger.
 
         The only place in the codebase that calls ``logging.basicConfig``.
         ``force=True`` so this always wins regardless of import order, even if
         some other library configured logging before this runs.
+
+        The root logger stays at INFO so third-party libraries (matplotlib, PIL,
+        …) never spray DEBUG. ``--debug`` only raises the ``ClimateGraph`` package
+        logger to DEBUG; its records still reach the root handler (NOTSET, emits
+        everything), so ClimateGraph's own operation traceback shows while the
+        noisy libraries stay quiet.
         """
-        level = logging.DEBUG if self.debug else logging.INFO
-        logging.basicConfig(level=level, force=True)
+        logging.basicConfig(level=logging.INFO, force=True)
+        logging.getLogger("ClimateGraph").setLevel(
+            logging.DEBUG if self.debug else logging.INFO
+        )
 
     def run(self, control_path: Path, debug_override: bool = False):
         """run Run the ClimateGraph routine.
@@ -107,7 +117,7 @@ class AppKernel:
 
         cluster = LocalCluster(n_workers=1, threads_per_worker=self.workers)
         client = Client(cluster)
-        logging.info(f"Dask Client started: 1 worker x {self.workers} threads.")
+        log.info(f"Dask Client started: 1 worker x {self.workers} threads.")
         try:
             yield client
         finally:

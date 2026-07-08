@@ -10,6 +10,8 @@ import numpy as np
 import pandas as pd
 from dateutil import parser
 
+log = logging.getLogger(__name__)
+
 CRS_TYPES = {"platecarree": ccrs.PlateCarree}
 TIME_INTERVAL_FORMAT = r"^(.+?)\s*(?:-|to)\s*(.+)$"  # Accepts "date - date" or "date to date" and a date should be in dayfirst format.
 
@@ -102,16 +104,16 @@ def manage_path(
 
         matches = glob.glob(str(p))
         if not matches:
-            logging.debug(f"No files match pattern: {raw}")
+            log.debug(f"No files match pattern: {raw}")
         result.extend(Path(m).resolve() for m in matches if Path(m).exists())
 
     if not result:
-        logging.debug(f"No files exist for paths: {paths}")
+        log.debug(f"No files exist for paths: {paths}")
 
     if sort:
         ordered = sorted(result)
         if ordered != result:
-            logging.warning(
+            log.warning(
                 "manage_path: input paths were not in lexicographic order; "
                 "sorted automatically. Confirm filenames embed a sortable "
                 "timestamp or callers that concat in input order will produce "
@@ -220,7 +222,7 @@ def manage_time_interval(
     end_val, end_res = _parse_with_resolution(end_str)
 
     if start_res != end_res:
-        logging.warning(
+        log.warning(
             "time_interval %r endpoints have different temporal resolutions "
             "(%s vs %s); expanding each on its own bucket.",
             time_interval,

@@ -10,6 +10,8 @@ from ClimateGraph.domain import Domain
 from ClimateGraph.plot import Plot
 from ClimateGraph.utils.control_model import ControlFile
 
+log = logging.getLogger(__name__)
+
 FILE_READERS = {".json": json.load, ".yaml": yaml.safe_load, ".yml": yaml.safe_load}
 
 
@@ -36,7 +38,7 @@ def _expand_domains(domain_models: dict) -> tuple[dict, dict[str, list[str]]]:
         field_value = model.field_value
         if not isinstance(field_value, list):
             expanded[name] = model
-            logging.debug(
+            log.debug(
                 f"Attempted expansion of domain {name} but there was no expansible value en field_value. Left as is."
             )
             continue

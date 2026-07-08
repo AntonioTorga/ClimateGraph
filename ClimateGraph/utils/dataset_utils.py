@@ -8,6 +8,8 @@ import xarray as xr
 
 from .general_utils import ReductionMethodEnum, manage_time_interval
 
+log = logging.getLogger(__name__)
+
 
 def _record(obj: xr.Dataset | xr.DataArray, entry: str) -> None:
     """Append a timestamped entry to obj.attrs['history']."""
@@ -17,7 +19,7 @@ def _record(obj: xr.Dataset | xr.DataArray, entry: str) -> None:
     log_item = f"{datetime.now(tz=UTC).isoformat(timespec='seconds')} {entry}"
     history.append(log_item)
     obj.attrs["history"] = history
-    logging.debug(log_item)
+    log.debug(log_item)
 
 
 def dim_reduction(
@@ -259,7 +261,7 @@ def change_unit(
         Data in the destination measure unit.
     """
     if src_unit is None or dst_unit is None:
-        logging.info(
+        log.info(
             f"Source unit or destination unit wasn't provided.\nLeaving {xa.name} in the provided unit. This will reflect in graphs."
         )
         return xa

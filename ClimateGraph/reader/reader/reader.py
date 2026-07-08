@@ -197,8 +197,7 @@ class Reader(ABC):
                 f"(one of {cls.netcdf_suffixes}); got {save_to!r}."
             )
         target.parent.mkdir(parents=True, exist_ok=True)
-        log.info("Writing processed dataset to %s", target)
-        logging.info(f"saved to {target}")
+        log.info(f"saved to {target}")
         ds.to_netcdf(target)
         return ds
 

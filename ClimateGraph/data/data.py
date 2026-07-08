@@ -14,7 +14,6 @@ from ClimateGraph.utils.dataset_utils import (
     change_unit,
     dim_reduction,
     normalize_vars,
-    time_resampling,
 )
 from ClimateGraph.utils.general_utils import ReductionMethodEnum
 from ClimateGraph.utils.registry import RegistryMixin
@@ -401,26 +400,25 @@ class Data(RegistryMixin, ABC):
     def resample_vars(
         self,
         other: "Data",
-        vars: str | list[str] | dict[str, str],
-        timestep: str | None = None,
-        time_interval: str | None = None,
+        vars: str | list[str],
         radius_of_influence: int = 10000,
         time_tolerance: str | None = "30min",
         engine: str | ResampleEngine = "pyresample",
         engine_kwargs: dict | None = None,
     ) -> xr.DataArray | xr.Dataset:
-        """Resample the requested vars using the specified ResampleEngine.
+        """Project ``other``'s vars onto ``self``'s geometry (and time axis).
+
+        A single responsibility: spatial resampling with the requested engine, plus
+        a nearest-neighbour time *alignment* of ``other`` onto ``self``'s time axis.
+        It does NOT convert units or filter/resample time — those belong to the
+        caller (``get_var`` / the plot's ``change_unit`` and ``time_resampling``).
 
         Parameters
         ----------
         other : Data
             Other data object to resample into the "self" geometry.
-        vars : str | List[str] | Dict[str, str]
-            Variable name, variable name list or dictionary where keys are Variable names, and the value can be a Mapping between variables and "pint" units, or a Dictionary with "name" (with the name of the variable in the files) and "unit" (with the "pint" unit name for this variable) keys.
-        timestep : str | None, optional
-            Timestep managed by the utils.TimestepEnum, by default None
-        time_interval : str | None, optional
-            Time interval in dd/mm/yyyy-dd/mm/yyyy or d/m/yyyy-d/m/yyyy, by default None
+        vars : str | list[str]
+            Variable name or list of names to resample (kept in their source units).
         radius_of_influence : int, optional
             Radius length in meters to use for resampling. by default 10000
         time_tolerance : str | None, optional
@@ -435,7 +433,7 @@ class Data(RegistryMixin, ABC):
         Returns
         -------
         xr.DataArray | xr.Dataset
-            Resampled data, processed if requested (time alignment and time resampling).
+            Resampled data on ``self``'s geometry, aligned onto ``self``'s time axis.
         """
         if isinstance(vars, str):
             vars = [vars]
@@ -453,22 +451,11 @@ class Data(RegistryMixin, ABC):
 
         if self.resampled is None:
             self.resampled = self.obj.drop_vars(list(self.obj.data_vars))
-            self.resampled = time_resampling(
-                self.resampled, timestep=timestep, time_interval=time_interval
-            )
 
         new_vars = []
         for var in vars:
             var_dst_dims = self.get_var(var).sizes
             var_src = other.get_var(var)
-
-            dst_unit = self.var_unit(var) if isinstance(vars, list | str) else vars[var]
-            src_unit = other.var_unit(var)
-            var_src = change_unit(var_src, src_unit, dst_unit)
-
-            var_src = time_resampling(
-                var_src, timestep=timestep, time_interval=time_interval
-            )
 
             if time_tolerance is not None and "time" in var_src.dims:
                 var_src = var_src.reindex(
