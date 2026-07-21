@@ -1,7 +1,9 @@
+import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
 
 import matplotlib as mpl
+import numpy as np
 from pydantic import BaseModel
 
 mpl.use("Agg")
@@ -11,6 +13,62 @@ from ClimateGraph.data import Data
 from ClimateGraph.domain import Domain
 from ClimateGraph.utils.general_utils import normalize_time
 from ClimateGraph.utils.registry import RegistryMixin
+
+log = logging.getLogger(__name__)
+
+
+def _grid_positions(
+    lo: float,
+    hi: float,
+    spec: int | str,
+    offset: float = 0.0,
+    tick_locs: list[float] | None = None,
+) -> list[float]:
+    """_grid_positions Where to draw an axis's reference lines.
+
+    Two modes:
+    - ``spec == "ticks"``: one line per major tick (``tick_locs``), spaced by the
+      median gap between them.
+    - ``spec`` an int N: exactly N evenly-spaced *interior* lines — none land on
+      the spines — spaced by ``(hi - lo) / (N + 1)``.
+
+    ``offset`` then shifts every position by that fraction of the spacing (0.5 =
+    midway between neighbours), and anything pushed outside ``(lo, hi)`` is dropped
+    so lines never draw over the frame.
+
+    Parameters
+    ----------
+    lo, hi : float
+        The axis limits.
+    spec : int | str
+        ``"ticks"`` or the number of interior lines wanted.
+    offset : float, optional
+        Shift as a fraction of the line spacing, by default 0.0.
+    tick_locs : list[float] | None, optional
+        Major tick locations, required for the ``"ticks"`` mode.
+
+    Returns
+    -------
+    list[float]
+        Positions to draw lines at, clipped to the axis interior.
+    """
+    if spec == "ticks":
+        base = [t for t in (tick_locs or []) if lo <= t <= hi]
+        if len(base) < 2:
+            spacing = (hi - lo) if base else 0.0
+        else:
+            spacing = float(np.median(np.diff(sorted(base))))
+    else:
+        n = int(spec)
+        if n < 1:
+            return []
+        spacing = (hi - lo) / (n + 1)
+        base = list(np.linspace(lo, hi, n + 2)[1:-1])
+
+    shift = offset * spacing
+    # Strictly inside the axis so shifted lines never overdraw the spines.
+    return [p + shift for p in base if lo < p + shift < hi]
+
 
 # Which keys in plot_kwargs get routed to which matplotlib call. A given key
 # may legitimately belong to more than one sink (e.g. `dpi` applies to both
@@ -235,6 +293,104 @@ class Plot(RegistryMixin, ABC):
             {k: v for k, v in self.plot_kwargs.items() if k in SAVEFIG_KWARGS}
         )
         return merged
+
+    def _decorate_axes(self, figure: mpl.figure.Figure):
+        """_decorate_axes Apply the config's axis decoration to every data axes.
+
+        Colorbar axes are skipped. Cartopy ``GeoAxes`` route their grid through
+        ``gridlines()`` (a proper geographic graticule) using the same computed
+        positions as regular axes, so the count and offset behave identically.
+        Named ticks are skipped on GeoAxes — they need an explicit ``crs=``.
+
+        Parameters
+        ----------
+        figure : mpl.figure.Figure
+            The rendered figure, decorated in place.
+        """
+        grid = getattr(self.plot_config, "grid", None)
+        xticks = getattr(self.plot_config, "xticks", None)
+        yticks = getattr(self.plot_config, "yticks", None)
+        if grid is None and not xticks and not yticks:
+            return
+
+        for ax in figure.axes:
+            if ax.get_label() == "<colorbar>":
+                continue
+            is_geo = hasattr(ax, "projection")
+
+            if grid is not None:
+                self._apply_grid(ax, grid, is_geo)
+
+            if xticks or yticks:
+                if is_geo:
+                    log.debug(
+                        "Named ticks are not applied to map axes (they need an "
+                        "explicit CRS transform); skipping for %r.",
+                        self.name,
+                    )
+                else:
+                    if xticks:
+                        ax.set_xticks(list(xticks))
+                        ax.set_xticklabels(list(xticks.values()))
+                    if yticks:
+                        ax.set_yticks(list(yticks))
+                        ax.set_yticklabels(list(yticks.values()))
+
+    def _apply_grid(self, ax, grid, is_geo: bool):
+        """_apply_grid Draw the dashed reference lines on one axes."""
+        style = {
+            "color": grid.color,
+            "alpha": grid.alpha,
+            "linestyle": grid.linestyle,
+            "linewidth": grid.linewidth,
+        }
+        positions = {}
+        for axis, spec in (("x", grid.x), ("y", grid.y)):
+            if spec is None:
+                continue
+            lo, hi = ax.get_xlim() if axis == "x" else ax.get_ylim()
+            ticks = (
+                ax.get_xticks().tolist() if axis == "x" else ax.get_yticks().tolist()
+            )
+            positions[axis] = _grid_positions(lo, hi, spec, grid.offset, ticks)
+
+        if not positions:
+            return
+
+        if is_geo:
+            # Cartopy draws its own graticule; hand it the explicit positions so
+            # the count/offset match the regular-axes behaviour exactly.
+            locs = {}
+            if "x" in positions:
+                locs["xlocs"] = positions["x"]
+            if "y" in positions:
+                locs["ylocs"] = positions["y"]
+            ax.gridlines(draw_labels=False, **locs, **style)
+            return
+
+        # zorder=0 keeps the reference lines behind the plotted data.
+        for value in positions.get("x", []):
+            ax.axvline(value, zorder=0, **style)
+        for value in positions.get("y", []):
+            ax.axhline(value, zorder=0, **style)
+
+    def _finalize(self, figure: mpl.figure.Figure, filename: str):
+        """_finalize Post-render pipeline: decorate the axes, then write the figure.
+
+        The single place every plot class funnels through once its data is drawn
+        (mirrors ``Reader.read -> _postprocess -> _finalize``). Additional
+        figure-level decorators hook in here rather than inside ``savefig``,
+        which stays a pure writer.
+
+        Parameters
+        ----------
+        figure : mpl.figure.Figure
+            Matplotlib figure to decorate and save.
+        filename : str
+            Filename to be used. Doesn't have to include file format, just name.
+        """
+        self._decorate_axes(figure)
+        self.savefig(figure, filename)
 
     def savefig(self, figure: mpl.figure.Figure, filename: str):
         """savefig Matplotlib Figure saving. Used by plot function to save to system. Manages kwargs given through the plot configuration relevant to saving.

@@ -8,3 +8,4 @@ SUBPLAN-insitu-readers.md
 /.ruff_cache/
 **/DATOS-INSITU/*
 CLAUDE.md
+test_data/results/

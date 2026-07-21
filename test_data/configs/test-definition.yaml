@@ -26,9 +26,7 @@ data:
         name: presionEstacion
         unit: "hectopascal"
 domains:
-  # RM / Litoral reproject onto the DMC stations first (resample_to), so the WRF
-  # grid gains the station attributes (region / zonaGeografica) it can then be
-  # filtered by. Applied to DMC itself, the resample short-circuits to identity.
+
   RM:
     type: attr
     resample_to: DMC

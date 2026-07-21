@@ -74,6 +74,25 @@ def _unit_label(name: str, unit: str | None) -> str:
     return f"{name} [{unit}]" if unit else name
 
 
+class GridConfig(BaseModel):
+    """GridConfig Dashed reference lines that make an axis's resolution legible.
+
+    ``x``/``y`` accept either ``"ticks"`` (one line per major tick — the default)
+    or an integer N (exactly N evenly-spaced interior lines, none on the spines).
+    ``offset`` shifts every line by a *fraction of the spacing*, so ``0.5`` puts
+    them midway between neighbours; shifted lines that fall outside the axis are
+    dropped. Set an axis to ``None`` to leave it undecorated.
+    """
+
+    x: int | Literal["ticks"] | None = Field(default=None)
+    y: int | Literal["ticks"] | None = Field(default=None)
+    offset: float = Field(default=0.0)
+    color: str = Field(default="grey")
+    alpha: float = Field(default=0.4)
+    linestyle: str = Field(default="--")
+    linewidth: float = Field(default=0.8)
+
+
 class BasePlotConfig(BaseModel):
     """BasePlotConfig Base configuration as for all plots, Pydantic Model. Used to manage common arguments."""
 
@@ -83,6 +102,10 @@ class BasePlotConfig(BaseModel):
     domains: list[str] = Field(default_factory=list)
     vars: list[str] | dict[str, str]
     dim_reduce: dict[str, str | dict] | None = Field(default=None)
+    # Axis decoration, applied to every plot type via Plot._finalize.
+    grid: GridConfig | None = Field(default=None)
+    xticks: dict[float, str] | None = Field(default=None)
+    yticks: dict[float, str] | None = Field(default=None)
 
     @field_validator("vars", mode="before")
     @classmethod
@@ -91,6 +114,22 @@ class BasePlotConfig(BaseModel):
         iterate over variable names, not the characters of a single name."""
         if isinstance(v, str):
             return [v]
+        return v
+
+    @field_validator("grid", mode="before")
+    @classmethod
+    def _coerce_grid(cls, v):
+        """Accept the shorthand forms: ``grid: true`` (one line per major tick),
+        ``grid: false`` (off) and ``grid: 12`` (12 lines on both axes).
+
+        The shorthands name both axes explicitly, because the dict form's ``x``/``y``
+        default to ``None`` — so ``grid: {x: 12}`` decorates only x and leaves y clean.
+        """
+        # bool must be checked first — in Python `True` is also an `int`.
+        if isinstance(v, bool):
+            return {"x": "ticks", "y": "ticks"} if v else None
+        if isinstance(v, int):
+            return {"x": v, "y": v}
         return v
 
 
@@ -203,7 +242,7 @@ class Timeseries(Plot):
                     else self.plot_config.filename
                 )
 
-                self.savefig(figure, filename)
+                self._finalize(figure, filename)
 
 
 class ScatterConfig(BasePlotConfig):
@@ -324,7 +363,7 @@ class Scatter(Plot):
                     if self.plot_config.filename is None
                     else self.plot_config.filename
                 )
-                self.savefig(figure, filename)
+                self._finalize(figure, filename)
 
 
 class SpatialOverlayConfig(BasePlotConfig):
@@ -508,7 +547,7 @@ class SpatialOverlay(Plot):
                     else self.plot_config.filename
                 )
 
-                self.savefig(figure, filename)
+                self._finalize(figure, filename)
 
 
 class SpatialMapConfig(BasePlotConfig):
@@ -670,7 +709,7 @@ class SpatialMap(Plot):
                     else self.plot_config.filename
                 )
 
-                self.savefig(figure, filename)
+                self._finalize(figure, filename)
 
 
 class TimeCycleConfig(BasePlotConfig):
@@ -815,7 +854,7 @@ class TimeCycle(Plot):
                     else self.plot_config.filename
                 )
 
-                self.savefig(figure, filename)
+                self._finalize(figure, filename)
 
 
 class CustomPlotConfig(BasePlotConfig):
@@ -981,4 +1020,4 @@ class Custom(Plot):
             if self.plot_config.filename is None
             else self.plot_config.filename
         )
-        self.savefig(figure, filename)
+        self._finalize(figure, filename)
