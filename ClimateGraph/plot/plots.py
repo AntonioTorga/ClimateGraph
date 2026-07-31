@@ -1,3 +1,4 @@
+import contextlib
 import math
 from typing import Literal
 
@@ -1010,7 +1011,16 @@ class Custom(Plot):
         if has_legend:
             ax.legend()
 
-        figure.suptitle(self.plot_kwargs.get("title", self.name))
+        # Label the y axis with the variable, as every other plot type does.
+        # Only when nothing drew a colorbar: for contourf/points the unit lives
+        # on the colorbar and y is a real coordinate (z, latitude, ...), so
+        # naming it after the variable would be wrong.
+        if colorbar is None:
+            ylabel = self.plot_kwargs.get("ylabel")
+            if ylabel is None:
+                names = "+".join(dict.fromkeys(str(v) for v in used_vars))
+                ylabel = _unit_label(names, dst_unit)
+            ax.set_ylabel(ylabel)
 
         start, end = manage_time_interval(time_interval)
         start = "start" if start is None else start.strftime("%d-%m-%Y")
@@ -1023,6 +1033,15 @@ class Custom(Plot):
             if plot_var is not None
             else "+".join(dict.fromkeys(str(v) for v in used_vars))
         )
+
+        # A title may reference the fan-out context it is rendered for, e.g.
+        # "Temperatura en {domain}". Titles without placeholders pass through
+        # untouched, and an unknown or malformed one is left as written rather
+        # than aborting the render.
+        title = self.plot_kwargs.get("title", self.name)
+        with contextlib.suppress(KeyError, IndexError, ValueError):
+            title = title.format(domain=dom_name, var=var_token)
+        figure.suptitle(title)
         filename = (
             f"custom-{dom_name}-{var_token}-{start}_{end}.{fmt}"
             if self.plot_config.filename is None
