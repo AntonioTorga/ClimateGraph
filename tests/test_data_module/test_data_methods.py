@@ -94,12 +94,34 @@ class TestResampleVars:
         # Result should live on the destination (point) geometry.
         assert "site" in result.dims
 
-    def test_resample_caches_resampled(self, regular_grid_data, point_surface_data):
-        assert point_surface_data.resampled is None
-        point_surface_data.resample_vars(
+    def test_resample_is_stateless(self, regular_grid_data, point_surface_data):
+        # No cache: resampling never mutates the target, and each call is a fresh
+        # independent Dataset (so different-time sources can't clobber each other).
+        assert not hasattr(point_surface_data, "resampled")
+        target_before = point_surface_data.obj
+        r1 = point_surface_data.resample_vars(
             regular_grid_data, "Temperatura", radius_of_influence=500_000
         )
-        assert point_surface_data.resampled is not None
+        r2 = point_surface_data.resample_vars(
+            regular_grid_data, "Temperatura", radius_of_influence=500_000
+        )
+        assert point_surface_data.obj is target_before  # target untouched
+        assert r1 is not r2
+
+    def test_resample_keeps_source_time_and_inherits_target_coords(
+        self, regular_grid_data, point_surface_data
+    ):
+        # The source keeps its OWN time axis (no snapping onto the target), and
+        # inherits the target's spatial coords (site + region), which is what makes
+        # region/site attribute filtering on a resampled grid possible.
+        result = point_surface_data.resample_vars(
+            regular_grid_data, "Temperatura", radius_of_influence=500_000
+        )
+        src_time = regular_grid_data.obj["time"]
+        assert result.sizes["time"] == src_time.sizes["time"]
+        assert result["time"].equals(src_time)
+        assert "region" in result.coords  # inherited from the point target
+        assert result.sizes["site"] == point_surface_data.obj.sizes["site"]
 
     def test_resample_4d_grid_preserves_z(self, point_surface_data):
         """Resampling a 4D (time, z, y, x) RegularGrid should broadcast across z
@@ -173,13 +195,11 @@ class TestCopy:
         _ = regular_grid_data.bbox
         _ = regular_grid_data.dims
         regular_grid_data._set_geom()
-        regular_grid_data.resampled = "sentinel"
 
         copy = regular_grid_data.copy()
         assert copy._bbox == regular_grid_data._bbox
         assert copy._dims == regular_grid_data._dims
         assert copy._geom is regular_grid_data._geom
-        assert copy.resampled == "sentinel"
 
     def test_obj_setter_on_copy_does_not_mutate_original(
         self, regular_grid_data, make_regular_grid

@@ -5,6 +5,7 @@ import cartopy.feature as cfeature
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
+import xarray as xr
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 mpl.use("Agg")
@@ -324,6 +325,13 @@ class Scatter(Plot):
                     reduced[ds_name] = da
 
                 x_var, y_var = reduced[x_name], reduced[y_name]
+                # Scatter pairs the two datasets element-wise along `dimension`.
+                # resample_vars is now purely spatial (it no longer snaps time), so
+                # align the two on the shared axis here — the correct home for the
+                # time-alignment concern. inner-join keeps only matching coords.
+                if dimension in x_var.dims and dimension in y_var.dims:
+                    x_var, y_var = xr.align(x_var, y_var, join="inner")
+
                 figure = plt.figure(**self.figure_kwargs())
                 ax = figure.add_subplot(1, 1, 1)
                 min_val, max_val = (

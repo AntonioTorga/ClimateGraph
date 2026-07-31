@@ -1,0 +1,84 @@
+# ============================================================================
+# TEMPLATE — custom timeseries (`type: custom` + `series` primitives)
+# ----------------------------------------------------------------------------
+# A "custom" plot overlays rendering primitives on shared axes. A `series` with
+# `x: time` is a line over time — space is reduced away automatically. Copy a
+# block below and adapt `dataset` / `var` / `time` to your data.
+#
+# Runs as-is on the bundled WRF (grid) + DMC (stations) samples.
+# ============================================================================
+analysis:
+  output_path: "./test_data/results/template-custom-ts/"
+  debug: false
+
+data:
+  DMC:                                   # in-situ stations (PointSurface)
+    path: "./test_data/data/dmc*.nc"
+    topology: PointSurface
+    reader: DMC
+    vars:
+      Temperatura: {name: temperatura, unit: degC}
+  WRF:                                   # model grid (RegularGrid)
+    path: "./test_data/data/wrf-20*.nc"
+    topology: RegularGrid
+    reader: wrf
+    vars:
+      Temperatura: {name: T2, unit: kelvin}
+
+plots:
+
+  # 1) SIMPLEST — one line, one dataset.
+  single:
+    type: custom
+    time: "1/1/2019 - 1/2/2019"
+    vars: [Temperatura]                  # one figure per var in the list
+    subplots:
+      - type: series
+        dataset: DMC
+        x: time
+        label: "Stations"
+
+  # 2) COMPARISON — two datasets, same var, on one figure.
+  #    Plot-level `vars` as a {var: unit} map converts every series to that unit
+  #    (WRF kelvin -> degC) so they share a y-axis. `grid: true` adds faded
+  #    dashed reference lines at each tick.
+  obs_vs_model:
+    type: custom
+    time: "1/1/2019 - 1/2/2019"
+    timestep: D                          # daily-mean before plotting (optional)
+    vars: {Temperatura: degC}
+    grid: true
+    subplots:
+      - type: series
+        dataset: DMC
+        x: time
+        label: "Observations"
+        color: black
+        linewidth: 2
+      - type: series
+        dataset: WRF
+        x: time
+        label: "WRF model"
+        color: tab:red
+
+  # 3) TWO PERIODS on one figure — per-subplot `time` override.
+  #    Omit plot-level `vars` and give each subplot its own `var` + `time`; the
+  #    plot renders once (no fan-out) with both windows overlaid.
+  two_periods:
+    type: custom
+    subplots:
+      - type: series
+        dataset: DMC
+        var: Temperatura
+        x: time
+        time: "1/1/2019 - 1/2/2019"
+        label: "January"
+        color: tab:blue
+      - type: series
+        dataset: DMC
+        var: Temperatura
+        x: time
+        time: "1/2/2019 - 28/2/2019"
+        label: "February"
+        color: tab:orange
+    title: "DMC temperature — January vs February"

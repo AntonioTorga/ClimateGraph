@@ -122,11 +122,10 @@ class Domain(RegistryMixin, ABC):
     def _resample(self, data: "Data") -> "Data":
         """_resample Reproject ``data`` onto the resample target's geometry.
 
-        Resampling runs on the REAL target so its ``.resampled`` cache accumulates
-        and ``save_resampled_to`` fires as designed. The returned value is a cheap
-        target-topology wrapper wearing the SOURCE's identity (name + vars); building
-        it never disturbs the target's cache because the ``obj`` setter resets only
-        the wrapper's own caches.
+        ``resample_vars`` is purely spatial and stateless, so the reprojected
+        result keeps ``data``'s own time axis and inherits the target's spatial
+        coords (site / region / lat / lon). The returned value is a cheap
+        target-topology wrapper wearing the SOURCE's identity (name + vars).
 
         Parameters
         ----------

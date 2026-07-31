@@ -40,14 +40,11 @@ class TestHistory:
         assert any("computed:" in e for e in out.attrs["history"])
 
     def test_resample_vars_records(self, regular_grid_data, point_surface_data):
-        point_surface_data.resample_vars(
+        result = point_surface_data.resample_vars(
             regular_grid_data, "Temperatura", radius_of_influence=500_000
         )
-        assert "history" in point_surface_data.resampled.attrs
-        assert any(
-            "spatially resampled" in e
-            for e in point_surface_data.resampled.attrs["history"]
-        )
+        assert "history" in result.attrs
+        assert any("spatially resampled" in e for e in result.attrs["history"])
 
 
 class TestDimReduction:

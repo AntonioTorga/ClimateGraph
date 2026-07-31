@@ -4,7 +4,6 @@ from typing import Any
 
 import cartopy.crs as ccrs
 import numpy as np
-import pandas as pd
 import xarray as xr
 
 from ClimateGraph.reader import Reader
@@ -118,7 +117,6 @@ class Data(RegistryMixin, ABC):
         self._path = None
         self._bbox = None  # minlon, minlat, maxlon, maxlat
         self._dims = None
-        self.resampled = None
 
         # Provided by user
         self.name = name
@@ -145,7 +143,6 @@ class Data(RegistryMixin, ABC):
         new._geom = self._geom
         new._bbox = self._bbox  # minlon, minlat, maxlon, maxlat
         new._dims = self._dims
-        new.resampled = self.resampled
 
         return new
 
@@ -180,7 +177,6 @@ class Data(RegistryMixin, ABC):
         self._bbox = None
         self._geom = None
         self._dims = None
-        self.resampled = None
 
     @property
     def geom(self):
@@ -402,28 +398,27 @@ class Data(RegistryMixin, ABC):
         other: "Data",
         vars: str | list[str],
         radius_of_influence: int = 10000,
-        time_tolerance: str | None = "30min",
         engine: str | ResampleEngine = "pyresample",
         engine_kwargs: dict | None = None,
-    ) -> xr.DataArray | xr.Dataset:
-        """Project ``other``'s vars onto ``self``'s geometry (and time axis).
+    ) -> xr.Dataset:
+        """Project ``other``'s vars onto ``self``'s spatial geometry.
 
-        A single responsibility: spatial resampling with the requested engine, plus
-        a nearest-neighbour time *alignment* of ``other`` onto ``self``'s time axis.
-        It does NOT convert units or filter/resample time — those belong to the
-        caller (``get_var`` / the plot's ``change_unit`` and ``time_resampling``).
+        Purely spatial and stateless: each variable of ``other`` is reprojected
+        onto ``self``'s geometry with the requested engine, keeping ``other``'s own
+        time axis and any extra dims (z, member, …) untouched, and inheriting
+        ``self``'s spatial coordinates (site / latitude / longitude / region / …).
+        It does NOT align time, convert units, or cache — those are the caller's
+        concern. Each call is independent, so two sources with different time
+        extents resampled onto the same target never clobber each other.
 
         Parameters
         ----------
         other : Data
-            Other data object to resample into the "self" geometry.
+            Data whose vars are reprojected onto ``self``'s geometry.
         vars : str | list[str]
-            Variable name or list of names to resample (kept in their source units).
+            Variable name or list of names to resample.
         radius_of_influence : int, optional
             Radius length in meters to use for resampling. by default 10000
-        time_tolerance : str | None, optional
-            Pandas-style timedelta used as the tolerance when snapping ``other``'s
-            time axis onto ``self``'s via nearest-neighbour reindex. Default ``"30min"``.
         engine : str | ResampleEngine, optional
             Resample backend name or instance. Default ``"pyresample"``.
         engine_kwargs : dict | None, optional
@@ -432,40 +427,37 @@ class Data(RegistryMixin, ABC):
 
         Returns
         -------
-        xr.DataArray | xr.Dataset
-            Resampled data on ``self``'s geometry, aligned onto ``self``'s time axis.
+        xr.Dataset
+            One variable per input var, keyed ``"{var}__{other.name}"``, on
+            ``self``'s geometry and carrying ``other``'s time / extra dims.
         """
         if isinstance(vars, str):
             vars = [vars]
 
         resample_engine = get_engine(engine, **(engine_kwargs or {}))
-        src_geom = other.geom
-        dst_geom = self.geom
-
         info = resample_engine.prepare(
-            src_geom,
-            dst_geom,
+            other.geom,
+            self.geom,
             radius_of_influence=radius_of_influence,
         )
-        _resample = resample_engine.make_resampler(info, dst_geom.shape)
+        _resample = resample_engine.make_resampler(info, self.geom.shape)
 
-        if self.resampled is None:
-            self.resampled = self.obj.drop_vars(list(self.obj.data_vars))
+        # Target geometry straight from self.obj (no data vars, no time axis): the
+        # geom-dim ORDER follows self.obj so it matches self.geom.shape, and the
+        # spatial coords (those depending only on the geom dims) are reattached to
+        # the result — this is how the source inherits site/region/lat/lon.
+        dst_geom_dims = [d for d in self.obj.dims if d in set(self.geom_dims)]
+        dst_sizes = {d: self.obj.sizes[d] for d in dst_geom_dims}
+        dst_coords = {
+            name: coord
+            for name, coord in self.obj.coords.items()
+            if set(coord.dims) <= set(self.geom_dims)
+        }
 
-        new_vars = []
+        resampled_vars = {}
         for var in vars:
-            var_dst_dims = self.get_var(var).sizes
-            var_src = other.get_var(var)
-
-            if time_tolerance is not None and "time" in var_src.dims:
-                var_src = var_src.reindex(
-                    time=self.resampled["time"],
-                    method="nearest",
-                    tolerance=pd.Timedelta(time_tolerance),
-                )
-
+            var_src = other.get_var(var)  # keeps other's own time + extra dims
             src_geom_dims = [d for d in var_src.dims if d in set(other.geom_dims)]
-            dst_geom_dims = [d for d in var_dst_dims if d in set(self.geom_dims)]
             resampled = xr.apply_ufunc(
                 _resample,
                 var_src,
@@ -474,22 +466,14 @@ class Data(RegistryMixin, ABC):
                 vectorize=True,
                 dask="parallelized",
                 output_dtypes=[var_src.dtype],
-                dask_gufunc_kwargs={
-                    "output_sizes": {
-                        name: value
-                        for name, value in var_dst_dims.items()
-                        if name in set(self.geom_dims)
-                    }
-                },
+                dask_gufunc_kwargs={"output_sizes": dst_sizes},
             )
+            resampled_vars[f"{var}__{other.name}"] = resampled.assign_coords(dst_coords)
 
-            new_name = f"{var}__{other.name}"
-            self.resampled[new_name] = resampled
-            new_vars.append(new_name)
-
+        result = xr.Dataset(resampled_vars)
         _record(
-            self.resampled,
-            f"spatially resampled {new_vars} from {other.name} "
+            result,
+            f"spatially resampled {list(resampled_vars)} from {other.name} "
             f"({type(other).__name__}) to {self.name} ({type(self).__name__})",
         )
 
@@ -497,7 +481,7 @@ class Data(RegistryMixin, ABC):
         if save_to:
             target = Path(save_to)
             target.parent.mkdir(parents=True, exist_ok=True)
-            self.resampled.to_netcdf(target)
-            _record(self.resampled, f"saved resampled data to {target}")
+            result.to_netcdf(target)
+            _record(result, f"saved resampled data to {target}")
 
-        return self.resampled[new_vars]
+        return result

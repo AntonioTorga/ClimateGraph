@@ -336,3 +336,29 @@ class TestScatterPlot:
         )
         plot.plot()
         assert _outputs(tmp_output_dir, "sc")
+
+    def test_aligns_datasets_with_mismatched_time(
+        self, point_surface_data, tmp_output_dir
+    ):
+        # resample_vars no longer snaps time, so Scatter aligns the two series
+        # itself. Pair a 6-step dataset with a 4-step one: without the inner-join
+        # align the reduced arrays would be different lengths and scatter would
+        # raise; with it, they pair on the overlapping timestamps.
+        short = point_surface_data.copy()
+        short.obj = point_surface_data.obj.isel(time=slice(0, 4))
+
+        cfg = ScatterConfig(
+            type="scatter",
+            data=["A", "B"],
+            time=TIME_INTERVAL,
+            vars={"Temperatura": "degC"},
+        )
+        plot = Scatter(
+            name="sc_align",
+            plot_config=cfg,
+            data_registry={"A": point_surface_data, "B": short},
+            domain_registry={},
+            output_path=tmp_output_dir,
+        )
+        plot.plot()  # must not raise on the length mismatch
+        assert _outputs(tmp_output_dir, "sc_align")
