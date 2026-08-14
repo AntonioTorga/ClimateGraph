@@ -94,10 +94,12 @@ class TestResampleVars:
         # Result should live on the destination (point) geometry.
         assert "site" in result.dims
 
-    def test_resample_is_stateless(self, regular_grid_data, point_surface_data):
-        # No cache: resampling never mutates the target, and each call is a fresh
-        # independent Dataset (so different-time sources can't clobber each other).
-        assert not hasattr(point_surface_data, "resampled")
+    def test_resample_caches_identical_calls(
+        self, regular_grid_data, point_surface_data
+    ):
+        # The result is memoized on the SOURCE, keyed by (target, vars, params), so a
+        # second identical call returns the same Dataset without recomputing. The
+        # target is never mutated.
         target_before = point_surface_data.obj
         r1 = point_surface_data.resample_vars(
             regular_grid_data, "Temperatura", radius_of_influence=500_000
@@ -106,6 +108,49 @@ class TestResampleVars:
             regular_grid_data, "Temperatura", radius_of_influence=500_000
         )
         assert point_surface_data.obj is target_before  # target untouched
+        assert r1 is r2  # cache hit returns the same object
+
+    def test_resample_cache_keyed_per_target_no_clobber(
+        self, regular_grid_data, point_surface_data, make_regular_grid
+    ):
+        # Different source grids onto one target land in separate cache entries and
+        # keep their own results (guards the old flat-cache clobber bug). A different
+        # radius must not return a stale hit either.
+        other_grid = regular_grid_data.copy()
+        other_grid.name = "other_grid"
+        other_grid.obj = make_regular_grid(n_time=3)
+
+        r_a = point_surface_data.resample_vars(
+            regular_grid_data, "Temperatura", radius_of_influence=500_000
+        )
+        r_b = point_surface_data.resample_vars(
+            other_grid, "Temperatura", radius_of_influence=500_000
+        )
+        assert r_a is not r_b
+        assert r_a.sizes["time"] != r_b.sizes["time"]  # each kept its own time axis
+        # Cache lives on the source, one entry per (target, vars, params).
+        assert len(regular_grid_data._resample_cache) == 1
+        assert len(other_grid._resample_cache) == 1
+
+        # Different radius -> different key -> not the cached object.
+        r_a2 = point_surface_data.resample_vars(
+            regular_grid_data, "Temperatura", radius_of_influence=250_000
+        )
+        assert r_a2 is not r_a
+        assert len(regular_grid_data._resample_cache) == 2
+
+    def test_resample_cache_invalidated_on_source_obj_change(
+        self, regular_grid_data, point_surface_data, make_regular_grid
+    ):
+        # Reassigning the source's obj means the values changed, so the memoized
+        # projection is stale and must be recomputed.
+        r1 = point_surface_data.resample_vars(
+            regular_grid_data, "Temperatura", radius_of_influence=500_000
+        )
+        regular_grid_data.obj = make_regular_grid(n_time=3)
+        r2 = point_surface_data.resample_vars(
+            regular_grid_data, "Temperatura", radius_of_influence=500_000
+        )
         assert r1 is not r2
 
     def test_resample_keeps_source_time_and_inherits_target_coords(

@@ -180,6 +180,40 @@ class TestResampleStep:
         assert result.obj.sizes["site"] == 2
         assert all(result.obj["region"].values == 13)
 
+    def test_shared_target_reuses_resample_cache(
+        self, regular_grid_data, point_surface_data
+    ):
+        # The one_for_each / many-domains payoff: two domains reprojecting the SAME
+        # source onto the SAME target recompute the projection once — the second
+        # domain hits the cache. Both filter differently after, but that's post-resample.
+        dom_a = Attribute(
+            "a",
+            domain_config=AttributeConfig(
+                type="attr",
+                resample_to="point_stub",
+                radius_of_influence=500_000,
+                field_name="region",
+                field_value=13,
+            ),
+            target_data=point_surface_data,
+        )
+        dom_b = Attribute(
+            "b",
+            domain_config=AttributeConfig(
+                type="attr",
+                resample_to="point_stub",
+                radius_of_influence=500_000,
+                field_name="region",
+                field_value=5,
+            ),
+            target_data=point_surface_data,
+        )
+        dom_a.apply(regular_grid_data)
+        dom_b.apply(regular_grid_data)
+
+        # Cache lives on the source; a single shared projection served both domains.
+        assert len(regular_grid_data._resample_cache) == 1
+
 
 class TestShapefileConfig:
     def test_config_parses(self, tmp_path):

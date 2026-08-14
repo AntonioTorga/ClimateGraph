@@ -1,3 +1,4 @@
+import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,8 @@ from ClimateGraph.utils.dataset_utils import (
 from ClimateGraph.utils.general_utils import ReductionMethodEnum
 from ClimateGraph.utils.registry import RegistryMixin
 from ClimateGraph.utils.resample_engine import ResampleEngine, get_engine
+
+log = logging.getLogger(__name__)
 
 
 class Data(RegistryMixin, ABC):
@@ -110,9 +113,7 @@ class Data(RegistryMixin, ABC):
         # Going to be set later
         self._obj = None
         self._geom = None
-        # Coerce list / None forms into the canonical dict-or-None shape so the
-        # rest of Data (and the readers) only ever see a dict or None. Idempotent,
-        # so copy() re-passing self.vars is safe.
+        self._resample_cache: dict = {}
         self._vars = normalize_vars(vars)
         self._path = None
         self._bbox = None  # minlon, minlat, maxlon, maxlat
@@ -177,6 +178,7 @@ class Data(RegistryMixin, ABC):
         self._bbox = None
         self._geom = None
         self._dims = None
+        self._resample_cache = {}
 
     @property
     def geom(self):
@@ -403,13 +405,18 @@ class Data(RegistryMixin, ABC):
     ) -> xr.Dataset:
         """Project ``other``'s vars onto ``self``'s spatial geometry.
 
-        Purely spatial and stateless: each variable of ``other`` is reprojected
-        onto ``self``'s geometry with the requested engine, keeping ``other``'s own
-        time axis and any extra dims (z, member, …) untouched, and inheriting
-        ``self``'s spatial coordinates (site / latitude / longitude / region / …).
-        It does NOT align time, convert units, or cache — those are the caller's
-        concern. Each call is independent, so two sources with different time
-        extents resampled onto the same target never clobber each other.
+        Purely spatial: each variable of ``other`` is reprojected onto ``self``'s
+        geometry with the requested engine, keeping ``other``'s own time axis and any
+        extra dims (z, member, …) untouched, and inheriting ``self``'s spatial
+        coordinates (site / latitude / longitude / region / …). It does NOT align time
+        or convert units — those are the caller's concern. Two sources with different
+        time extents resampled onto the same target never clobber each other.
+
+        The result is memoized on the source (``other._resample_cache``), keyed by
+        ``(self.name, vars, radius, engine, engine_kwargs)``, so repeated
+        ``resample_to`` domains sharing a target recompute the projection once and hit
+        the cache thereafter. The cache is invalidated whenever ``other.obj`` is
+        reassigned; the target's geometry is assumed stable across a run.
 
         Parameters
         ----------
@@ -433,6 +440,20 @@ class Data(RegistryMixin, ABC):
         """
         if isinstance(vars, str):
             vars = [vars]
+
+        engine_key = engine if isinstance(engine, str) else type(engine).__name__
+        cache_key = (
+            self.name,
+            tuple(sorted(vars)),
+            radius_of_influence,
+            engine_key,
+            tuple(sorted((engine_kwargs or {}).items())),
+        )
+        if cache_key in other._resample_cache:
+            log.debug(
+                "resample cache hit: %s -> %s (%s)", other.name, self.name, vars
+            )
+            return other._resample_cache[cache_key]
 
         resample_engine = get_engine(engine, **(engine_kwargs or {}))
         info = resample_engine.prepare(
@@ -484,4 +505,5 @@ class Data(RegistryMixin, ABC):
             result.to_netcdf(target)
             _record(result, f"saved resampled data to {target}")
 
+        other._resample_cache[cache_key] = result
         return result

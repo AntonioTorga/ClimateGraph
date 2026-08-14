@@ -122,9 +122,12 @@ class Domain(RegistryMixin, ABC):
     def _resample(self, data: "Data") -> "Data":
         """_resample Reproject ``data`` onto the resample target's geometry.
 
-        ``resample_vars`` is purely spatial and stateless, so the reprojected
-        result keeps ``data``'s own time axis and inherits the target's spatial
-        coords (site / region / lat / lon). The returned value is a cheap
+        ``resample_vars`` is purely spatial, so the reprojected result keeps
+        ``data``'s own time axis and inherits the target's spatial coords (site /
+        region / lat / lon). It memoizes on the source, so several domains sharing a
+        ``resample_to`` target (a ``one_for_each`` fan-out, or many hand-written
+        domains onto one obs network) pay the projection cost once — the 2nd..Nth
+        ``_resample`` here hit that cache. The returned value is a cheap
         target-topology wrapper wearing the SOURCE's identity (name + vars).
 
         Parameters
