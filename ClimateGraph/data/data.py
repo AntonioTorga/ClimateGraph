@@ -450,9 +450,7 @@ class Data(RegistryMixin, ABC):
             tuple(sorted((engine_kwargs or {}).items())),
         )
         if cache_key in other._resample_cache:
-            log.debug(
-                "resample cache hit: %s -> %s (%s)", other.name, self.name, vars
-            )
+            log.debug("resample cache hit: %s -> %s (%s)", other.name, self.name, vars)
             return other._resample_cache[cache_key]
 
         resample_engine = get_engine(engine, **(engine_kwargs or {}))
@@ -461,7 +459,9 @@ class Data(RegistryMixin, ABC):
             self.geom,
             radius_of_influence=radius_of_influence,
         )
-        _resample = resample_engine.make_resampler(info, self.geom.shape)
+        _resample = resample_engine.make_resampler(
+            info, self.geom.shape, other.geom.shape
+        )
 
         # Target geometry straight from self.obj (no data vars, no time axis): the
         # geom-dim ORDER follows self.obj so it matches self.geom.shape, and the
@@ -479,12 +479,12 @@ class Data(RegistryMixin, ABC):
         for var in vars:
             var_src = other.get_var(var)  # keeps other's own time + extra dims
             src_geom_dims = [d for d in var_src.dims if d in set(other.geom_dims)]
+
             resampled = xr.apply_ufunc(
                 _resample,
                 var_src,
                 input_core_dims=[src_geom_dims],
                 output_core_dims=[dst_geom_dims],
-                vectorize=True,
                 dask="parallelized",
                 output_dtypes=[var_src.dtype],
                 dask_gufunc_kwargs={"output_sizes": dst_sizes},
@@ -492,6 +492,14 @@ class Data(RegistryMixin, ABC):
             resampled_vars[f"{var}__{other.name}"] = resampled.assign_coords(dst_coords)
 
         result = xr.Dataset(resampled_vars)
+        # The resample target is a small geometry (e.g. stations), so the projected
+        # result is tiny (~tens of MB). Materialize it ONCE here: the cache then
+        # holds concrete numpy, and every downstream op (domain filter,
+        # time_resampling's hourly mean, dim_reduce, reduce, render) runs eagerly in
+        # numpy instead of re-executing this whole dask graph on every subplot render
+        # (dask has no cross-compute memoization, so a lazy cache is recomputed each
+        # time — the dominant cost profiled on the chimere run).
+        result = result.load()
         _record(
             result,
             f"spatially resampled {list(resampled_vars)} from {other.name} "

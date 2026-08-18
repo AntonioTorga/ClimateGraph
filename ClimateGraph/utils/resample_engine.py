@@ -35,8 +35,15 @@ class ResampleEngine(Protocol):
         self,
         info: Any,
         dst_shape: tuple,
+        src_shape: tuple,
     ) -> Callable[[np.ndarray], np.ndarray]:
-        """Return a function ``f(src_2d) -> dst_shaped`` using precomputed info."""
+        """Return a function ``f(block) -> resampled`` using precomputed info.
+
+        ``block`` carries the source spatial dims *last* (``(*lead, *src_shape)``,
+        the layout ``xr.apply_ufunc`` hands a non-vectorized ufunc); any leading
+        dims (time, z, …) are batched into a single pyresample call. A bare
+        ``src_shape`` block (no leading dims) is the 2-D legacy case.
+        """
         ...
 
 
@@ -61,16 +68,18 @@ class PyresampleEngine:
             neighbours=self.neighbours,
         )
 
-    def make_resampler(self, info: tuple, dst_shape: tuple) -> Callable:
+    def make_resampler(
+        self, info: tuple, dst_shape: tuple, src_shape: tuple
+    ) -> Callable:
         valid_input, valid_output, index_array, dist_array = info
 
         if self.method == "nearest":
 
-            def _resample(x: np.ndarray) -> np.ndarray:
+            def _run(data: np.ndarray) -> np.ndarray:
                 return kd_tree.get_sample_from_neighbour_info(
                     "nn",
                     dst_shape,
-                    x,
+                    data,
                     valid_input,
                     valid_output,
                     index_array,
@@ -85,11 +94,11 @@ class PyresampleEngine:
             def _weight(dist):
                 return np.exp(-(dist**2) / (2 * sigma**2))
 
-            def _resample(x: np.ndarray) -> np.ndarray:
+            def _run(data: np.ndarray) -> np.ndarray:
                 return kd_tree.get_sample_from_neighbour_info(
                     "custom",
                     dst_shape,
-                    x,
+                    data,
                     valid_input,
                     valid_output,
                     index_array,
@@ -103,6 +112,20 @@ class PyresampleEngine:
                 f"PyresampleEngine does not support method {self.method!r}. "
                 f"Available: nearest, gaussian."
             )
+
+        src_ndim = len(src_shape)
+
+        def _resample(block: np.ndarray) -> np.ndarray:
+            lead = block.shape[: block.ndim - src_ndim]
+            if not lead:
+                return _run(block)
+            k = int(np.prod(lead))
+            # (*lead, *src) -> (*src, *lead) -> (*src, k)
+            moved = np.moveaxis(block, range(len(lead)), range(-len(lead), 0))
+            out = _run(moved.reshape((*src_shape, k)))  # -> (*dst_shape, k)
+            # (*dst, k) -> (*dst, *lead) -> (*lead, *dst)
+            out = out.reshape((*dst_shape, *lead))
+            return np.moveaxis(out, range(-len(lead), 0), range(len(lead)))
 
         return _resample
 

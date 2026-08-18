@@ -130,7 +130,7 @@ def test_default_open_many_wires_per_file_pipeline(monkeypatch):
 
     assert captured["kwargs"]["engine"] == "netcdf4"
     assert captured["kwargs"]["parallel"] is False
-    assert captured["kwargs"]["chunks"] == "auto"
+    assert captured["kwargs"]["chunks"] == {"time": "auto"}
     assert callable(captured["kwargs"]["preprocess"])
 
 

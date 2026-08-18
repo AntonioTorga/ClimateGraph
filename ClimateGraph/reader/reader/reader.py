@@ -323,7 +323,11 @@ class Reader(ABC):
         engine = spec.engine or cls.open_engine
         return xr.open_mfdataset(
             paths,
-            chunks="auto",
+            # Chunk along time only; dims left unnamed (y/x/z) become a single
+            # chunk. resample_vars' apply_ufunc needs the spatial core dims
+            # contiguous, and it resamples one time-block per call, so a whole
+            # spatial slice per chunk is exactly the right granularity.
+            chunks={"time": "auto"},
             engine=engine,
             parallel=engine != "netcdf4",
             preprocess=per_file,
@@ -333,7 +337,7 @@ class Reader(ABC):
     def _open_one(cls, path: Path, spec: ReadSpec) -> Any:
         """Open a single file (unsafe path)."""
         engine = spec.engine or cls.open_engine
-        return xr.open_dataset(path, chunks="auto", engine=engine)
+        return xr.open_dataset(path, chunks={"time": "auto"}, engine=engine)
 
     @classmethod
     def _to_xarray(cls, raw: Any, spec: ReadSpec) -> xr.Dataset:

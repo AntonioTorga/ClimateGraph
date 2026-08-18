@@ -1,0 +1,206 @@
+# ClimateGraph control file — filled by step6_plotting.sh via envsubst.
+# CHIMERE air quality against SINCA stations. Same structure as
+# template-config.yaml, which does WRF meteorology against DMC.
+#
+# Only date-derived values are substituted: CG_OUT, CG_WINDOW and the four
+# CG_CHM_*_PATHS file lists, plus CG_DATA for the observation directory.
+# Everything else is static — edit it here.
+analysis:
+  output_path: "/home/cr2/nhuneeus/PROYECTOS/FONDEF/PRONOSTICO/Codes/home-pronostico/RESULTS/ANALISIS/2026-08-11/chimere"
+
+data:
+  SINCA:
+    path: "/home/cr2/nhuneeus/PROYECTOS/FONDEF/PRONOSTICO/Codes/home-pronostico/OBS/sinca/[0-9]*.csv"        # station files only; excludes stations.csv
+    topology: PointSurface
+    reader: station-per-file
+    time_offset: +4
+    metadata: "/home/cr2/nhuneeus/PROYECTOS/FONDEF/PRONOSTICO/Codes/home-pronostico/OBS/sinca/stations.csv"
+    station_key: station
+    vars:
+      PM25:
+        name: PM25
+        unit: "ug/m**3"
+      PM10:
+        name: PM10
+        unit: "ug/m**3"
+      CO:
+        name: CO
+        unit: "ppm"
+      O3:
+        name: O3
+        unit: "ppb"
+      NO2:
+        name: NO2
+        unit: "ppb"
+      _NO:
+        name: "NO"
+        unit: "ppb"
+      SO2:
+        name: SO2
+        unit: "ug/m**3"
+
+  # Today's run in full: every lead at once, T-1 .. T+4, from one directory.
+  CHIMERE-CURRENT:
+    path:
+      - "/home/cr2/nhuneeus/PROYECTOS/FONDEF/PRONOSTICO/Codes/home-pronostico/RESULTS/CHIMERE/20260811/chim_d01_*_fdcyt.nc"
+    topology: RegularGrid
+    reader: chimere
+    vars: &chimere_vars
+      PM25:
+        name: PM25
+        unit: "ug/m**3"
+      PM10:
+        name: PM10
+        unit: "ug/m**3"
+      CO:
+        name: CO
+        unit: "ppm"
+        operation: "/1000"
+      O3:
+        name: O3
+        unit: "ppb"
+      NO2:
+        name: NO2
+        unit: "ppb"
+      SO2:
+        name: SO2
+        unit: "ug/m**3"
+        operation: "*2.620"
+
+  # One file per valid day, each taken from the run that was N days ahead of it.
+  # All four start on the same day and reach progressively further forward.
+  CHIMERE-24hrs:
+    path:
+      - "/home/cr2/nhuneeus/PROYECTOS/FONDEF/PRONOSTICO/Codes/home-pronostico/RESULTS/CHIMERE/20260806/chim_d01_2026080700_*_fdcyt.nc"
+      - "/home/cr2/nhuneeus/PROYECTOS/FONDEF/PRONOSTICO/Codes/home-pronostico/RESULTS/CHIMERE/20260807/chim_d01_2026080800_*_fdcyt.nc"
+      - "/home/cr2/nhuneeus/PROYECTOS/FONDEF/PRONOSTICO/Codes/home-pronostico/RESULTS/CHIMERE/20260811/chim_d01_2026081200_*_fdcyt.nc"
+    topology: RegularGrid
+    reader: chimere
+    vars: *chimere_vars
+
+  CHIMERE-48hrs:
+    path:
+      - "/home/cr2/nhuneeus/PROYECTOS/FONDEF/PRONOSTICO/Codes/home-pronostico/RESULTS/CHIMERE/20260805/chim_d01_2026080700_*_fdcyt.nc"
+      - "/home/cr2/nhuneeus/PROYECTOS/FONDEF/PRONOSTICO/Codes/home-pronostico/RESULTS/CHIMERE/20260806/chim_d01_2026080800_*_fdcyt.nc"
+      - "/home/cr2/nhuneeus/PROYECTOS/FONDEF/PRONOSTICO/Codes/home-pronostico/RESULTS/CHIMERE/20260807/chim_d01_2026080900_*_fdcyt.nc"
+      - "/home/cr2/nhuneeus/PROYECTOS/FONDEF/PRONOSTICO/Codes/home-pronostico/RESULTS/CHIMERE/20260811/chim_d01_2026081300_*_fdcyt.nc"
+    topology: RegularGrid
+    reader: chimere
+    vars: *chimere_vars
+
+  CHIMERE-72hrs:
+    path:
+      - "/home/cr2/nhuneeus/PROYECTOS/FONDEF/PRONOSTICO/Codes/home-pronostico/RESULTS/CHIMERE/20260804/chim_d01_2026080700_*_fdcyt.nc"
+      - "/home/cr2/nhuneeus/PROYECTOS/FONDEF/PRONOSTICO/Codes/home-pronostico/RESULTS/CHIMERE/20260805/chim_d01_2026080800_*_fdcyt.nc"
+      - "/home/cr2/nhuneeus/PROYECTOS/FONDEF/PRONOSTICO/Codes/home-pronostico/RESULTS/CHIMERE/20260806/chim_d01_2026080900_*_fdcyt.nc"
+      - "/home/cr2/nhuneeus/PROYECTOS/FONDEF/PRONOSTICO/Codes/home-pronostico/RESULTS/CHIMERE/20260807/chim_d01_2026081000_*_fdcyt.nc"
+      - "/home/cr2/nhuneeus/PROYECTOS/FONDEF/PRONOSTICO/Codes/home-pronostico/RESULTS/CHIMERE/20260811/chim_d01_2026081400_*_fdcyt.nc"
+    topology: RegularGrid
+    reader: chimere
+    vars: *chimere_vars
+
+  CHIMERE-96hrs:
+    path:
+      - "/home/cr2/nhuneeus/PROYECTOS/FONDEF/PRONOSTICO/Codes/home-pronostico/RESULTS/CHIMERE/20260803/chim_d01_2026080700_*_fdcyt.nc"
+      - "/home/cr2/nhuneeus/PROYECTOS/FONDEF/PRONOSTICO/Codes/home-pronostico/RESULTS/CHIMERE/20260804/chim_d01_2026080800_*_fdcyt.nc"
+      - "/home/cr2/nhuneeus/PROYECTOS/FONDEF/PRONOSTICO/Codes/home-pronostico/RESULTS/CHIMERE/20260805/chim_d01_2026080900_*_fdcyt.nc"
+      - "/home/cr2/nhuneeus/PROYECTOS/FONDEF/PRONOSTICO/Codes/home-pronostico/RESULTS/CHIMERE/20260806/chim_d01_2026081000_*_fdcyt.nc"
+      - "/home/cr2/nhuneeus/PROYECTOS/FONDEF/PRONOSTICO/Codes/home-pronostico/RESULTS/CHIMERE/20260807/chim_d01_2026081100_*_fdcyt.nc"
+      - "/home/cr2/nhuneeus/PROYECTOS/FONDEF/PRONOSTICO/Codes/home-pronostico/RESULTS/CHIMERE/20260811/chim_d01_2026081500_*_fdcyt.nc"
+    topology: RegularGrid
+    reader: chimere
+    vars: *chimere_vars
+
+# `resample_to: SINCA` puts the model on the stations' geometry, so it inherits
+# their site coordinate and one `attr` domain filters model and observations
+# alike. Ids are quoted because `site` holds the CSV filename stems as strings —
+# a bare 190 is an int that `isin` silently never matches.
+#
+# SINCA regions are roman numerals: M = Metropolitana, V = Valparaiso. Listed
+# explicitly rather than filtered on `region` so a station without data (or
+# outside the model domain) can be dropped without touching the domain logic.
+domains:
+  RM:
+    type: attr
+    field_name: site
+    field_value: ["190", "197", "228", "233", "239", "260", "262", "271", "273", "290"]
+    resample_to: SINCA
+    radius_of_influence: 15000
+
+  V:
+    type: attr
+    field_name: site
+    field_value: ["174", "185", "202", "247", "266", "297"]
+    resample_to: SINCA
+    radius_of_influence: 15000
+
+  estacion:
+    type: attr
+    field_name: site
+    field_value: ["190", "197", "228", "233", "239", "260", "262", "271", "273", "290", "174", "185", "202", "247", "266", "297"]
+    one_for_each: true          # expands into one domain per station
+    resample_to: SINCA
+    radius_of_influence: 15000
+
+
+.defaults: &plot_defaults
+  type: custom
+  time: "7/8/2026 - 15/8/2026"
+  timestep: h
+  domains: [RM, V, estacion]
+  # CHIMERE is 3-D (25 levels); take the surface. Harmless on any 2-D variable.
+  dim_reduce: {z: {method: isel, value: 0}}
+  # Only the six variables both datasets share — SINCA's _NO has no CHIMERE
+  # counterpart, so including it here would fail to resolve.
+  vars: {PM25: "ug/m**3", PM10: "ug/m**3", CO: ppm, O3: ppb, NO2: ppb, SO2: "ug/m**3"}
+  figsize: [12, 5]
+  # x only: one line per major tick. Over a 9-day window matplotlib ticks daily,
+  # so the lines land on midnight and separate one day from the next.
+  grid: {x: ticks}
+
+.observed: &observed
+  {type: series, dataset: SINCA, x: time, label: "Observado (SINCA)", color: black, linewidth: 2}
+
+plots:
+  chimere-24hrs:
+    <<: *plot_defaults
+    title: "Pronostico CHIMERE 24 h vs observaciones SINCA - {domain}"
+    subplots:
+      - *observed
+      - {type: series, dataset: CHIMERE-24hrs, x: time, label: "CHIMERE 24 h", color: tab:blue}
+
+  chimere-48hrs:
+    <<: *plot_defaults
+    title: "Pronostico CHIMERE 48 h vs observaciones SINCA - {domain}"
+    subplots:
+      - *observed
+      - {type: series, dataset: CHIMERE-48hrs, x: time, label: "CHIMERE 48 h", color: tab:green}
+
+  chimere-72hrs:
+    <<: *plot_defaults
+    title: "Pronostico CHIMERE 72 h vs observaciones SINCA - {domain}"
+    subplots:
+      - *observed
+      - {type: series, dataset: CHIMERE-72hrs, x: time, label: "CHIMERE 72 h", color: tab:orange}
+
+  chimere-96hrs:
+    <<: *plot_defaults
+    title: "Pronostico CHIMERE 96 h vs observaciones SINCA - {domain}"
+    subplots:
+      - *observed
+      - {type: series, dataset: CHIMERE-96hrs, x: time, label: "CHIMERE 96 h", color: tab:red}
+
+  chimere-todos:
+    <<: *plot_defaults
+    title: "Pronostico CHIMERE por horizonte vs observaciones SINCA - {domain}"
+    # Split in two: up to yesterday this is verification, so the observations and
+    # the four leads are drawn against each other. From today onward there is
+    # nothing to verify against, so only today's run continues.
+
+    subplots:
+      - {type: series, dataset: SINCA,           x: time, time: "7/8/2026 - 10/8/2026",   label: "Observado (SINCA)", color: black, linewidth: 2}
+      - {type: series, dataset: CHIMERE-24hrs,   x: time, time: "7/8/2026 - 10/8/2026",   label: "CHIMERE 24 h", color: tab:blue}
+      - {type: series, dataset: CHIMERE-48hrs,   x: time, time: "7/8/2026 - 10/8/2026",   label: "CHIMERE 48 h", color: tab:green}
+      - {type: series, dataset: CHIMERE-72hrs,   x: time, time: "7/8/2026 - 10/8/2026",   label: "CHIMERE 72 h", color: tab:orange}
+      - {type: series, dataset: CHIMERE-96hrs,   x: time, time: "7/8/2026 - 10/8/2026",   label: "CHIMERE 96 h", color: tab:red}
+      - {type: series, dataset: CHIMERE-CURRENT, x: time, time: "11/8/2026 - 15/8/2026", label: "CHIMERE corrida de hoy", color: tab:purple}

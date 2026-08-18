@@ -213,6 +213,59 @@ class TestResampleVars:
         assert "time" in result.dims
         assert result.sizes["z"] == n_z
 
+    def test_block_resample_matches_per_slice(
+        self, regular_grid_data, point_surface_data
+    ):
+        # The batched (channel-axis) resample must be numerically identical to
+        # resampling each timestep's 2-D slice separately with the same neighbour
+        # info — the safety net for dropping vectorize=True.
+        from pyresample import kd_tree
+
+        radius = 500_000
+        src, dst = regular_grid_data.geom, point_surface_data.geom
+        vi, vo, ia, da = kd_tree.get_neighbour_info(
+            src, dst, radius_of_influence=radius, neighbours=1
+        )
+        var = regular_grid_data.get_var("Temperatura")  # (time, y, x)
+        reference = np.stack(
+            [
+                kd_tree.get_sample_from_neighbour_info(
+                    "nn",
+                    dst.shape,
+                    var.isel(time=t).values,
+                    vi,
+                    vo,
+                    ia,
+                    da,
+                    fill_value=np.nan,
+                )
+                for t in range(var.sizes["time"])
+            ]
+        )
+
+        result = point_surface_data.resample_vars(
+            regular_grid_data, "Temperatura", radius_of_influence=radius
+        )
+        new_var = f"Temperatura__{regular_grid_data.name}"
+        np.testing.assert_allclose(result[new_var].values, reference, equal_nan=True)
+
+    def test_resample_result_is_materialized(
+        self, regular_grid_data, point_surface_data
+    ):
+        # The resample result is loaded (concrete numpy) before caching, even from a
+        # dask-chunked source, so downstream ops don't re-execute the graph on every
+        # render. The cache then returns the same materialized object.
+        regular_grid_data.obj = regular_grid_data.obj.chunk({"time": 1})
+        r1 = point_surface_data.resample_vars(
+            regular_grid_data, "Temperatura", radius_of_influence=500_000
+        )
+        new_var = f"Temperatura__{regular_grid_data.name}"
+        assert r1[new_var].chunks is None  # materialized, not lazy
+        r2 = point_surface_data.resample_vars(
+            regular_grid_data, "Temperatura", radius_of_influence=500_000
+        )
+        assert r1 is r2  # cache hit, no recompute
+
 
 class TestCopy:
     def test_returns_new_instance_same_class(self, regular_grid_data):
