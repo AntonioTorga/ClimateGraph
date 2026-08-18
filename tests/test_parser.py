@@ -2,9 +2,9 @@ import pytest
 import yaml
 
 from ClimateGraph import Data, Plot
-from ClimateGraph.domain.domains import AttributeConfig
+from ClimateGraph.domain.domains import AttributeConfig, PointsConfig
 from ClimateGraph.utils.control_model import ControlFile
-from ClimateGraph.utils.parser import Parser, _expand_domains
+from ClimateGraph.utils.parser import Parser, _expand_domains, _points_target
 
 SAMPLE_YAML = """
 analysis:
@@ -154,6 +154,58 @@ class TestExpandDomains:
         expanded, rewrite_map = _expand_domains(models)
         assert set(expanded) == {"station__STA01", "station__STA02", "santiago"}
         assert rewrite_map == {"station": ["station__STA01", "station__STA02"]}
+
+    def test_points_one_for_each_expands_per_named_point(self):
+        pts = [
+            {"name": "Alpha", "lat": -34.5, "lon": -71.0},
+            {"name": "Beta", "lat": -35.0, "lon": -70.0},
+        ]
+        models = {
+            "estacion": PointsConfig(type="points", points=pts, one_for_each=True)
+        }
+        expanded, rewrite_map = _expand_domains(models)
+        # Named by the provided point name; each keeps the full set + a select_name.
+        assert set(expanded) == {"Alpha", "Beta"}
+        assert expanded["Alpha"].select_name == "Alpha"
+        assert expanded["Beta"].select_name == "Beta"
+        assert expanded["Alpha"].points == expanded["Beta"].points  # full set kept
+        assert rewrite_map == {"estacion": ["Alpha", "Beta"]}
+
+    def test_points_grouped_passes_through(self):
+        pts = [{"name": "Alpha", "lat": -34.5, "lon": -71.0}]
+        models = {"grp": PointsConfig(type="points", points=pts)}
+        expanded, rewrite_map = _expand_domains(models)
+        assert set(expanded) == {"grp"}
+        assert rewrite_map == {}
+
+
+class TestPointsTarget:
+    def test_shared_target_memoized_by_points(self):
+        from ClimateGraph.data.point_surface import PointSurface
+
+        pts = [
+            {"name": "Alpha", "lat": -34.5, "lon": -71.0},
+            {"name": "Beta", "lat": -35.0, "lon": -70.0},
+        ]
+        cache: dict = {}
+        a = _points_target(
+            PointsConfig(type="points", points=pts, select_name="Alpha"), cache
+        )
+        b = _points_target(
+            PointsConfig(type="points", points=pts, select_name="Beta"), cache
+        )
+        assert a is b  # same points -> one shared target object
+        assert isinstance(a, PointSurface)
+        assert list(a.obj.site.values) == ["Alpha", "Beta"]
+        # A different point set gets a distinct target with a unique name.
+        c = _points_target(
+            PointsConfig(
+                type="points", points=[{"name": "Z", "lat": -33.0, "lon": -70.0}]
+            ),
+            cache,
+        )
+        assert c is not a
+        assert c.name != a.name
 
 
 @pytest.mark.slow

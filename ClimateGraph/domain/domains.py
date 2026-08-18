@@ -2,9 +2,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import geopandas as gpd
+import pandas as pd
 import regionmask
 import shapely.geometry as gm
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from .domain import Domain
 
@@ -134,6 +135,97 @@ class All(Domain):
 
     def _filter(self, data: "Data") -> "Data":
         return data
+
+
+class PointItem(BaseModel):
+    """A single named point for an inline ``Points`` domain."""
+
+    name: str
+    lat: float
+    lon: float
+
+
+# Tolerated CSV header spellings for each logical column.
+_POINT_COL_ALIASES = {
+    "name": ("name", "site", "station", "id"),
+    "lat": ("latitude", "lat", "latitud"),
+    "lon": ("longitude", "lon", "longitud"),
+}
+
+
+class PointsConfig(BaseDomainConfig):
+    """PointsConfig Resample onto a set of named points given inline or via CSV.
+
+    The domain carries its own target geometry (the points), so ``resample_to`` is
+    unused; ``radius_of_influence``/``engine`` from the base still drive the resample.
+    """
+
+    type: Literal["points", "pts"]
+    path: Path | None = None
+    """CSV of named points (columns: name + latitude/longitude, aliases tolerated)."""
+    points: list[PointItem] | None = None
+    """Inline alternative to ``path``: a list of ``{name, lat, lon}``."""
+    name_col: str = "name"
+    lat_col: str = "latitude"
+    lon_col: str = "longitude"
+    one_for_each: bool = False
+    """Expand into one domain per point (named by the point) instead of one grouped
+    domain over all points."""
+    select_name: str | None = None
+    """Internal: set by the parser on each fan-out expansion to the point to keep."""
+
+    @model_validator(mode="after")
+    def _exactly_one_source(self) -> "PointsConfig":
+        if (self.path is None) == (self.points is None):
+            raise ValueError(
+                "Points domain needs exactly one of 'path' (CSV) or 'points' (inline)."
+            )
+        return self
+
+    def _resolve_col(self, columns, logical: str, configured: str) -> str:
+        """Find the CSV column for a logical field (configured name, else an alias)."""
+        lower = {c.lower(): c for c in columns}
+        for candidate in (configured, *_POINT_COL_ALIASES[logical]):
+            if candidate.lower() in lower:
+                return lower[candidate.lower()]
+        raise ValueError(
+            f"Points CSV is missing a '{logical}' column "
+            f"(looked for {configured!r} or {_POINT_COL_ALIASES[logical]}); "
+            f"has {list(columns)}."
+        )
+
+    def resolve_points(self) -> list[tuple[str, float, float]]:
+        """Return the points as ``[(name, lat, lon), ...]`` from inline or CSV."""
+        if self.points is not None:
+            return [(p.name, p.lat, p.lon) for p in self.points]
+        df = pd.read_csv(self.path)
+        name_c = self._resolve_col(df.columns, "name", self.name_col)
+        lat_c = self._resolve_col(df.columns, "lat", self.lat_col)
+        lon_c = self._resolve_col(df.columns, "lon", self.lon_col)
+        return [
+            (str(r[name_c]), float(r[lat_c]), float(r[lon_c])) for _, r in df.iterrows()
+        ]
+
+
+class Points(Domain):
+    """Points domain: resample any dataset onto a fixed set of named points.
+
+    The parser builds a ``PointSurface`` target from the config's points and injects
+    it as the resample target, so the base ``apply`` template reprojects onto the
+    points and then ``_filter`` runs. Grouped (``select_name`` None) keeps every
+    point; a fan-out expansion selects its single named point.
+    """
+
+    config = PointsConfig
+    aliases = ["points", "pts"]
+
+    def _filter(self, data: "Data") -> "Data":
+        sel = self.domain_config.select_name
+        if sel is None:
+            return data
+        result = data.copy()
+        result.obj = data.obj.sel(site=[sel])
+        return result
 
 
 class ShapefileConfig(BaseDomainConfig):

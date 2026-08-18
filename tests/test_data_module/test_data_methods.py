@@ -267,6 +267,29 @@ class TestResampleVars:
         assert r1 is r2  # cache hit, no recompute
 
 
+class TestFromPoints:
+    def test_builds_point_surface_with_named_sites(self):
+        from ClimateGraph.data.point_surface import PointSurface
+
+        ps = PointSurface.from_points(
+            "t",
+            ["Alpha", "Beta", "Gamma"],
+            [-34.5, -35.0, -33.2],
+            [-71.0, -70.0, -70.5],
+        )
+        assert isinstance(ps, PointSurface)
+        assert list(ps.obj.site.values) == ["Alpha", "Beta", "Gamma"]
+        np.testing.assert_allclose(ps.obj["latitude"].values, [-34.5, -35.0, -33.2])
+        np.testing.assert_allclose(ps.obj["longitude"].values, [-71.0, -70.0, -70.5])
+
+    def test_geom_is_swath(self):
+        from ClimateGraph.data.point_surface import PointSurface
+
+        ps = PointSurface.from_points("t", ["A", "B"], [-34.5, -35.0], [-71.0, -70.0])
+        assert isinstance(ps.geom, SwathDefinition)
+        assert ps.geom.shape == (2,)
+
+
 class TestCopy:
     def test_returns_new_instance_same_class(self, regular_grid_data):
         copy = regular_grid_data.copy()

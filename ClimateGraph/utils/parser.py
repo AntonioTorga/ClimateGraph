@@ -6,7 +6,9 @@ import yaml
 from pydantic import ValidationError
 
 from ClimateGraph.data import Data
+from ClimateGraph.data.point_surface import PointSurface
 from ClimateGraph.domain import Domain
+from ClimateGraph.domain.domains import AttributeConfig, PointsConfig
 from ClimateGraph.plot import Plot
 from ClimateGraph.utils.control_model import ControlFile
 
@@ -15,11 +17,64 @@ log = logging.getLogger(__name__)
 FILE_READERS = {".json": json.load, ".yaml": yaml.safe_load, ".yml": yaml.safe_load}
 
 
+def _expansion_entries(name: str, model) -> list[tuple[str, object]] | None:
+    """Compute the per-value expansions for a ``one_for_each`` domain.
+
+    Returns ``[(expanded_name, expanded_model), ...]``, or ``None`` when the model
+    can't be expanded (so the caller leaves it as-is). Handles the two domain types
+    that carry ``one_for_each``:
+
+    - ``AttributeConfig``: one domain per ``field_value`` (needs a list), named
+      ``{name}__{value}``.
+    - ``PointsConfig``: one domain per named point, named by the point; each keeps
+      the full point set and gets a ``select_name`` so they share one resample
+      target and just ``.sel`` their site.
+    """
+    if isinstance(model, PointsConfig):
+        return [
+            (
+                pname,
+                model.model_copy(update={"select_name": pname, "one_for_each": False}),
+            )
+            for pname, _lat, _lon in model.resolve_points()
+        ]
+    if isinstance(model, AttributeConfig):
+        if not isinstance(model.field_value, list):
+            return None
+        return [
+            (
+                f"{name}__{value}",
+                model.model_copy(update={"field_value": value, "one_for_each": False}),
+            )
+            for value in model.field_value
+        ]
+    return None
+
+
+def _points_target(model: PointsConfig, cache: dict) -> PointSurface:
+    """Build (or reuse) the in-memory PointSurface target for a Points domain.
+
+    Memoized on the resolved points so all fan-out expansions of one block share a
+    single target object — giving them one resample-cache entry (keyed by the
+    target's unique name) instead of recomputing the projection per point. A new
+    distinct point set gets a fresh unique name so different geometries never
+    collide in the resample cache.
+    """
+    pts = tuple(model.resolve_points())
+    target = cache.get(pts)
+    if target is None:
+        names = [p[0] for p in pts]
+        lats = [p[1] for p in pts]
+        lons = [p[2] for p in pts]
+        target = PointSurface.from_points(
+            f"__points_target_{len(cache)}", names, lats, lons
+        )
+        cache[pts] = target
+    return target
+
+
 def _expand_domains(domain_models: dict) -> tuple[dict, dict[str, list[str]]]:
     """Expand domain configs flagged ``one_for_each`` into one config per value.
-
-    Only ``AttributeConfig`` carries ``one_for_each``; other domain types don't
-    have the attribute, so ``getattr(..., False)`` makes them a no-op here.
 
     Returns
     -------
@@ -35,20 +90,18 @@ def _expand_domains(domain_models: dict) -> tuple[dict, dict[str, list[str]]]:
             expanded[name] = model
             continue
 
-        field_value = model.field_value
-        if not isinstance(field_value, list):
+        entries = _expansion_entries(name, model)
+        if not entries:
             expanded[name] = model
             log.debug(
-                f"Attempted expansion of domain {name} but there was no expansible value en field_value. Left as is."
+                f"Attempted expansion of domain {name} but there was no expansible "
+                "value. Left as is."
             )
             continue
 
         generated_names = []
-        for value in field_value:
-            new_name = f"{name}__{value}"
-            expanded[new_name] = model.model_copy(
-                update={"field_value": value, "one_for_each": False}
-            )
+        for new_name, new_model in entries:
+            expanded[new_name] = new_model
             generated_names.append(new_name)
         rewrite_map[name] = generated_names
 
@@ -133,12 +186,18 @@ class Parser:
         rewrite_map = {}
         if valid.domains:
             expanded_domains, rewrite_map = _expand_domains(valid.domains)
+            # Points domains build their own in-memory target from the point set;
+            # memoize by the resolved points so every fan-out expansion (and the
+            # grouped case) shares one target -> one resample cache entry.
+            points_targets: dict[tuple, PointSurface] = {}
             for domain_name, domain_model in expanded_domains.items():
                 _type = domain_model.type
-                # Optional resample pre-step: resolve the target dataset name into
-                # the actual Data object so the domain can reproject onto its geometry.
+                # Optional resample pre-step: resolve the target geometry so the
+                # domain can reproject onto it.
                 target_data = None
-                if getattr(domain_model, "resample_to", None):
+                if isinstance(domain_model, PointsConfig):
+                    target_data = _points_target(domain_model, points_targets)
+                elif getattr(domain_model, "resample_to", None):
                     target_data = data.get(domain_model.resample_to)
                     if target_data is None:
                         raise ValueError(

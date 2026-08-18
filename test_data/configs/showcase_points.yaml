@@ -1,0 +1,74 @@
+# Showcase: the `points` domain — resample a dataset onto named points given
+# inline or from a CSV, without declaring the points as a full dataset.
+#
+# Two ways to supply points:
+#   - inline `points:` list of {name, lat, lon}
+#   - `path:` to a CSV (columns name + latitude/longitude; aliases lat/latitud,
+#     lon/longitud tolerated, override with name_col/lat_col/lon_col)
+#
+# Grouped (default): all points analysed together (a line plot shows their spatial
+# MEAN). `one_for_each: true`: expands into one domain per named point (one figure
+# each, titled/filed by the point name). All fan-out points share ONE resample.
+#
+# Point paths/datasets below are placeholders — repoint `data:`/`path:` at real
+# files to run.
+analysis:
+  output_path: "./results/showcase_points"
+
+data:
+  MODEL:
+    path: "/path/to/model/*.nc"
+    topology: RegularGrid
+    reader: chimere
+    vars:
+      NO2: {name: NO2, unit: ppb}
+      O3: {name: O3, unit: ppb}
+
+domains:
+  # Grouped: three named points, analysed together (spatial mean on a timeseries).
+  ciudades:
+    type: points
+    radius_of_influence: 15000
+    points:
+      - {name: Santiago, lat: -33.45, lon: -70.66}
+      - {name: Rancagua, lat: -34.17, lon: -70.74}
+      - {name: Valparaiso, lat: -33.05, lon: -71.62}
+
+  # Fan-out: one domain per named point (one figure each), named by the point.
+  cada_ciudad:
+    type: points
+    one_for_each: true
+    radius_of_influence: 15000
+    points:
+      - {name: Santiago, lat: -33.45, lon: -70.66}
+      - {name: Rancagua, lat: -34.17, lon: -70.74}
+      - {name: Valparaiso, lat: -33.05, lon: -71.62}
+
+  # Same, but the points come from a CSV (name,latitude,longitude).
+  desde_csv:
+    type: points
+    one_for_each: true
+    radius_of_influence: 15000
+    path: "/path/to/points.csv"
+
+plots:
+  # Grouped -> one line = mean over the three cities.
+  media_ciudades:
+    type: timeseries
+    data: [MODEL]
+    domains: [ciudades]
+    time: "1/7/2019 - 31/7/2019"
+    timestep: h
+    dim_reduce: {z: {method: isel, value: 0}}
+    vars: {NO2: ppb, O3: ppb}
+
+  # Fan-out -> one figure per city, filename/title carry the point name.
+  por_ciudad:
+    type: timeseries
+    data: [MODEL]
+    domains: [cada_ciudad]
+    title: "NO2 en {domain}"
+    time: "1/7/2019 - 31/7/2019"
+    timestep: h
+    dim_reduce: {z: {method: isel, value: 0}}
+    vars: {NO2: ppb}

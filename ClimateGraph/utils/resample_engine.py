@@ -120,10 +120,8 @@ class PyresampleEngine:
             if not lead:
                 return _run(block)
             k = int(np.prod(lead))
-            # (*lead, *src) -> (*src, *lead) -> (*src, k)
             moved = np.moveaxis(block, range(len(lead)), range(-len(lead), 0))
-            out = _run(moved.reshape((*src_shape, k)))  # -> (*dst_shape, k)
-            # (*dst, k) -> (*dst, *lead) -> (*lead, *dst)
+            out = _run(moved.reshape((*src_shape, k)))
             out = out.reshape((*dst_shape, *lead))
             return np.moveaxis(out, range(-len(lead), 0), range(len(lead)))
 

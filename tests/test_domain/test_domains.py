@@ -1,9 +1,13 @@
+import pytest
+
 from ClimateGraph.domain import Domain
 from ClimateGraph.domain.domains import (
     All,
     AllConfig,
     Attribute,
     AttributeConfig,
+    Points,
+    PointsConfig,
     Polygon,
     PolygonConfig,
     Shapefile,
@@ -212,6 +216,85 @@ class TestResampleStep:
         dom_b.apply(regular_grid_data)
 
         # Cache lives on the source; a single shared projection served both domains.
+        assert len(regular_grid_data._resample_cache) == 1
+
+
+class TestPointsDomain:
+    """Points domain: resample onto named points from inline / CSV, grouped or fanned."""
+
+    def _points(self):
+        return [
+            {"name": "Alpha", "lat": -34.5, "lon": -71.0},
+            {"name": "Beta", "lat": -35.0, "lon": -70.0},
+        ]
+
+    def _target(self):
+        from ClimateGraph.data.point_surface import PointSurface
+
+        pts = self._points()
+        return PointSurface.from_points(
+            "__points_target_0",
+            [p["name"] for p in pts],
+            [p["lat"] for p in pts],
+            [p["lon"] for p in pts],
+        )
+
+    def test_inline_config_parses(self):
+        cfg = PointsConfig(type="points", points=self._points())
+        assert cfg.resolve_points() == [
+            ("Alpha", -34.5, -71.0),
+            ("Beta", -35.0, -70.0),
+        ]
+
+    def test_csv_config_parses_with_aliases(self, tmp_path):
+        # Uses aliased headers (latitud/longitud) to exercise the alias resolver.
+        csv = tmp_path / "pts.csv"
+        csv.write_text("name,latitud,longitud\nAlpha,-34.5,-71.0\nBeta,-35.0,-70.0\n")
+        cfg = PointsConfig(type="pts", path=csv)
+        assert cfg.resolve_points() == [
+            ("Alpha", -34.5, -71.0),
+            ("Beta", -35.0, -70.0),
+        ]
+
+    def test_requires_exactly_one_source(self):
+        with pytest.raises(ValueError, match="exactly one"):
+            PointsConfig(type="points")  # neither
+        with pytest.raises(ValueError, match="exactly one"):
+            PointsConfig(type="points", path="x.csv", points=self._points())  # both
+
+    def test_grouped_apply_resamples_onto_all_points(self, regular_grid_data):
+        cfg = PointsConfig(type="points", points=self._points())
+        dom = Points("mypoints", domain_config=cfg, target_data=self._target())
+        result = dom.apply(regular_grid_data)
+        # Lands on the point geometry, named by the provided names, all kept.
+        assert list(result.obj.site.values) == ["Alpha", "Beta"]
+        assert "x" not in result.obj.dims
+        assert "Temperatura" in result.obj.data_vars
+
+    def test_fanout_filter_keeps_single_named_point(self, regular_grid_data):
+        cfg = PointsConfig(type="points", points=self._points(), select_name="Beta")
+        dom = Points("Beta", domain_config=cfg, target_data=self._target())
+        result = dom.apply(regular_grid_data)
+        assert list(result.obj.site.values) == ["Beta"]
+
+    def test_fanned_domains_share_one_resample(self, regular_grid_data):
+        # Grouped + a fan-out selection sharing the SAME target must reuse one
+        # resample cache entry on the source (the shared-target payoff).
+        target = self._target()
+        grouped = Points(
+            "mypoints",
+            domain_config=PointsConfig(type="points", points=self._points()),
+            target_data=target,
+        )
+        alpha = Points(
+            "Alpha",
+            domain_config=PointsConfig(
+                type="points", points=self._points(), select_name="Alpha"
+            ),
+            target_data=target,
+        )
+        grouped.apply(regular_grid_data)
+        alpha.apply(regular_grid_data)
         assert len(regular_grid_data._resample_cache) == 1
 
 

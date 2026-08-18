@@ -106,20 +106,17 @@ class Data(RegistryMixin, ABC):
         reader_kwargs : Dict[str, Any] | None, optional
             Other keyword arguments in Dict format passed directly to the Reader, allows for further reader specialization, by default None
         """
-        # This seems weird and unnecesary, but i'll keep it for now
         self.reader = reader
         self.reader_kwargs = {} if reader_kwargs is None else reader_kwargs
 
-        # Going to be set later
         self._obj = None
         self._geom = None
         self._resample_cache: dict = {}
         self._vars = normalize_vars(vars)
         self._path = None
-        self._bbox = None  # minlon, minlat, maxlon, maxlat
+        self._bbox = None
         self._dims = None
 
-        # Provided by user
         self.name = name
         self.path = path
         self.crs = crs
@@ -142,7 +139,7 @@ class Data(RegistryMixin, ABC):
         )
         new.obj = self._obj
         new._geom = self._geom
-        new._bbox = self._bbox  # minlon, minlat, maxlon, maxlat
+        new._bbox = self._bbox
         new._dims = self._dims
 
         return new
@@ -281,7 +278,6 @@ class Data(RegistryMixin, ABC):
         self._obj = self.reader.read(spec)
         return self._obj
 
-    # The var_name is the variable name not native to the file but as how it is referred in vars
     def get_var(
         self,
         var_name: str,
@@ -319,9 +315,6 @@ class Data(RegistryMixin, ABC):
         KeyError
             If the variable can't be found in the obj object.
         """
-        # After the reader runs the dataset is keyed by the user-facing names
-        # (dict vars are renamed; list/None vars keep their file-native names,
-        # which is what var_name already is), so var_name is the obj key.
         if var_name not in self.obj:
             raise KeyError(
                 f"Variable {var_name!r} not found in dataset {self.name!r} "
@@ -385,12 +378,10 @@ class Data(RegistryMixin, ABC):
         if len(missing_coords) > 0:
             raise KeyError(f"Coordinates {missing_coords} not in {self.name} dataset.")
 
-        # Keeps the initial coord_names because if one is missing function gets interrupted, and will never reach here.
         coords = [obj.coords[coord] for coord in coord_names]
         if as_array:
             coords = [array.to_numpy() for array in coords]
 
-        # If only one coord required return directly. Maybe not a great choice could lead to Runtime errors.
         if len(coords) == 1:
             coords = coords[0]
         return coords
@@ -463,10 +454,6 @@ class Data(RegistryMixin, ABC):
             info, self.geom.shape, other.geom.shape
         )
 
-        # Target geometry straight from self.obj (no data vars, no time axis): the
-        # geom-dim ORDER follows self.obj so it matches self.geom.shape, and the
-        # spatial coords (those depending only on the geom dims) are reattached to
-        # the result — this is how the source inherits site/region/lat/lon.
         dst_geom_dims = [d for d in self.obj.dims if d in set(self.geom_dims)]
         dst_sizes = {d: self.obj.sizes[d] for d in dst_geom_dims}
         dst_coords = {
@@ -477,7 +464,7 @@ class Data(RegistryMixin, ABC):
 
         resampled_vars = {}
         for var in vars:
-            var_src = other.get_var(var)  # keeps other's own time + extra dims
+            var_src = other.get_var(var)
             src_geom_dims = [d for d in var_src.dims if d in set(other.geom_dims)]
 
             resampled = xr.apply_ufunc(
@@ -492,13 +479,7 @@ class Data(RegistryMixin, ABC):
             resampled_vars[f"{var}__{other.name}"] = resampled.assign_coords(dst_coords)
 
         result = xr.Dataset(resampled_vars)
-        # The resample target is a small geometry (e.g. stations), so the projected
-        # result is tiny (~tens of MB). Materialize it ONCE here: the cache then
-        # holds concrete numpy, and every downstream op (domain filter,
-        # time_resampling's hourly mean, dim_reduce, reduce, render) runs eagerly in
-        # numpy instead of re-executing this whole dask graph on every subplot render
-        # (dask has no cross-compute memoization, so a lazy cache is recomputed each
-        # time — the dominant cost profiled on the chimere run).
+        # load so anything downstream doesn't re compute all processed until here
         result = result.load()
         _record(
             result,

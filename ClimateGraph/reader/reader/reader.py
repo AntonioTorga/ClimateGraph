@@ -79,13 +79,8 @@ class Reader(ABC):
 
         Reader.registry[topology][cls.__name__.lower()] = cls
 
-        # Only honour aliases declared on *this* class. Without the
-        # __dict__ filter, an alias on a parent (e.g. DefaultRegularGrid)
-        # would get re-bound to whichever child was imported last.
         for alias in cls.__dict__.get("type_aliases", []):
             Reader.registry[topology][alias.lower()] = cls
-
-    # ----- registry lookup ------------------------------------------------
 
     @classmethod
     def get_reader_subclass(cls, topology: str, reader: str) -> type[Reader]:
@@ -106,8 +101,6 @@ class Reader(ABC):
             reader.lower() in cls.registry[topology.lower()]
         )
 
-    # ----- public entry point --------------------------------------------
-
     @classmethod
     def read(cls, spec: ReadSpec) -> xr.Dataset:
         """Walk the lifecycle and return the assembled dataset."""
@@ -117,8 +110,6 @@ class Reader(ABC):
                 f"{cls.__name__}._resolve_paths returned no paths for {spec.paths}"
             )
 
-        # Replace the spec's paths with the resolved local paths so every
-        # downstream hook sees the post-download view.
         spec = ReadSpec(
             paths=local_paths,
             vars=spec.vars,
@@ -129,10 +120,6 @@ class Reader(ABC):
         )
 
         if spec.load_mode == "safe":
-            # _open_many is contracted to return a fully-preprocessed,
-            # combined Dataset (the default implementation wires
-            # _to_xarray + _preprocess as the open_mfdataset
-            # `preprocess=` callback, per file, in parallel).
             ds = cls._open_many(local_paths, spec)
         elif spec.load_mode == "unsafe":
             pieces = []
@@ -150,8 +137,6 @@ class Reader(ABC):
         ds = cls._postprocess(ds, spec)
         ds = cls._finalize(ds, spec)
         return ds
-
-    # ----- finalization (spec-driven, runs for every reader) --------------
 
     @classmethod
     def _finalize(cls, ds: xr.Dataset, spec: ReadSpec) -> xr.Dataset:
@@ -176,7 +161,6 @@ class Reader(ABC):
         ds = cls._save(ds, spec)
         return ds
 
-    # NetCDF filename suffixes accepted for ``save_to``.
     netcdf_suffixes: tuple[str, ...] = (".nc", ".nc4", ".netcdf", ".cdf")
 
     @classmethod
@@ -232,7 +216,6 @@ class Reader(ABC):
             native = var_spec.get("name")
             return native if native in ds else None
 
-        # first get base namespace — vars without an operation, by canonical name.
         base: dict[str, xr.DataArray] = dict()
         for var_name, var_spec in spec.vars.items():
             if var_spec.get("operation"):
@@ -241,24 +224,19 @@ class Reader(ABC):
             if key is not None:
                 base[var_name] = ds[key]
 
-        # evaluate the composed/transform vars against the base namespace.
         for var_name, var_spec in spec.vars.items():
             operation = var_spec.get("operation")
             if not operation:
                 continue
             namespace = base
             self_key = _key(var_name, var_spec)
-            if self_key is not None:  # in-place transform: expose own data
+            if self_key is not None:
                 namespace["x"] = ds[self_key]
                 namespace[var_name] = ds[self_key]
             result = apply_operation(operation, namespace)
-            # Write back to the existing key for a transform, or create the
-            # composed variable under its canonical name.
             ds[self_key if self_key is not None else var_name] = result
             _record(ds, f"applied operation on {var_name!r}: {operation}")
         return ds
-
-    # ----- lifecycle hooks (override these, not read) ---------------------
 
     @staticmethod
     def _apply_time_offset(ds: xr.Dataset, spec: ReadSpec) -> xr.Dataset:
@@ -292,12 +270,6 @@ class Reader(ABC):
         """
         return manage_path(spec.paths, sort=spec.load_mode == "unsafe")
 
-    # NetCDF defaults. Override for non-NetCDF formats; downstream
-    # _to_xarray will then turn the returned raw object into a Dataset.
-    # netcdf4 reads metadata via libnetcdf in C — far cheaper than
-    # h5netcdf's Python-level HDF5 dimension-scale walk, which previously
-    # dominated wall time on multi-file Chimere runs. Per-data-block
-    # override available via ``engine:`` in the YAML data entry.
     open_engine: str = "netcdf4"
 
     @classmethod
@@ -323,10 +295,6 @@ class Reader(ABC):
         engine = spec.engine or cls.open_engine
         return xr.open_mfdataset(
             paths,
-            # Chunk along time only; dims left unnamed (y/x/z) become a single
-            # chunk. resample_vars' apply_ufunc needs the spatial core dims
-            # contiguous, and it resamples one time-block per call, so a whole
-            # spatial slice per chunk is exactly the right granularity.
             chunks={"time": "auto"},
             engine=engine,
             parallel=engine != "netcdf4",

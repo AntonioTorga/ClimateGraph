@@ -8,8 +8,6 @@ from ClimateGraph.utils.registry import RegistryMixin
 if TYPE_CHECKING:
     from ClimateGraph.data.data import Data
 
-# TODO: Change the use of BaseModel for actual attributes to improve modularization.
-
 
 class Domain(RegistryMixin, ABC):
     """The Domain abstract class.
@@ -140,8 +138,6 @@ class Domain(RegistryMixin, ABC):
         Data
             The source data on the target's topology.
         """
-        # Self-projection is identity: when the incoming data IS the resample
-        # target, skip the resampling
         if data is self._resample_target:
             return data
         vars_list = list(data.obj.data_vars)

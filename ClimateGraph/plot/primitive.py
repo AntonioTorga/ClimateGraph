@@ -31,14 +31,8 @@ class Primitive(RegistryMixin, ABC):
     aliases: ClassVar[list[str]] = []
     config: ClassVar[type[BaseModel] | None] = None
 
-    # Coordinate roles a primitive must be given. Enforced fail-fast on the
-    # concrete config (see SubplotConfig._check_required_coords), so a missing
-    # ``x``/``y`` is a config error, not a runtime crash.
     required_coords: ClassVar[frozenset[str]] = frozenset()
-    # Whether ``render`` returns a colour mappable the orchestrator should hang a
-    # colorbar off of (contourf, coloured scatter). Lines don't.
     wants_colorbar: ClassVar[bool] = False
-    # Whether ``render`` returns an artist that belongs in a legend (a line).
     wants_legend: ClassVar[bool] = False
 
     def __init__(self, name: str, subplot_config: BaseModel, **kwargs):
@@ -54,8 +48,6 @@ class Primitive(RegistryMixin, ABC):
         """
         self.name = name
         self.subplot_config = subplot_config
-        # SubplotConfig sets extra="allow", so unknown keys (color, linewidth,
-        # alpha, ...) land in model_extra. Forward them straight to matplotlib.
         self.style = dict(getattr(subplot_config, "model_extra", None) or {})
 
     @classmethod

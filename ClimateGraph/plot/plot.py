@@ -66,17 +66,9 @@ def _grid_positions(
         base = list(np.linspace(lo, hi, n + 2)[1:-1])
 
     shift = offset * spacing
-    # Strictly inside the axis so shifted lines never overdraw the spines.
     return [p + shift for p in base if lo < p + shift < hi]
 
 
-# Which keys in plot_kwargs get routed to which matplotlib call. A given key
-# may legitimately belong to more than one sink (e.g. `dpi` applies to both
-# the figure and savefig), so the sets overlap on purpose. matplotlib rejects
-# kwargs it doesn't recognise (plt.figure -> Figure.set() AttributeError,
-# savefig -> TypeError), so we can't blindly splat all of plot_kwargs into
-# them; anything not listed here (titles, axis labels, ...) is left for the
-# individual plot methods to consume.
 FIGURE_KWARGS = {
     "figsize",
     "dpi",
@@ -178,10 +170,7 @@ class Plot(RegistryMixin, ABC):
         self.domains = domain_registry
         self.plot_kwargs = kwargs
 
-        self.output_path = Path(
-            output_path
-            / name  # This is going to be the appk output path + name of plot group
-        )
+        self.output_path = Path(output_path / name)
         self.output_path.mkdir(parents=True, exist_ok=True)
 
         self._done = False
@@ -358,8 +347,6 @@ class Plot(RegistryMixin, ABC):
             return
 
         if is_geo:
-            # Cartopy draws its own graticule; hand it the explicit positions so
-            # the count/offset match the regular-axes behaviour exactly.
             locs = {}
             if "x" in positions:
                 locs["xlocs"] = positions["x"]
@@ -368,7 +355,6 @@ class Plot(RegistryMixin, ABC):
             ax.gridlines(draw_labels=False, **locs, **style)
             return
 
-        # zorder=0 keeps the reference lines behind the plotted data.
         for value in positions.get("x", []):
             ax.axvline(value, zorder=0, **style)
         for value in positions.get("y", []):
