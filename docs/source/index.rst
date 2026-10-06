@@ -52,7 +52,7 @@ produced it.
    :caption: About ClimateGraph
 
    reference/control-file
-   about/overview 
+   about/overview
    about/credits
 
 .. toctree::

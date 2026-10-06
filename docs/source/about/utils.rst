@@ -6,7 +6,7 @@ Utilities
 Purpose
 -------
 
-The necessary tools shared by more than one main module. 
+The necessary tools shared by more than one main module.
 Everything here is used by more than one part of the
 framework, and nothing here knows about the framework's own objects — these
 operate on xarray, pandas and paths.

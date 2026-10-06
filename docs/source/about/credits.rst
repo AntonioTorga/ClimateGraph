@@ -9,7 +9,7 @@ Author
 
 Antonio Andrés Torga Mellado
 (`antonio.torga@ug.uchile.cl <mailto:antonio.torga@ug.uchile.cl>`_)
-Nicolas Huneeus 
+Nicolas Huneeus
 
 Data sources
 ------------

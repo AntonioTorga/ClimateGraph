@@ -9,7 +9,7 @@ Purpose
 A primitive is one drawable layer. Where a named plot type decides both what to
 compute and how it looks, a ``type: custom`` plot lets several primitives be
 composed onto shared axes, so a figure can be described rather than chosen from
-a list. Provides more flexibility for the user. The idea would be that Plots also 
+a list. Provides more flexibility for the user. The idea would be that Plots also
 use primitives underneath in the future.
 
 The division of labour

@@ -1,5 +1,4 @@
-"""Sphinx configuration for the ClimateGraph documentation.
-"""
+"""Sphinx configuration for the ClimateGraph documentation."""
 
 import sys
 from importlib.metadata import PackageNotFoundError
@@ -20,10 +19,10 @@ except PackageNotFoundError:
 
 
 extensions = [
-    "sphinx.ext.autodoc",  
-    "sphinx.ext.autosummary",  
-    "sphinx.ext.napoleon",  
-    "sphinx.ext.viewcode",  
+    "sphinx.ext.autodoc",
+    "sphinx.ext.autosummary",
+    "sphinx.ext.napoleon",
+    "sphinx.ext.viewcode",
     "sphinx.ext.intersphinx",
     "myst_parser",
 ]

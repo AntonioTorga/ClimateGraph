@@ -136,5 +136,3 @@ Co-location is not automatic
 Unknown fields are accepted silently
    Plot configs allow extra keys so they can be forwarded to matplotlib, which
    means a misspelled field name produces no error and no effect.
-
-

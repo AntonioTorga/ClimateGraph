@@ -62,7 +62,7 @@ file's ``analysis`` block onto the kernel, where the rest of the run reads it:
      - Number of dask threads. ``None`` means no cluster at all.
 
 The ``analysis`` block is validated by
-:class:`~ClimateGraph.utils.control_model.AnalysisModel`. No extra vars or mispelled vars 
+:class:`~ClimateGraph.utils.control_model.AnalysisModel`. No extra vars or mispelled vars
 are accepted here.
 
 Registries

@@ -6,7 +6,7 @@ Command line interface
 Purpose
 -------
 
-The CLI exposes the main routine of ClimateGraph. The entry point offered is a very general and 
+The CLI exposes the main routine of ClimateGraph. The entry point offered is a very general and
 configurable one. It is one canonical run — hand it a control file and it
 executes the analysis configured.
 

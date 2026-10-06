@@ -63,4 +63,3 @@ topology: ``default`` means something different for a regular grid than for a
 point surface. The flat, single-namespace registry here cannot express that, so
 ``Reader`` implements the same idea with its own ``__init_subclass__``, which also
 enforces that every reader declares the topology it belongs to.
-

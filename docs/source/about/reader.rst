@@ -38,8 +38,8 @@ overrides ``read`` itself.
 The two load modes differ only in **who drives the per-file loop**. In safe mode
 xarray's ``open_mfdataset`` does it and calls the per-file hooks through its
 ``preprocess`` argument; in unsafe mode the reader loops itself and joins the
-pieces. The same per-file hooks run either way. 
-There is nothing really safe or unsafe in either way, this is going to be renamed eventually, 
+pieces. The same per-file hooks run either way.
+There is nothing really safe or unsafe in either way, this is going to be renamed eventually,
 but it's just a way of providing two paths for file reading.
 
 ``_finalize`` centralizes final operations over the resulting xr.Dataset:

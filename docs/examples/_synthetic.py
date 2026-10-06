@@ -65,7 +65,6 @@ def make_grid(path: Path, nx: int = 30, ny: int = 22, days: int = 14) -> Path:
     )
     field = np.clip(field, 1.0, None)
 
-
     ds = xr.Dataset(
         {
             "pm25": (("time", "y", "x"), field.astype("float32")),

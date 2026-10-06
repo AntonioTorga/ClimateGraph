@@ -6,7 +6,7 @@ Configuration parsing
 Purpose
 -------
 
-Turning a control file into live objects happens in two modules. The pydantic check schema live in ``control_model.py``. 
+Turning a control file into live objects happens in two modules. The pydantic check schema live in ``control_model.py``.
 The reading and the construction live in ``parser.py``.
 
 The result is the three registries the rest of the run works from: the datasets,
@@ -55,7 +55,7 @@ Where the schema comes from
 ---------------------------
 
 The plot and domain schemas are not written out in ``control_model.py``. They are
-assembled at import time from the type registries. This allows the creation of new types 
+assembled at import time from the type registries. This allows the creation of new types
 without having to mess with the Model. Allowing the new type inclusion work to be limited to
 the new class.
 
@@ -67,7 +67,7 @@ plot type extends the config schema without touching this module. See
 :doc:`registry`.
 
 The checks that need to see more than one block sit on ``ControlFile`` and check domain and variable consistency
-between the plots blocks and the domain and data variables declaration. 
+between the plots blocks and the domain and data variables declaration.
 
 
 Reader keyword arguments

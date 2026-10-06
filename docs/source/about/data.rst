@@ -63,7 +63,7 @@ the dimensions it wants, and does not care whether the spatial dimensions it
 reduced away were ``x``/``y`` or ``site``.
 
 A ``Data`` object is constructed from the control file but reads nothing. The
-``obj`` property loads on first access, through the reader the dataset declared. So this is 
+``obj`` property loads on first access, through the reader the dataset declared. So this is
 the most probable first access to data and so the first get_var would trigger the read and take a little longer.
 
 Resampling between datasets
@@ -78,7 +78,7 @@ Because only ``geom_dims`` are treated as core dimensions, extra dimensions
 broadcast through automatically rather than breaking the projection.
 
 Results are memoized on the source, keyed by target, so several domains
-reprojecting onto the same target pay for the projection once. 
+reprojecting onto the same target pay for the projection once.
 The resample cache lives on the *source* ``other._resample_cache``, not on the target.
 
 Known limitation
@@ -89,4 +89,3 @@ The abstraction cannot cover satellite swath's yet. Committing to ``x``,
 swath's spatial coordinates *also* vary with time — the geometry moves. The
 current model assumes geometry is fixed and time is just another dimension
 alongside it.
-

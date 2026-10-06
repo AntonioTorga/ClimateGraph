@@ -33,7 +33,7 @@ Three blocks: where output goes, what data to read, what to draw.
 - ``plots`` maps a **name you choose** (``map``) to a figure, referring to the
   dataset by the handle you gave it.
 
-Omitting ``vars`` when defining a dataset (CHIM in this case) keeps every variable referable under its native name. 
+Omitting ``vars`` when defining a dataset (CHIM in this case) keeps every variable referable under its native name.
 Not easy to pull off when comparing one or more datasets (names must match natively)
 
 Run it
@@ -45,7 +45,7 @@ Run it
 
 Figures are written to ``output_path/<plot_name>/`` — here
 ``./results/quickstart/map/``. The filename encodes the variable and the
-resolved time window unless you override it with ``filename``. Be careful with this because 
+resolved time window unless you override it with ``filename``. Be careful with this because
 if a plot block produces more than one plot it can overwrite them (iterates through domains, vars, and time domains)
 
 For verbose logging from ClimateGraph itself:
@@ -114,7 +114,7 @@ instead, attach a resampling domain:
        vars: {PM25: "ug/m**3"}
 
 A domain does two things in order: an optional **reprojection**, requested with
-``resample_to`` and available on every domain type, that reprojects from the spatial structure 
+``resample_to`` and available on every domain type, that reprojects from the spatial structure
 of one dataset to another, followed by a **filter**,
 chosen with ``type``. ``all`` is the filter that keeps everything, so ``type:
 all`` plus ``resample_to`` is a pure reprojection with no subsetting.
