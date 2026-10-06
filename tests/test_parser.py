@@ -1,8 +1,10 @@
+import pytest
 import yaml
 
 from ClimateGraph import Data, Plot
+from ClimateGraph.domain.domains import AttributeConfig, PointsConfig
 from ClimateGraph.utils.control_model import ControlFile
-from ClimateGraph.utils.parser import Parser
+from ClimateGraph.utils.parser import Parser, _expand_domains, _points_target
 
 SAMPLE_YAML = """
 analysis:
@@ -36,12 +38,10 @@ data:
 plots:
   Timeseries:
     type: timeseries
-    time_interval: 1/1/2019 - 28/2/2019
+    time: 1/1/2019 - 28/2/2019
     timestep: h
-    base: DMC
-    other_data: WRF_D02
+    data: [DMC, WRF_D02]
     vars: [Temperatura, Presion]
-    radius_of_influence: 10000
 
 """
 
@@ -91,3 +91,150 @@ def test_input_reader_yml(tmp_path):
         assert isinstance(plot_instance, Plot)
 
     assert analysis["debug"] is True
+
+
+class TestExpandDomains:
+    def test_passthrough_when_one_for_each_false(self):
+        models = {
+            "station": AttributeConfig(
+                type="attr", field_name="station_id", field_value="STA01"
+            )
+        }
+        expanded, rewrite_map = _expand_domains(models)
+        assert expanded == models
+        assert rewrite_map == {}
+
+    def test_expands_list_into_one_domain_per_value(self):
+        models = {
+            "station": AttributeConfig(
+                type="attr",
+                field_name="station_id",
+                field_value=["STA01", "STA02", "STA03"],
+                one_for_each=True,
+            )
+        }
+        expanded, rewrite_map = _expand_domains(models)
+        assert set(expanded) == {"station__STA01", "station__STA02", "station__STA03"}
+        for name, value in zip(
+            ["station__STA01", "station__STA02", "station__STA03"],
+            ["STA01", "STA02", "STA03"],
+            strict=True,
+        ):
+            assert expanded[name].field_value == value
+            assert expanded[name].one_for_each is False
+        assert rewrite_map == {
+            "station": ["station__STA01", "station__STA02", "station__STA03"]
+        }
+
+    def test_non_list_field_value_with_one_for_each_is_noop(self):
+        models = {
+            "station": AttributeConfig(
+                type="attr",
+                field_name="station_id",
+                field_value="STA01",
+                one_for_each=True,
+            )
+        }
+        expanded, rewrite_map = _expand_domains(models)
+        assert expanded == models
+        assert rewrite_map == {}
+
+    def test_mixed_expanded_and_passthrough_domains(self):
+        models = {
+            "station": AttributeConfig(
+                type="attr",
+                field_name="station_id",
+                field_value=["STA01", "STA02"],
+                one_for_each=True,
+            ),
+            "santiago": AttributeConfig(
+                type="attr", field_name="region", field_value=13
+            ),
+        }
+        expanded, rewrite_map = _expand_domains(models)
+        assert set(expanded) == {"station__STA01", "station__STA02", "santiago"}
+        assert rewrite_map == {"station": ["station__STA01", "station__STA02"]}
+
+    def test_points_one_for_each_expands_per_named_point(self):
+        pts = [
+            {"name": "Alpha", "lat": -34.5, "lon": -71.0},
+            {"name": "Beta", "lat": -35.0, "lon": -70.0},
+        ]
+        models = {
+            "estacion": PointsConfig(type="points", points=pts, one_for_each=True)
+        }
+        expanded, rewrite_map = _expand_domains(models)
+        # Named by the provided point name; each keeps the full set + a select_name.
+        assert set(expanded) == {"Alpha", "Beta"}
+        assert expanded["Alpha"].select_name == "Alpha"
+        assert expanded["Beta"].select_name == "Beta"
+        assert expanded["Alpha"].points == expanded["Beta"].points  # full set kept
+        assert rewrite_map == {"estacion": ["Alpha", "Beta"]}
+
+    def test_points_grouped_passes_through(self):
+        pts = [{"name": "Alpha", "lat": -34.5, "lon": -71.0}]
+        models = {"grp": PointsConfig(type="points", points=pts)}
+        expanded, rewrite_map = _expand_domains(models)
+        assert set(expanded) == {"grp"}
+        assert rewrite_map == {}
+
+
+class TestPointsTarget:
+    def test_shared_target_memoized_by_points(self):
+        from ClimateGraph.data.point_surface import PointSurface
+
+        pts = [
+            {"name": "Alpha", "lat": -34.5, "lon": -71.0},
+            {"name": "Beta", "lat": -35.0, "lon": -70.0},
+        ]
+        cache: dict = {}
+        a = _points_target(
+            PointsConfig(type="points", points=pts, select_name="Alpha"), cache
+        )
+        b = _points_target(
+            PointsConfig(type="points", points=pts, select_name="Beta"), cache
+        )
+        assert a is b  # same points -> one shared target object
+        assert isinstance(a, PointSurface)
+        assert list(a.obj.site.values) == ["Alpha", "Beta"]
+        # A different point set gets a distinct target with a unique name.
+        c = _points_target(
+            PointsConfig(
+                type="points", points=[{"name": "Z", "lat": -33.0, "lon": -70.0}]
+            ),
+            cache,
+        )
+        assert c is not a
+        assert c.name != a.name
+
+
+@pytest.mark.slow
+class TestParseControlDomainExpansion:
+    def test_plot_domains_resolved_to_expanded_names(self, tmp_path):
+        yaml_with_domains = (
+            SAMPLE_YAML
+            + """
+domains:
+  station:
+    type: attr
+    field_name: codigoNacional
+    field_value: [330020, 330021]
+    one_for_each: true
+"""
+        )
+        # Reference the un-expanded domain name from the plot block.
+        yaml_with_domains = yaml_with_domains.replace(
+            "    vars: [Temperatura, Presion]\n",
+            "    vars: [Temperatura, Presion]\n    domains: [station]\n",
+        )
+
+        f = tmp_path / "control.yaml"
+        f.write_text(yaml_with_domains)
+
+        _analysis, _data, plots, domains = Parser.parse_control(f)
+
+        assert set(domains) == {"station__330020", "station__330021"}
+        assert plots["Timeseries"].plot_config.domains == [
+            "station__330020",
+            "station__330021",
+        ]

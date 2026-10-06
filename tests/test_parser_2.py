@@ -19,10 +19,8 @@ def config_file(tmp_path):
         "plots": {
             "plt1": {
                 "type": "timeseries",
-                "base": "DMC",
-                "other_data": "WRF_D02",
+                "data": "WRF_D02",
                 "vars": "Temperatura",
-                "radius_of_influence": 10000,
             }
         },
     }
@@ -45,4 +43,4 @@ def test_parse_control(config_file):
 
     assert isinstance(data["WRF_D02"], RegularGrid)
     assert isinstance(plts["plt1"], Timeseries)
-    assert plts["plt1"].plot_config.base == "DMC"
+    assert plts["plt1"].plot_config.data == ["WRF_D02"]

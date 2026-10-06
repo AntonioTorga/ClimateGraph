@@ -1,48 +1,36 @@
-import logging
+"""Spatial and attribute subsetting.
+
+A domain narrows a dataset to the part a plot is about. Applying one is a
+two-step template: an optional reprojection onto another dataset's geometry,
+then the subclass's filter.
+"""
+
 from abc import ABC, abstractmethod
-from typing import Annotated, Union
+from typing import TYPE_CHECKING
 
-import xarray as xr
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-logging.basicConfig(level=logging.INFO)  # TODO: make this settable from yaml file.
+from ClimateGraph.utils.registry import RegistryMixin
 
-# TODO: Change the use of BaseModel for actual attributes to improve modularization.
+if TYPE_CHECKING:
+    from ClimateGraph.data.data import Data
 
 
-class Domain(ABC):
+class Domain(RegistryMixin, ABC):
     """The Domain abstract class.
 
     A class that abstracts the domain definition and interface.
     This class contains and implements attributes and methods common to all the domain subclasses.
+
+    A domain application is a two-step template: an optional spatial *resample*
+    onto another dataset's geometry (``resample_to`` in the config), followed by
+    the subclass's own *filter* step (``_filter``). This lets a single domain
+    express "this data, on that geometry, for this subset".
     """
 
     registry: dict[str, type["Domain"]] = dict()
     aliases: list[str] = list()
     config: type["BaseModel"] | None = None
-
-    def __init_subclass__(cls, **kwargs):
-        """__init_subclass__ This Dunder method is being used to dinamically register all inheriting classes from Domain, this helps with Domain creation."""
-        super().__init_subclass__(**kwargs)
-        for name in cls.aliases:
-            Domain.registry[name] = cls
-        Domain.registry[cls.__name__.lower()] = cls
-
-    @classmethod
-    def build_config_union(cls) -> Annotated:
-        """build_config_union Build an Annotated Union object used for the Pydantic model.
-
-        Returns
-        -------
-        Annotated
-            Used for the Pydantic model, dicriminates by type used when creating the Domain objects.
-        """
-        configs = [
-            cls_.config for cls_ in Domain.registry.values() if cls_.config is not None
-        ]
-        # `Union[tuple(configs)]` unpacks the tuple at runtime — Ruff's UP007 must not
-        # rewrite this; doing so strips the Union and breaks Pydantic's discriminator.
-        return Annotated[Union[tuple(configs)], Field(discriminator="type")]  # noqa: UP007
 
     @classmethod
     def create(
@@ -50,8 +38,9 @@ class Domain(ABC):
         name: str,
         type: str,
         domain_config: BaseModel,
+        target_data: "Data | None" = None,
     ) -> "Domain":
-        """create Creation of a Domain object with the adequate Domain subclass. Meant to be applied over xr.Datasets or xr.DataArray
+        """Build a Domain of the subclass matching ``type``.
 
         Parameters
         ----------
@@ -61,6 +50,11 @@ class Domain(ABC):
             Type of Domain, used for lookup in the Domain registry.
         domain_config : BaseModel
             BaseModel object of the corresponding config as a Pydantic model. Used as arguments for the actual domain handling.
+        target_data : Data | None, optional
+            Resolved target dataset for the optional resample pre-step. The parser
+            resolves ``domain_config.resample_to`` (a dataset name) into the actual
+            ``Data`` object and passes it here. ``None`` when the domain does no
+            resampling. By default None.
 
         Returns
         -------
@@ -74,11 +68,18 @@ class Domain(ABC):
         return domain_class(
             name,
             domain_config=domain_config,
+            target_data=target_data,
             **kwargs,
         )
 
-    def __init__(self, name: str, domain_config: BaseModel, **kwargs):
-        """__init__ Domain initialization dunder method.
+    def __init__(
+        self,
+        name: str,
+        domain_config: BaseModel,
+        target_data: "Data | None" = None,
+        **kwargs,
+    ):
+        """Create a domain. ``target_data`` is the geometry to reproject onto, if any.
 
         Parameters
         ----------
@@ -86,56 +87,95 @@ class Domain(ABC):
             Name of the object, used for reference inside ClimateGraph execution.
         domain_config : BaseModel
             BaseModel object of the corresponding config as a Pydantic model. Used as arguments for the actual domain handling.
+        target_data : Data | None, optional
+            Resolved target dataset for the optional resample pre-step, or None
+            when the domain does no resampling. By default None.
         """
         self.domain_config = domain_config
 
         self.name = name
         self.domain_kwargs = kwargs
+        self._resample_target = target_data
 
     @classmethod
     def check_domain_class(cls, type: str) -> bool:
-        """check_domain_class Method for checking if a string correlates to a Domain subclass, meant to have the same lookup mechanism as get_domain_class
-
-        Parameters
-        ----------
-        type : str
-            String to lookup in Domain class registry.
-
-        Returns
-        -------
-        bool
-            Boolean representing whether the type string corresponds to any Domain subclass.
-        """
-        return type.lower() in cls.registry
+        """Return True if ``type`` names a registered domain."""
+        return cls.check_class(type)
 
     @classmethod
     def get_domain_class(cls, name: str):
-        """get_domain_class Method for getting a class object from a string, centralizes the lookup operation for further development of smart lookup.
+        """Look up a registered domain subclass by name."""
+        return cls.get_class(name)
+
+    def apply(self, data: "Data") -> "Data":
+        """Apply the domain: optional resample pre-step, then the filter step.
 
         Parameters
         ----------
-        name : str
-            String to lookup in Domain class registry.
+        data : Data
+            Data object into which the domain will be applied.
 
         Returns
         -------
-        type
-            Class object of adequate domain subclass.
+        Data
+            Data object with the domain applied. When ``resample_to`` is set the
+            result carries the target's topology/geometry (and the source's identity);
+            otherwise the topology is unchanged.
         """
-        return cls.registry[name.lower()]
+        if self._resample_target is not None:
+            data = self._resample(data)
+        return self._filter(data)
+
+    def _resample(self, data: "Data") -> "Data":
+        """Reproject ``data`` onto the resample target's geometry.
+
+        ``resample_vars`` is purely spatial, so the reprojected result keeps
+        ``data``'s own time axis and inherits the target's spatial coords (site /
+        region / lat / lon). It memoizes on the source, so several domains sharing a
+        ``resample_to`` target (a ``one_for_each`` fan-out, or many hand-written
+        domains onto one obs network) pay the projection cost once — the 2nd..Nth
+        ``_resample`` here hit that cache. The returned value is a cheap
+        target-topology wrapper wearing the SOURCE's identity (name + vars).
+
+        Parameters
+        ----------
+        data : Data
+            Source data to reproject.
+
+        Returns
+        -------
+        Data
+            The source data on the target's topology.
+        """
+        if data is self._resample_target:
+            return data
+        vars_list = list(data.obj.data_vars)
+        resampled_ds = self._resample_target.resample_vars(
+            data,
+            vars_list,
+            radius_of_influence=self.domain_config.radius_of_influence,
+            engine=self.domain_config.engine,
+            engine_kwargs=self.domain_config.engine_kwargs,
+        )
+        clean_ds = resampled_ds.rename({f"{v}__{data.name}": v for v in vars_list})
+        result = self._resample_target.copy()
+        result.obj = clean_ds
+        result.name = data.name
+        result._vars = data.vars
+        return result
 
     @abstractmethod
-    def apply(self, data: xr.Dataset | xr.DataArray) -> xr.Dataset | xr.DataArray:
-        """apply Abstract method meant for centralizing domain application logic.
+    def _filter(self, data: "Data") -> "Data":
+        """Subclass hook: narrow ``data`` (already resampled if requested).
 
         Parameters
         ----------
-        data : xr.Dataset | xr.DataArray
-            Xarray Dataset or DataArray into which the domain will be applied.
+        data : Data
+            Data object to filter.
 
         Returns
         -------
-        xr.Dataset|xr.DataArray
-            Dataset with the domain applied. If the domain didn't apply to the data then the original will be returned.
+        Data
+            Filtered Data object. If the filter doesn't apply, the original is returned.
         """
         pass

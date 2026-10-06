@@ -1,20 +1,34 @@
+"""The dataset abstraction.
+
+Brings datasets onto a common set of dimensions regardless of their format, file
+layout or shape, so the rest of the framework can work with them interchangeably.
+"""
+
+import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
 import cartopy.crs as ccrs
 import numpy as np
-import pandas as pd
 import xarray as xr
-from pyresample import kd_tree
 
 from ClimateGraph.reader import Reader
 from ClimateGraph.reader.reader.reader import ReadSpec
-from ClimateGraph.utils.dataset_utils import change_unit, time_resampling
+from ClimateGraph.utils.dataset_utils import (
+    _record,
+    change_unit,
+    dim_reduction,
+    normalize_vars,
+)
 from ClimateGraph.utils.general_utils import ReductionMethodEnum
+from ClimateGraph.utils.registry import RegistryMixin
+from ClimateGraph.utils.resample_engine import ResampleEngine, get_engine
+
+log = logging.getLogger(__name__)
 
 
-class Data(ABC):
+class Data(RegistryMixin, ABC):
     """The Data abstract class.
 
     A class that abstracts the core nature of environmental data, independent of the topology of the data.
@@ -22,60 +36,16 @@ class Data(ABC):
     """
 
     registry: dict[str, type["Data"]] = {}
-    type_aliases: list[str] = list()
-
-    # Allows for self registering, and alias registering, for then looking up the right Data Class.
-    def __init_subclass__(cls, **kwargs):
-        """__init_subclass__ This Dunder method is being used to dinamically register all inheriting classes from Data, this helps with Data creation."""
-        super().__init_subclass__(**kwargs)
-        Data.registry[cls.__name__.lower()] = cls
-
-        for alias in getattr(cls, "type_aliases", []):
-            Data.registry[alias.lower()] = cls
+    aliases: list[str] = list()
+    geom_dims: tuple[str, ...] = ()
 
     @classmethod
     def get_data_subclass(cls, name: str):
-        """get_data_subclass Method for getting a class object from a string, centralizes the lookup operation for further development of smart lookup.
-
-        Parameters
-        ----------
-        name : str
-            String to use for lookup in the Data registry
-
-        Returns
-        -------
-        type
-            Object of Data subclass requested
-
-        Raises
-        ------
-        ValueError
-            No subclass available for the requested string
-        """
-        _name = name.lower()
-        try:
-            data_class = cls.registry[_name]
-        except KeyError as err:
-            raise ValueError(
-                f"No type named {name} recognized. Options are {Data.registry.keys()} (case insensitive)."
-            ) from err
-        return data_class
+        return cls.get_class(name)
 
     @classmethod
-    def check_topology_type(cls, type: str):
-        """check_topology_type Method for checking if a string correlates to a Data subclass, meant to have the same lookup mechanism as get_data_subclass
-
-        Parameters
-        ----------
-        type : str
-            String to lookup in Data class registry.
-
-        Returns
-        -------
-        boolean
-            Boolean representing existence of a correlation between the provided string and a Data subclass.
-        """
-        return type.lower() in cls.registry
+    def check_topology_type(cls, type: str) -> bool:
+        return cls.check_class(type)
 
     @classmethod
     def create(
@@ -84,11 +54,11 @@ class Data(ABC):
         topology: str,
         reader: str,
         path: Path | list[Path],
-        vars: dict[str, dict[str, str]],
+        vars: dict[str, dict[str, str]] | list[str] | None,
         crs: ccrs,
         reader_kwargs: dict,
     ):
-        """create Creation of a Data object with the adequate Data subclass
+        """Build a Data object of the subclass matching ``topology``.
 
         Parameters
         ----------
@@ -120,12 +90,12 @@ class Data(ABC):
         self,
         name: str,
         path: Path | list[Path],
-        vars: dict[str, dict[str, str]],
+        vars: dict[str, dict[str, str]] | list[str] | None,
         reader: Reader,
         crs: ccrs.CRS,
         reader_kwargs: dict[str, Any] | None = None,
     ):
-        """__init__ Data initialization dunder method.
+        """Create a dataset handle. Nothing is read until ``obj`` is accessed.
 
         Parameters
         ----------
@@ -142,26 +112,23 @@ class Data(ABC):
         reader_kwargs : Dict[str, Any] | None, optional
             Other keyword arguments in Dict format passed directly to the Reader, allows for further reader specialization, by default None
         """
-        # This seems weird and unnecesary, but i'll keep it for now
         self.reader = reader
         self.reader_kwargs = {} if reader_kwargs is None else reader_kwargs
 
-        # Going to be set later
         self._obj = None
         self._geom = None
-        self._vars = vars
+        self._resample_cache: dict = {}
+        self._vars = normalize_vars(vars)
         self._path = None
-        self._bbox = None  # minlon, minlat, maxlon, maxlat
+        self._bbox = None
         self._dims = None
-        self.resampled = None
 
-        # Provided by user
         self.name = name
         self.path = path
         self.crs = crs
 
     def copy(self):
-        """copy Create an exact copy of the object and return it. Used for domain application.
+        """Return a copy of this object. Used when a domain produces a filtered dataset.
 
         Returns
         -------
@@ -178,20 +145,23 @@ class Data(ABC):
         )
         new.obj = self._obj
         new._geom = self._geom
-        new._bbox = self._bbox  # minlon, minlat, maxlon, maxlat
+        new._bbox = self._bbox
         new._dims = self._dims
-        new.resampled = self.resampled
 
         return new
 
     @abstractmethod
     def _set_geom(self):
-        """_set_geom Method for setting the Pyresample Geometry object used for resampling. Main method of the topology abstraction."""
+        """Build the pyresample geometry used for resampling.
+
+        The core of the topology abstraction: each topology defines its own
+        spatial geometry here.
+        """
         pass
 
     @property
     def obj(self) -> xr.Dataset:
-        """obj Property getter method for getting the obj object. Used for lazy loading of Data objects.
+        """The underlying dataset, loaded on first access.
 
         Returns
         -------
@@ -204,7 +174,7 @@ class Data(ABC):
 
     @obj.setter
     def obj(self, _obj: xr.Dataset):
-        """obj Property setter method for getting the obj object. Used for lazy loading of Data objects. Takes care of removing precomputed data for the previous Dataset.
+        """Replace the underlying dataset, clearing everything derived from the old one.
 
         Parameters
         ----------
@@ -215,7 +185,7 @@ class Data(ABC):
         self._bbox = None
         self._geom = None
         self._dims = None
-        self.resampled = None
+        self._resample_cache = {}
 
     @property
     def geom(self):
@@ -225,18 +195,43 @@ class Data(ABC):
 
     @property
     def vars(self):
-        """vars Property getter method for getting the vars.
+        """The variable names this dataset exposes.
 
         Returns
         -------
-        Dict[str, Dict[str, str]]
-            Dictionary where keys are Variable names, and the value is another Dictionary with "name" (with the name of the variable in the files) and "unit" (with the "pint" unit name for this variable) keys.
+        Dict[str, Dict[str, str]] | None
+            Normalized dict mapping each user-facing variable name to a dict with
+            "name" (file-native name) and "unit" (pint unit, possibly None)
+            keys, or None when the data block declared no vars, and vars will be treated
+            by native file names.
         """
         return self._vars
 
+    def var_unit(self, var_name: str) -> str | None:
+        """Resolve the declared source unit for ``var_name``.
+
+        Single choke point for reading a variable's declared unit, so callers
+        never index self.vars[...]["unit"]
+
+        Parameters
+        ----------
+        var_name : str
+            User-facing variable name.
+
+        Returns
+        -------
+        str | None
+            The declared pint unit, or ``None`` when vars wasn't declared.
+        """
+        if isinstance(self._vars, dict):
+            entry = self._vars.get(var_name)
+            if entry is not None:
+                return entry.get("unit")
+        return None
+
     @property
     def dims(self):
-        """dims Property getter method for getting a dimension mapping (dimension name to dimension size).
+        """Mapping of dimension name to dimension size.
 
         Returns
         -------
@@ -249,7 +244,7 @@ class Data(ABC):
 
     @property
     def bbox(self):
-        """bbox Property getter method for getting a bounding box around the spatial data.
+        """Bounding box around the spatial extent of the dataset.
 
         Returns
         -------
@@ -267,7 +262,7 @@ class Data(ABC):
         return self._bbox
 
     def load_obj(self):
-        """load_obj Load the actual data into the obj attribute by building
+        """Read the dataset into ``obj`` by building
         a ReadSpec and invoking ``reader.read(spec)``. ``load_mode``,
         ``cache_dir`` and ``engine`` are pulled out of ``reader_kwargs``
         if present; the remainder lives on ``spec.extras`` for the
@@ -293,7 +288,6 @@ class Data(ABC):
         self._obj = self.reader.read(spec)
         return self._obj
 
-    # The var_name is the variable name not native to the file but as how it is referred in vars
     def get_var(
         self,
         var_name: str,
@@ -302,8 +296,9 @@ class Data(ABC):
         keep_dims: str | list[str] | None = None,
         reduction_dims: str | list[str] | None = None,
         as_array: bool = False,
+        dim_reduce: dict[str, str | dict] | None = None,
     ) -> xr.DataArray | np.ndarray:
-        """get_var Get variable from the obj attribute.
+        """Get a variable, reduced and unit-converted, ready to draw.
 
         Parameters
         ----------
@@ -330,10 +325,15 @@ class Data(ABC):
         KeyError
             If the variable can't be found in the obj object.
         """
-        if var_name not in self.obj and self.vars[var_name]["name"] not in self.obj:
-            raise KeyError(f"Variable {var_name} not defined for dataset {self.name}.")
-        var_name = var_name if var_name in self.obj else self.vars[var_name]["name"]
+        if var_name not in self.obj:
+            raise KeyError(
+                f"Variable {var_name!r} not found in dataset {self.name!r} "
+                f"(available: {list(self.obj.data_vars)})."
+            )
         xa = self.obj.data_vars[var_name]
+
+        if dim_reduce is not None:
+            xa = dim_reduction(xa, dim_reduce, name=var_name)
 
         if reduction_func is not None:
             reduction_func = (
@@ -344,11 +344,13 @@ class Data(ABC):
             if reduction_dims is None and keep_dims is not None:
                 reduction_dims = list(set(self.dims) - set(keep_dims))
             xa = xa.reduce(reduction_func, reduction_dims)
+            _record(
+                xa,
+                f"reduced {var_name!r} over {reduction_dims} with {reduction_func.__name__}",
+            )
 
         if in_unit is not None:
-            src_unit = self.vars[var_name]["unit"]
-            dst_unit = in_unit
-            xa = change_unit(xa, src_unit, dst_unit)
+            xa = change_unit(xa, self.var_unit(var_name), in_unit)
 
         if as_array:
             xa = xa.to_numpy()
@@ -360,7 +362,7 @@ class Data(ABC):
         coord_names: list[str] | str,
         as_array: bool = False,
     ) -> list[xr.DataArray] | xr.DataArray | list[np.ndarray] | np.ndarray:
-        """get_coordinates Get coordinate from the obj attribute.
+        """Get one or more coordinates from the dataset.
 
         Parameters
         ----------
@@ -386,131 +388,121 @@ class Data(ABC):
         if len(missing_coords) > 0:
             raise KeyError(f"Coordinates {missing_coords} not in {self.name} dataset.")
 
-        # Keeps the initial coord_names because if one is missing function gets interrupted, and will never reach here.
         coords = [obj.coords[coord] for coord in coord_names]
         if as_array:
             coords = [array.to_numpy() for array in coords]
 
-        # If only one coord required return directly. Maybe not a great choice could lead to Runtime errors.
         if len(coords) == 1:
             coords = coords[0]
         return coords
 
-    # Might need to become a whole pairing engine in some time. But for now this will do
     def resample_vars(
         self,
         other: "Data",
-        vars: str | list[str] | dict[str, str],
-        timestep: str | None = None,
-        time_interval: str | None = None,
+        vars: str | list[str],
         radius_of_influence: int = 10000,
-        time_tolerance: str | None = "30min",
-        # reduction_dims: str | List[str] | None = None, reduction_func: Callable | None = None
-    ) -> xr.DataArray | xr.Dataset:
-        """resample_vars Resample the requested vars using Pyresample and the geom attributes. Until now only NearestNeighbour method is being used.
+        engine: str | ResampleEngine = "pyresample",
+        engine_kwargs: dict | None = None,
+    ) -> xr.Dataset:
+        """Project ``other``'s vars onto ``self``'s spatial geometry.
+
+        Purely spatial: each variable of ``other`` is reprojected onto ``self``'s
+        geometry with the requested engine, keeping ``other``'s own time axis and any
+        extra dims (z, member, …) untouched, and inheriting ``self``'s spatial
+        coordinates (site / latitude / longitude / region / …). It does NOT align time
+        or convert units — those are the caller's concern. Two sources with different
+        time extents resampled onto the same target never clobber each other.
+
+        The result is memoized on the source (``other._resample_cache``), keyed by
+        ``(self.name, vars, radius, engine, engine_kwargs)``, so repeated
+        ``resample_to`` domains sharing a target recompute the projection once and hit
+        the cache thereafter. The cache is invalidated whenever ``other.obj`` is
+        reassigned; the target's geometry is assumed stable across a run.
 
         Parameters
         ----------
         other : Data
-            Other data object to resample into the "self" geometry.
-        vars : str | List[str] | Dict[str, str]
-            Variable name, variable name list or dictionary where keys are Variable names, and the value can be a Mapping between variables and "pint" units, or a Dictionary with "name" (with the name of the variable in the files) and "unit" (with the "pint" unit name for this variable) keys.
-        timestep : str | None, optional
-            Timestep managed by the utils.TimestepEnum, by default None
-        time_interval : str | None, optional
-            Time interval in dd/mm/yyyy-dd/mm/yyyy or d/m/yyyy-d/m/yyyy, by default None
+            Data whose vars are reprojected onto ``self``'s geometry.
+        vars : str | list[str]
+            Variable name or list of names to resample.
         radius_of_influence : int, optional
-            Radius length in meters to use for resampling with nearest neighbours. Lower improves computation time but may result in less resulting data, by default 10000
-        time_tolerance : str | None, optional
-            Pandas-style timedelta used as the tolerance when snapping ``other``'s time axis onto ``self``'s via nearest-neighbour reindex. Handles cases where the two sources are on the same cadence but offset (e.g. CHIMERE at HH:30 vs. point-surface at HH:00). Set to ``None`` to disable snapping. Default ``"30min"``.
+            Radius length in meters to use for resampling. by default 10000
+        engine : str | ResampleEngine, optional
+            Resample backend name or instance. Default ``"pyresample"``.
+        engine_kwargs : dict | None, optional
+            Extra kwargs forwarded to the engine constructor
+            (e.g. ``method``, ``sigmas``). Default None.
 
         Returns
         -------
-        xr.DataArray | xr.Dataset
-            Resampled data, processed if requested (time alignment and time resampling).
+        xr.Dataset
+            One variable per input var, keyed ``"{var}__{other.name}"``, on
+            ``self``'s geometry and carrying ``other``'s time / extra dims.
         """
         if isinstance(vars, str):
             vars = [vars]
 
-        src_geom = other.geom
-        dst_geom = self.geom
+        engine_key = engine if isinstance(engine, str) else type(engine).__name__
+        cache_key = (
+            self.name,
+            tuple(sorted(vars)),
+            radius_of_influence,
+            engine_key,
+            tuple(sorted((engine_kwargs or {}).items())),
+        )
+        if cache_key in other._resample_cache:
+            log.debug("resample cache hit: %s -> %s (%s)", other.name, self.name, vars)
+            return other._resample_cache[cache_key]
 
-        valid_input, valid_output, index_array, dist_array = kd_tree.get_neighbour_info(
-            src_geom,
-            dst_geom,
+        resample_engine = get_engine(engine, **(engine_kwargs or {}))
+        info = resample_engine.prepare(
+            other.geom,
+            self.geom,
             radius_of_influence=radius_of_influence,
-            neighbours=1,
+        )
+        _resample = resample_engine.make_resampler(
+            info, self.geom.shape, other.geom.shape
         )
 
-        # Establish the destination time grid up front so var_src can be snapped onto
-        # it before resampling. Without this, sources whose time axis is offset from
-        # self's (e.g. CHIMERE labelled at HH:30 vs point-surface at HH:00) end up
-        # producing a resampled array whose time length doesn't match self's.
-        if self.resampled is None:
-            self.resampled = self.obj.drop_vars(list(self.obj.data_vars))
-            self.resampled = time_resampling(
-                self.resampled, timestep=timestep, time_interval=time_interval
-            )
+        dst_geom_dims = [d for d in self.obj.dims if d in set(self.geom_dims)]
+        dst_sizes = {d: self.obj.sizes[d] for d in dst_geom_dims}
+        dst_coords = {
+            name: coord
+            for name, coord in self.obj.coords.items()
+            if set(coord.dims) <= set(self.geom_dims)
+        }
 
-        new_vars = []
+        resampled_vars = {}
         for var in vars:
-            var_dst_dims = self.get_var(var).sizes
             var_src = other.get_var(var)
+            src_geom_dims = [d for d in var_src.dims if d in set(other.geom_dims)]
 
-            # assume that the caller wants the var either in a specified unit, or the unit of the base of resampling.
-            dst_unit = (
-                self.vars[var]["unit"] if isinstance(vars, list | str) else vars[var]
-            )
-            src_unit = other.vars[var]["unit"]
-            var_src = change_unit(var_src, src_unit, dst_unit)
-
-            # time resampling
-            var_src = time_resampling(
-                var_src, timestep=timestep, time_interval=time_interval
-            )
-
-            if time_tolerance is not None and "time" in var_src.dims:
-                var_src = var_src.reindex(
-                    time=self.resampled["time"],
-                    method="nearest",
-                    tolerance=pd.Timedelta(time_tolerance),
-                )
-
-            def _resample(x):
-                return kd_tree.get_sample_from_neighbour_info(
-                    "nn",
-                    dst_geom.shape,
-                    x,
-                    valid_input,
-                    valid_output,
-                    index_array,
-                    dist_array,
-                    fill_value=np.nan,
-                )
-
-            # Here if im resampling into a point surface topology then height will always get dropped. Unless its a point in space not surface.
             resampled = xr.apply_ufunc(
                 _resample,
                 var_src,
-                input_core_dims=[
-                    [d for d in var_src.dims if d != "time"]
-                ],  # remove time from core dims so it loops over just time
-                output_core_dims=[
-                    [d for d in var_dst_dims if d != "time"]
-                ],  # Produces a new array with the new geom minus time
-                vectorize=True,
+                input_core_dims=[src_geom_dims],
+                output_core_dims=[dst_geom_dims],
                 dask="parallelized",
                 output_dtypes=[var_src.dtype],
-                dask_gufunc_kwargs={
-                    "output_sizes": {
-                        name: value
-                        for name, value in var_dst_dims.items()
-                        if name != "time"
-                    }
-                },
+                dask_gufunc_kwargs={"output_sizes": dst_sizes},
             )
+            resampled_vars[f"{var}__{other.name}"] = resampled.assign_coords(dst_coords)
 
-            new_name = f"{var}__{other.name}"
-            self.resampled[new_name] = (var_dst_dims, resampled.data)
-            new_vars.append(new_name)
-        return self.resampled[new_vars]
+        result = xr.Dataset(resampled_vars)
+        # load so anything downstream doesn't re compute all processed until here
+        result = result.load()
+        _record(
+            result,
+            f"spatially resampled {list(resampled_vars)} from {other.name} "
+            f"({type(other).__name__}) to {self.name} ({type(self).__name__})",
+        )
+
+        save_to = self.reader_kwargs.get("save_resampled_to")
+        if save_to:
+            target = Path(save_to)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            result.to_netcdf(target)
+            _record(result, f"saved resampled data to {target}")
+
+        other._resample_cache[cache_key] = result
+        return result

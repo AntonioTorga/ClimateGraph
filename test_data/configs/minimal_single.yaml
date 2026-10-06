@@ -1,0 +1,15 @@
+# Smallest yaml ever!
+analysis:
+  output_path: "./test_data/results/minimal-single/"
+
+data:
+  CHIM:
+    path: "./test_data/data/chim-20*.nc"
+    topology: RegularGrid
+    reader: chimere
+
+plots:
+  map:
+    type: spatial-map
+    data: CHIM
+    vars: PM25

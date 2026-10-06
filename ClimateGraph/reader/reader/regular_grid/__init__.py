@@ -1,3 +1,5 @@
+"""Readers for gridded data."""
+
 import importlib
 import pkgutil
 

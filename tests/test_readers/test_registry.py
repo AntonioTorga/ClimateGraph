@@ -20,12 +20,16 @@ class TestRegistry:
 
     def test_csv_point_surface_readers_registered(self):
         bucket = Reader.registry["pointsurface"]
-        # The Chile CSV reader registers under its own name plus the CHILE
-        # alias, leaving the existing NetCDF SINCA reader untouched.
-        assert bucket["sincacsv"].__name__ == "SINCACSV"
-        assert bucket["chile"].__name__ == "SINCACSV"
-        assert bucket["saopaulo"].__name__ == "SAOPAULO"
-        assert bucket["quito"].__name__ == "QUITO"
+        # The CSV readers register by layout (one variable / one station / one
+        # file per dataset), leaving the existing NetCDF SINCA reader untouched.
+        assert bucket["variable-per-file"].__name__ == "VariablePerFileReader"
+        assert bucket["station-per-file"].__name__ == "StationPerFileReader"
+        assert bucket["single-file"].__name__ == "SingleFileReader"
+        # The old geographic names were removed (clean break).
+        assert "chile" not in bucket
+        assert "quito" not in bucket
+        assert "saopaulo" not in bucket
+        assert "sincacsv" not in bucket
         # The new readers must not shadow the existing NetCDF SINCA.
         assert bucket["sinca"].__name__ == "SINCA"
 

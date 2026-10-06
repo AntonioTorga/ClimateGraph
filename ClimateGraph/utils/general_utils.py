@@ -1,3 +1,9 @@
+"""Enums, path expansion and time parsing.
+
+The leaf utilities: how the control file's string values become real objects,
+and how paths and dates are interpreted.
+"""
+
 import datetime
 import glob
 import logging
@@ -7,16 +13,17 @@ from pathlib import Path
 
 import cartopy.crs as ccrs
 import numpy as np
+import pandas as pd
 from dateutil import parser
 
-logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__name__)
 
 CRS_TYPES = {"platecarree": ccrs.PlateCarree}
 TIME_INTERVAL_FORMAT = r"^(.+?)\s*(?:-|to)\s*(.+)$"  # Accepts "date - date" or "date to date" and a date should be in dayfirst format.
 
 
 class TimestepEnum(str, Enum):
-    """TimestepEnum Enum used for timestep handling. Keeps consistent timestep values."""
+    """Enum used for timestep handling. Keeps consistent timestep values."""
 
     business_day = "B"
     daily = "D"
@@ -33,7 +40,7 @@ class TimestepEnum(str, Enum):
 
 
 class TimeBucketEnum(str, Enum):
-    """TimeBucketEnum Enum used for timestep handling. Keeps consistent timestep values."""
+    """Enum used for timestep handling. Keeps consistent timestep values."""
 
     minute = "minute"
     hour = "hour"
@@ -44,7 +51,7 @@ class TimeBucketEnum(str, Enum):
 
 
 class ReductionMethodEnum(str, Enum):
-    """ReductionMethodEnum Enum used for Reduction Method handling. Keeps consistent Reduction methods values."""
+    """Enum used for Reduction Method handling. Keeps consistent Reduction methods values."""
 
     def __new__(cls, value, func):
         obj = str.__new__(cls, value)
@@ -58,7 +65,7 @@ class ReductionMethodEnum(str, Enum):
 
 
 class CRSEnum(str, Enum):
-    """CRSEnum Enum used for Coordinate Reference System handling. Keeps consistent CRS values."""
+    """Enum used for Coordinate Reference System handling. Keeps consistent CRS values."""
 
     def __new__(cls, value, crs):
         obj = str.__new__(cls, value)
@@ -73,7 +80,7 @@ def manage_path(
     paths: str | Path | list[str] | list[Path],
     sort: bool = False,
 ) -> list[Path]:
-    """manage_path Handles paths, including lists of paths and paths with hotkeys (*,?, etc).
+    """Handles paths, including lists of paths and glob patterns (``*``, ``?``).
 
     Parameters
     ----------
@@ -103,16 +110,16 @@ def manage_path(
 
         matches = glob.glob(str(p))
         if not matches:
-            logging.debug(f"No files match pattern: {raw}")
+            log.debug(f"No files match pattern: {raw}")
         result.extend(Path(m).resolve() for m in matches if Path(m).exists())
 
     if not result:
-        logging.debug(f"No files exist for paths: {paths}")
+        log.debug(f"No files exist for paths: {paths}")
 
     if sort:
         ordered = sorted(result)
         if ordered != result:
-            logging.warning(
+            log.warning(
                 "manage_path: input paths were not in lexicographic order; "
                 "sorted automatically. Confirm filenames embed a sortable "
                 "timestamp or callers that concat in input order will produce "
@@ -124,33 +131,129 @@ def manage_path(
     return result
 
 
-def manage_time_interval(
-    time_interval: str,
-) -> tuple[datetime.datetime, datetime.datetime]:
-    """manage_time_interval Manages time interval strings in the TIME_INTERVAL_FORMAT.
+# Coarsest-to-finest. Only resolutions coarser than "hour" expand to a full bucket
+_RESOLUTION_ORDER = ("year", "month", "day", "hour", "minute", "second")
+COARSE_OFFSETS = {
+    "day": pd.Timedelta(days=1),
+    "month": pd.DateOffset(months=1),
+    "year": pd.DateOffset(years=1),
+}
+
+
+def _parse_with_resolution(token: str) -> tuple[pd.Timestamp, str]:
+    """Parse a date token and detect its resolution.
 
     Parameters
     ----------
-    time_interval : str
-        String in TIME_INTERVAL_FORMAT
+    token : str
+        A single date/datetime in dayfirst format. With hours or without
 
     Returns
     -------
-    Tuple[datetime.datetime, datetime.datetime]
-        start datetime and end datetime.
+    tuple[pd.Timestamp, str]
+        The floored timestamp and its resolution (one of ``_RESOLUTION_ORDER``).
 
     Raises
     ------
     ValueError
-        Time interval provided doesn't meet the required format.
+        If the token isn't a parseable date.
     """
+    floored = parser.parse(token, dayfirst=True, default=datetime.datetime(1999, 1, 1))
+    probe = parser.parse(
+        token, dayfirst=True, default=datetime.datetime(2002, 7, 8, 9, 10, 11)
+    )
+
+    resolution = "year"
+    for field in _RESOLUTION_ORDER:
+        if getattr(floored, field) == getattr(probe, field):
+            resolution = field
+    return pd.Timestamp(floored), resolution
+
+
+def _bucket_end(value: pd.Timestamp, resolution: str) -> pd.Timestamp:
+    """End of the bucket ``value`` falls in, for its resolution.
+
+    For coarse resolutions (day/month/year) returns the last representable
+    instant of the bucket (start of the next bucket minus 1 ns), so an inclusive
+    ``slice`` covers the whole day/month/year without spilling into the next.
+    For hour-or-finer resolutions the value is an exact point and is returned
+    unchanged.
+    """
+    offset = COARSE_OFFSETS.get(resolution)
+    if offset is None:
+        return value
+    return value + offset - pd.Timedelta(1, "ns")
+
+
+def manage_time_interval(
+    time_interval: str,
+) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """Turn a time-interval string into (start, end).
+
+    Accepts either a single date or a "start - (or to) end" range. Each endpoint is treated
+    as an *interval covering its own resolution* when that resolution is coarser
+    than hourly
+
+    If the two endpoints have different resolutions, a warning is logged and each
+    is expanded on its own bucket (best-effort).
+
+    Parameters
+    ----------
+    time_interval : str
+        A single date or a ``"start [-|to] end"`` range in dayfirst format.
+
+    Returns
+    -------
+    tuple[pd.Timestamp, pd.Timestamp]
+        Start (bucket start of the first endpoint) and end (bucket end of the
+        last endpoint).
+
+    Raises
+    ------
+    ValueError
+        If an endpoint isn't a parseable date.
+    """
+    if time_interval is None:
+        return None, None
     time_interval = time_interval.strip()
-    if (match := re.match(TIME_INTERVAL_FORMAT, time_interval)) is None:
-        raise ValueError(
-            f"String {time_interval} could not be formatted into start and end times for a time interval.\nTime interval string must meet this format: {TIME_INTERVAL_FORMAT}"
+
+    # A separator splits a range; otherwise the whole string is a single date
+    # that spans its own bucket (start_str == end_str).
+    if (match := re.match(TIME_INTERVAL_FORMAT, time_interval)) is not None:
+        start_str, end_str = match.group(1), match.group(2)
+    else:
+        start_str = end_str = time_interval
+
+    start_val, start_res = _parse_with_resolution(start_str)
+    end_val, end_res = _parse_with_resolution(end_str)
+
+    if start_res != end_res:
+        log.warning(
+            "time_interval %r endpoints have different temporal resolutions "
+            "(%s vs %s); expanding each on its own bucket.",
+            time_interval,
+            start_res,
+            end_res,
         )
 
-    start = parser.parse(match.group(1), dayfirst=True)
-    end = parser.parse(match.group(2), dayfirst=True)
+    return start_val, _bucket_end(end_val, end_res)
 
-    return start, end
+
+def normalize_time(time: str | list[str] | None) -> list[str | None]:
+    """Coerce a plot's ``time`` field into a list of entries to
+    iterate over. A single date/interval/None becomes a one-element list; a
+    list passes through unchanged, fanning the plot out into one output per entry.
+
+    Parameters
+    ----------
+    time : str | list[str] | None
+        A single date/interval string, a list of them, or None.
+
+    Returns
+    -------
+    list[str | None]
+        Entries to iterate over, each independently valid for manage_time_interval.
+    """
+    if isinstance(time, list):
+        return time
+    return [time]

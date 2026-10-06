@@ -1,3 +1,5 @@
+"""Dataset abstraction and the topologies it supports."""
+
 from .data import Data
 from .point_surface import PointSurface
 from .regular_grid import RegularGrid

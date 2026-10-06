@@ -1,10 +1,80 @@
-import ast
-import operator as _op
+"""Transforms applied to xarray objects.
 
-import pint_xarray  # noqa: F401  — registers the `.pint` accessor on xarray DataArrays
+The steps a dataset passes through between being read and being drawn. Each
+mutating step records itself in the dataset's ``history`` attribute.
+"""
+
+import ast
+import logging
+import operator as _op
+from datetime import UTC, datetime
+
+import pint_xarray  # noqa: F401
 import xarray as xr
 
 from .general_utils import ReductionMethodEnum, manage_time_interval
+
+log = logging.getLogger(__name__)
+
+
+def _record(obj: xr.Dataset | xr.DataArray, entry: str) -> None:
+    """Append a timestamped entry to obj.attrs['history']."""
+    history = obj.attrs.get("history", [])
+    if not isinstance(history, list):
+        history = [history]  # handle pre-existing CF string history
+    log_item = f"{datetime.now(tz=UTC).isoformat(timespec='seconds')} {entry}"
+    history.append(log_item)
+    obj.attrs["history"] = history
+    log.debug(log_item)
+
+
+def dim_reduction(
+    obj: xr.Dataset | xr.DataArray,
+    spec: dict[str, str | dict],
+    name: str = "",
+) -> xr.Dataset | xr.DataArray:
+    """Apply per-dimension reductions/selections to an xarray object.
+
+    Parameters
+    ----------
+    obj : xr.Dataset | xr.DataArray
+        Data to reduce.
+    spec : dict[str, str | dict]
+        Mapping of dim name to reduction spec. Each value is either a string
+        method name (``"mean"``, ``"min"``, ``"max"``), or a dict with a
+        ``method`` key plus a ``value`` key for ``isel`` / ``sel``::
+
+            {"method": "isel", "value": 0}
+            {"method": "sel", "value": 5.0}
+            {"method": "mean"}
+    name : str
+        Identifier for history recording (e.g. dataset name or variable name).
+
+    Returns
+    -------
+    xr.Dataset | xr.DataArray
+        The object with the specified dimensions reduced/selected.
+    """
+    for dim, dim_spec in spec.items():
+        if dim not in obj.dims:
+            continue
+        method = (
+            dim_spec if isinstance(dim_spec, str) else dim_spec.get("method", "mean")
+        )
+        value = None if isinstance(dim_spec, str) else dim_spec.get("value")
+        if method == "isel":
+            idx = value if value is not None else 0
+            obj = obj.isel({dim: idx})
+            _record(obj, f"{name} selected {dim}={idx} via isel")
+        elif method == "sel":
+            obj = obj.sel({dim: value})
+            _record(obj, f"{name} selected {dim}={value} via sel")
+        else:
+            func = ReductionMethodEnum(method).func
+            obj = obj.reduce(func, dim)
+            _record(obj, f"{name} reduced {dim!r} with {method}")
+    return obj
+
 
 # TODO: make this into accessors
 
@@ -23,36 +93,35 @@ _ALLOWED_BINOPS = {
 _ALLOWED_UNARYOPS = {ast.UAdd: _op.pos, ast.USub: _op.neg}
 
 
-def apply_operation(xa: xr.DataArray, operation: str) -> xr.DataArray:
-    """apply_operation Apply a scalar arithmetic operation to a variable.
+def apply_operation(operation: str, variables: dict[str, xr.DataArray]) -> xr.DataArray:
+    """Evaluate a small arithmetic "operation" over variables.
 
-    Meant for unit conversions that pint can't express — e.g. mass/volume
-    (``ug/m**3``) to a mixing ratio (``ppb``), which is a multiply by a
-    constant factor for a given temperature and pressure.
+    Two uses:
+    - unit conversions pint can't express like operations over the data with constants (+273 for example)
+    - composing a new variable from others
 
-    ``operation`` is a small arithmetic expression in the variable ``x``,
-    e.g. ``"x * 0.8"`` or ``"x / 48 * 24.45"``. As a shorthand, a leading
-    binary operator implies ``x`` on the left: ``"*3"`` means ``"x * 3"``,
-    ``"/48"`` means ``"x / 48"``, ``"**2"`` means ``"x ** 2"``. Only
-    arithmetic on ``x`` and numeric constants is permitted.
+    "operation" is an arithmetic expression whose named vars are looked up in
+    variables (which carries the variable's own data under "x" plus the
+    canonical names of the available base variables). As a shorthand, a leading
+    binary operator implies x on the left: "*3" means "x * 3". Also **, /, and others available
 
     Parameters
     ----------
-    xa : xr.DataArray
-        Variable to transform.
     operation : str
         Arithmetic expression (see above).
+    variables : dict[str, xr.DataArray]
+        Names available to the expression mapped to their data.
 
     Returns
     -------
     xr.DataArray
-        The transformed variable. Name and coordinates are preserved.
+        The evaluated variable.
 
     Raises
     ------
     ValueError
-        If the expression contains anything other than arithmetic on ``x``
-        and numeric constants.
+        If the expression references a name not in variables, or contains
+        anything other than arithmetic and numeric constants.
     """
     expr = operation.strip()
     # Leading-operator shorthand: "*3" -> "x*3". `**` starts with `*` too,
@@ -69,18 +138,52 @@ def apply_operation(xa: xr.DataArray, operation: str) -> xr.DataArray:
             return _ALLOWED_UNARYOPS[type(node.op)](_eval(node.operand))
         if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
             return node.value
-        if isinstance(node, ast.Name) and node.id == "x":
-            return xa
+        if isinstance(node, ast.Name):
+            if node.id in variables:
+                return variables[node.id]
+            raise ValueError(
+                f"Operation {operation!r} references unknown variable "
+                f"{node.id!r}; available: {sorted(variables)}."
+            )
         raise ValueError(
-            f"Unsupported operation {operation!r}: only arithmetic on `x` "
-            "and numeric constants is allowed."
+            f"Unsupported operation {operation!r}: only arithmetic on declared variables and numeric constants is allowed."
         )
 
-    return _eval(ast.parse(expr, mode="eval"))
+    result = _eval(ast.parse(expr, mode="eval"))
+    _record(result, f"computed: {operation}")
+    return result
+
+
+def normalize_vars(
+    vars: dict[str, dict] | list[str] | None,
+) -> dict[str, dict] | None:
+    """Coerce the user-supplied ``vars`` into the canonical
+    dict-or-None shape the rest of the pipeline expects.
+
+    - a dict returned unchanged (today's full form, units optional);
+    - a plain list[str] of file-native names — expanded to an identity
+      mapping with null units, e.g. ``["PM10"] -> {"PM10": {"name": "PM10",
+      "unit": None, "operation": None}}``.
+    - None (omitted) — returned as ``None`` so the readers keep every
+      variable under its file-native name.
+
+    Parameters
+    ----------
+    vars : dict[str, dict] | list[str] | None
+        The raw vars declaration.
+
+    Returns
+    -------
+    dict[str, dict] | None
+        var dict mapping (cannonical names), or ``None`` when nothing was declared.
+    """
+    if isinstance(vars, list):
+        return {name: {"name": name, "unit": None, "operation": None} for name in vars}
+    return vars
 
 
 def variable_aggregation(ds: xr.Dataset, aggregation_dict: dict) -> xr.Dataset:
-    """variable_aggregation Creates new variable from variable aggregation.
+    """Creates new variable from variable aggregation.
 
     Parameters
     ----------
@@ -117,7 +220,7 @@ def time_resampling(
     time_interval: str | None = None,
     reduction_method: ReductionMethodEnum = ReductionMethodEnum.mean,
 ) -> xr.Dataset | xr.DataArray:
-    """time_resampling Implements time resampling and alignment.
+    """Implements time resampling and alignment.
 
     Parameters
     ----------
@@ -138,13 +241,17 @@ def time_resampling(
     if time_interval is not None:
         start, end = manage_time_interval(time_interval)
         ds = ds.sel({"time": slice(start, end)})
+        _record(ds, f"selected time interval {start} to {end}")
     if timestep is not None:
         ds = getattr(ds.resample(time=timestep), reduction_method.value)()
+        _record(ds, f"resampled time to {timestep} ({reduction_method.value})")
     return ds
 
 
-def change_unit(xa: xr.DataArray, src_unit: str, dst_unit: str) -> xr.DataArray:
-    """change_unit Unit conversion method for datasets.
+def change_unit(
+    xa: xr.DataArray, src_unit: str | None, dst_unit: str | None
+) -> xr.DataArray:
+    """Unit conversion method for datasets.
 
     Parameters
     ----------
@@ -160,6 +267,11 @@ def change_unit(xa: xr.DataArray, src_unit: str, dst_unit: str) -> xr.DataArray:
     xr.DataArray
         Data in the destination measure unit.
     """
+    if src_unit is None or dst_unit is None:
+        log.info(
+            f"Source unit or destination unit wasn't provided.\nLeaving {xa.name} in the provided unit. This will reflect in graphs."
+        )
+        return xa
     if src_unit == dst_unit:
         return xa  # No sense on performing any operations if it is already in the desired unit.
 
@@ -170,4 +282,6 @@ def change_unit(xa: xr.DataArray, src_unit: str, dst_unit: str) -> xr.DataArray:
     xa[var_name] = xa[var_name].pint.to(dst_unit)
     xa[var_name] = xa[var_name].pint.dequantify()
     xa = xa.set_coords(xa_coords)
-    return xa[var_name]
+    xa = xa[var_name]
+    _record(xa, f"converted {var_name} from {src_unit} to {dst_unit}")
+    return xa

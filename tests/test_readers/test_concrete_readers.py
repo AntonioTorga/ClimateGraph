@@ -61,8 +61,9 @@ class TestChimere:
         assert isinstance(ds, xr.Dataset)
         assert {"latitude", "longitude"}.issubset(ds.coords)
         assert "time" in ds.dims
-        # Default vertical_level=0 collapses the z axis.
-        assert "z" not in ds.dims
+        # z (bottom_top) is preserved — level selection now happens at resample time,
+        # not at read time, so the full vertical column is available downstream.
+        assert "z" in ds.dims
         assert "PM25_var" in ds.data_vars
 
     def test_unused_vars_dropped(self, chimere_file):
@@ -72,17 +73,6 @@ class TestChimere:
         )
         assert "O3" not in ds.data_vars
         assert "PM10" not in ds.data_vars
-
-    def test_vertical_level_kwarg(self, chimere_file):
-        # Explicit non-zero level — proves the knob exists and is wired.
-        reader = Reader.get_reader_subclass("RegularGrid", "chimere")
-        spec = ReadSpec(
-            paths=[chimere_file],
-            vars={"PM25_var": {"name": "PM25", "unit": "ug/m**3"}},
-            extras={"vertical_level": 1},
-        )
-        ds = reader.read(spec)
-        assert "z" not in ds.dims
 
 
 class TestDmc:

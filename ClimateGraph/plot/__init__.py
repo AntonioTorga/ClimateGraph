@@ -1,3 +1,5 @@
+"""Figure generation and the plot types available."""
+
 import importlib
 import pkgutil
 

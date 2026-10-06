@@ -1,3 +1,5 @@
+"""Readers: turning files into datasets."""
+
 import importlib
 import pkgutil
 

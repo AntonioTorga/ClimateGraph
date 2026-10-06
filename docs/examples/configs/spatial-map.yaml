@@ -1,0 +1,24 @@
+# One dataset on a map. A gridded dataset is drawn with filled contours.
+analysis:
+  output_path: "./docs/examples/output"
+
+data:
+  MODEL:
+    path: "./docs/examples/data/model.nc"
+    topology: RegularGrid
+    reader: defaultgrid
+    vars:
+      PM25: {name: pm25, unit: "ug/m**3"}
+
+plots:
+  spatial-map:
+    type: spatial-map
+    data: MODEL
+    time: "8/6/2021"
+    vars: {PM25: "ug/m**3"}
+    cmap: YlOrBr
+    levels: 14
+    title: "Modelled PM2.5, daily mean"
+    figsize: [7, 5.5]
+    dpi: 110
+    format: png

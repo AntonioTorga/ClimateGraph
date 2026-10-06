@@ -20,7 +20,7 @@ It is designed to be:
 - **WRF (Weather Research and Forecasting)** model outputs (gridded data)
 - **CHIMERE** model outputs (gridded data)
 - **DMC** and **SINCA** networks (point surface observations, NetCDF)
-- **CSV / Excel in-situ data**: SINCA (Chile), São Paulo and Quito readers
+- **CSV / Excel in-situ data**, by file layout: `station-per-file` (one CSV per station), `single-file` (one CSV with every station), and `variable-per-file` (one CSV per variable)
 
 - Designed for future support:
   - Satellite swath data

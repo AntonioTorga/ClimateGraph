@@ -1,0 +1,40 @@
+# A composed figure. Each subplot is a primitive drawn onto shared axes, so the
+# composition is described rather than chosen from a list of plot types.
+analysis:
+  output_path: "./docs/examples/output"
+
+data:
+  STATIONS:
+    path: "./docs/examples/data/stations.nc"
+    topology: PointSurface
+    reader: defaultpointsurface
+    vars:
+      PM25: {name: pm25, unit: "ug/m**3"}
+  MODEL:
+    path: "./docs/examples/data/model.nc"
+    topology: RegularGrid
+    reader: defaultgrid
+    vars:
+      PM25: {name: pm25, unit: "ug/m**3"}
+
+plots:
+  custom:
+    type: custom
+    time: "1/6/2021 - 7/6/2021"
+    vars: {PM25: "ug/m**3"}
+    title: "Composed figure: two sources on shared axes"
+    figsize: [10, 4]
+    grid: true
+    dpi: 110
+    format: png
+    subplots:
+      - type: series
+        dataset: STATIONS
+        x: time
+        label: Observations
+        color: black
+      - type: series
+        dataset: MODEL
+        x: time
+        label: Model
+        color: "tab:red"

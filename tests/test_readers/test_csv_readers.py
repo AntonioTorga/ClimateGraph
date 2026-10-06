@@ -1,6 +1,7 @@
-"""Tests for the in-situ CSV/Excel point-surface readers (Chile, São Paulo,
-Quito). These touch the sample files under ``test_data/data/DATOS-INSITU/`` so
-they are marked ``slow``; the whole module skips when that directory is absent.
+"""Tests for the in-situ CSV/Excel point-surface readers, named by file layout:
+station-per-file, single-file and variable-per-file. These touch the sample
+files under ``test_data/data/DATOS-INSITU/`` so they are marked ``slow``; the
+whole module skips when that directory is absent.
 """
 
 import numpy as np
@@ -26,11 +27,11 @@ def _spec(paths, vars, extras, load_mode="safe"):
 
 
 # --------------------------------------------------------------------------- #
-# Chile (SINCACSV / CHILE) — one file per station                             #
+# station-per-file — one CSV per station (Chile SINCA sample data)            #
 # --------------------------------------------------------------------------- #
 
 
-class TestSincaCsv:
+class TestStationPerFile:
     VARS = {
         "PM25": {"name": "PM25", "unit": "ug/m**3"},
         "PM10": {"name": "PM10", "unit": "ug/m**3"},
@@ -45,7 +46,7 @@ class TestSincaCsv:
 
     def test_contract(self, chile_spec):
         files, extras = chile_spec
-        reader = Reader.get_reader_subclass("PointSurface", "CHILE")
+        reader = Reader.get_reader_subclass("PointSurface", "station-per-file")
         ds = reader.read(_spec(files, self.VARS, extras))
 
         assert isinstance(ds, xr.Dataset)
@@ -62,24 +63,24 @@ class TestSincaCsv:
 
     def test_safe_equals_unsafe(self, chile_spec):
         files, extras = chile_spec
-        reader = Reader.get_reader_subclass("PointSurface", "CHILE")
+        reader = Reader.get_reader_subclass("PointSurface", "station-per-file")
         safe = reader.read(_spec(files, self.VARS, extras, "safe"))
         unsafe = reader.read(_spec(files, self.VARS, extras, "unsafe"))
         xr.testing.assert_equal(safe, unsafe)
 
     def test_missing_metadata_raises(self, chile_spec):
         files, _ = chile_spec
-        reader = Reader.get_reader_subclass("PointSurface", "CHILE")
+        reader = Reader.get_reader_subclass("PointSurface", "station-per-file")
         with pytest.raises(ValueError, match="metadata"):
             reader.read(_spec(files, self.VARS, {}))
 
 
 # --------------------------------------------------------------------------- #
-# São Paulo (SAOPAULO) — one file, all stations                               #
+# single-file — one CSV holding all stations (São Paulo sample data)          #
 # --------------------------------------------------------------------------- #
 
 
-class TestSaoPaulo:
+class TestSingleFile:
     VARS = {
         "O3": {"name": "o3", "unit": "ug/m**3"},
         "PM10": {"name": "pm10", "unit": "ug/m**3"},
@@ -93,7 +94,7 @@ class TestSaoPaulo:
 
     def test_contract(self, sp_spec):
         files, extras = sp_spec
-        reader = Reader.get_reader_subclass("PointSurface", "saopaulo")
+        reader = Reader.get_reader_subclass("PointSurface", "single-file")
         ds = reader.read(_spec(files, self.VARS, extras))
 
         assert set(ds.dims) == {"time", "site"}
@@ -108,7 +109,7 @@ class TestSaoPaulo:
 
     def test_timestamps_are_naive(self, sp_spec):
         files, extras = sp_spec
-        reader = Reader.get_reader_subclass("PointSurface", "saopaulo")
+        reader = Reader.get_reader_subclass("PointSurface", "single-file")
         ds = reader.read(_spec(files, self.VARS, extras))
         # tz stripped to naive local wall-clock (resolution-agnostic compare).
         assert np.issubdtype(ds["time"].dtype, np.datetime64)
@@ -118,17 +119,17 @@ class TestSaoPaulo:
         # The export overlaps at the Aug/Sep boundary; the reader must yield a
         # unique time axis rather than erroring on the duplicate rows.
         files, extras = sp_spec
-        reader = Reader.get_reader_subclass("PointSurface", "saopaulo")
+        reader = Reader.get_reader_subclass("PointSurface", "single-file")
         ds = reader.read(_spec(files, self.VARS, extras))
         assert ds.indexes["time"].is_unique
 
 
 # --------------------------------------------------------------------------- #
-# Quito (QUITO) — one file per variable                                       #
+# variable-per-file — one CSV per variable (Quito sample data)                #
 # --------------------------------------------------------------------------- #
 
 
-class TestQuito:
+class TestVariablePerFile:
     VARS = {
         "CO": {"name": "CO", "unit": "mg/m**3"},
         "NO2": {"name": "NO2", "unit": "ug/m**3"},
@@ -148,7 +149,7 @@ class TestQuito:
 
     def test_contract(self, quito_spec):
         files, extras = quito_spec
-        reader = Reader.get_reader_subclass("PointSurface", "quito")
+        reader = Reader.get_reader_subclass("PointSurface", "variable-per-file")
         ds = reader.read(_spec(files, self.VARS, extras))
 
         assert set(ds.dims) == {"time", "site"}
@@ -166,7 +167,7 @@ class TestQuito:
         # "Guamaní"/"El Camal" in the Excel must match the "GUAMANI"/"ELCAMAL"
         # CSV headers via accent/space normalisation.
         files, extras = quito_spec
-        reader = Reader.get_reader_subclass("PointSurface", "quito")
+        reader = Reader.get_reader_subclass("PointSurface", "variable-per-file")
         ds = reader.read(_spec(files, self.VARS, extras))
         for site in ("GUAMANI", "ELCAMAL"):
             lat = ds["latitude"].sel(site=site).item()
@@ -174,7 +175,7 @@ class TestQuito:
 
     def test_safe_equals_unsafe(self, quito_spec):
         files, extras = quito_spec
-        reader = Reader.get_reader_subclass("PointSurface", "quito")
+        reader = Reader.get_reader_subclass("PointSurface", "variable-per-file")
         safe = reader.read(_spec(files, self.VARS, extras, "safe"))
         unsafe = reader.read(_spec(files, self.VARS, extras, "unsafe"))
         xr.testing.assert_equal(safe, unsafe)
@@ -182,6 +183,6 @@ class TestQuito:
     def test_missing_var_files_raises(self, quito_spec):
         files, extras = quito_spec
         extras = {k: v for k, v in extras.items() if k != "var_files"}
-        reader = Reader.get_reader_subclass("PointSurface", "quito")
+        reader = Reader.get_reader_subclass("PointSurface", "variable-per-file")
         with pytest.raises(ValueError, match="var_files"):
             reader.read(_spec(files, self.VARS, extras))

@@ -6,7 +6,7 @@ data:
   SAOPAULO:
     path: "./test_data/data/DATOS-INSITU/SAOPAULO/obs_sp_aug_sep_2024.csv"
     topology: PointSurface
-    reader: SAOPAULO
+    reader: single-file
     metadata: "./test_data/data/DATOS-INSITU/SAOPAULO/stations.csv"
     vars:
       O3:
@@ -19,8 +19,8 @@ data:
 plots:
   TC:
     type: timecycle
-    base: "SAOPAULO"
-    time_interval: "1/8/2024-30/9/2024"
+    data: "SAOPAULO"
+    time: "1/8/2024-30/9/2024"
     timestep: "h"
     time_buckets: "hour"
     vars:

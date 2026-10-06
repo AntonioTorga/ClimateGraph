@@ -1,3 +1,8 @@
+"""Satellite swath topology.
+
+not usable yet
+"""
+
 from pyresample.geometry import SwathDefinition
 
 from .data import Data

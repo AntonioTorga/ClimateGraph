@@ -1,0 +1,31 @@
+# Mean diurnal cycle. The first dataset listed is the reference and gets the
+# standard-deviation band.
+analysis:
+  output_path: "./docs/examples/output"
+
+data:
+  STATIONS:
+    path: "./docs/examples/data/stations.nc"
+    topology: PointSurface
+    reader: defaultpointsurface
+    vars:
+      PM25: {name: pm25, unit: "ug/m**3"}
+  MODEL:
+    path: "./docs/examples/data/model.nc"
+    topology: RegularGrid
+    reader: defaultgrid
+    vars:
+      PM25: {name: pm25, unit: "ug/m**3"}
+
+plots:
+  timecycle:
+    type: timecycle
+    data: [STATIONS, MODEL]
+    time: "1/6/2021 - 14/6/2021"
+    time_buckets: hour
+    vars: {PM25: "ug/m**3"}
+    title: "Mean diurnal cycle of PM2.5"
+    figsize: [8, 4.5]
+    grid: true
+    dpi: 110
+    format: png

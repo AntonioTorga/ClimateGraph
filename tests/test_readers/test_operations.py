@@ -12,6 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 import xarray as xr
 
 from ClimateGraph.reader.reader.reader import Reader, ReadSpec
@@ -19,6 +20,13 @@ from ClimateGraph.reader.reader.reader import Reader, ReadSpec
 
 def _ds() -> xr.Dataset:
     return xr.Dataset({"PM25": ("time", [1.0, 2.0, 3.0])}, coords={"time": [0, 1, 2]})
+
+
+def _ab() -> xr.Dataset:
+    return xr.Dataset(
+        {"A": ("time", [1.0, 2.0]), "B": ("time", [3.0, 4.0])},
+        coords={"time": [0, 1]},
+    )
 
 
 class TestApplyOperations:
@@ -49,14 +57,64 @@ class TestApplyOperations:
         out = Reader._apply_operations(ds, ReadSpec(paths=[]))
         xr.testing.assert_identical(out, ds)
 
-    def test_missing_variable_is_skipped(self):
+    def test_undefined_self_reference_raises(self):
+        # "Absent" declares a self-transform ("*3" -> "x*3") but its own data
+        # isn't in the dataset, so `x` is undefined -> error (no silent skip).
         ds = _ds()
         spec = ReadSpec(
             paths=[],
             vars={"Absent": {"name": "absent", "unit": "ppb", "operation": "*3"}},
         )
-        out = Reader._apply_operations(ds, spec)
-        xr.testing.assert_identical(out, ds)
+        with pytest.raises(ValueError, match="unknown variable"):
+            Reader._apply_operations(ds, spec)
+
+
+class TestComposedVariables:
+    def test_compose_new_var_from_bases_by_name(self):
+        spec = ReadSpec(
+            paths=[],
+            vars={
+                "A": {"name": "A", "unit": None},
+                "B": {"name": "B", "unit": None},
+                "C": {"unit": None, "operation": "A + B"},
+            },
+        )
+        out = Reader._apply_operations(_ab(), spec)
+        np.testing.assert_allclose(out["C"].values, [4.0, 6.0])
+        # base vars untouched
+        np.testing.assert_allclose(out["A"].values, [1.0, 2.0])
+
+    def test_self_reference_by_canonical_name(self):
+        spec = ReadSpec(
+            paths=[], vars={"PM25": {"name": "PM25", "operation": "PM25 * 3"}}
+        )
+        out = Reader._apply_operations(_ds(), spec)
+        np.testing.assert_allclose(out["PM25"].values, [3.0, 6.0, 9.0])
+
+    def test_reference_undefined_variable_raises(self):
+        spec = ReadSpec(
+            paths=[],
+            vars={
+                "A": {"name": "A", "unit": None},
+                "C": {"unit": None, "operation": "A + Z"},
+            },
+        )
+        with pytest.raises(ValueError, match="unknown variable 'Z'"):
+            Reader._apply_operations(_ab(), spec)
+
+    def test_reference_other_composed_variable_raises(self):
+        # D is composed (has an operation), so it's not a base var and C may not
+        # reference it -> error (avoids evaluation-order chains).
+        spec = ReadSpec(
+            paths=[],
+            vars={
+                "A": {"name": "A", "unit": None},
+                "D": {"unit": None, "operation": "A * 2"},
+                "C": {"unit": None, "operation": "D + 1"},
+            },
+        )
+        with pytest.raises(ValueError, match="unknown variable 'D'"):
+            Reader._apply_operations(_ab(), spec)
 
 
 def test_read_applies_operation_end_to_end():

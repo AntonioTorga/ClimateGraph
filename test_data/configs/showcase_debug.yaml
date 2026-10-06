@@ -1,0 +1,26 @@
+# ============================================================================
+# Showcase: DEBUG logging
+# ----------------------------------------------------------------------------
+# `debug: true` (or the CLI flag `--debug`, which overrides this) raises the log
+# level to DEBUG, so each data operation records its traceback (read, unit
+# conversion, dimension reduction, ...). Deliberately tiny — one dataset, one
+# map — so the focus stays on the extra log output, not the plot.
+# ============================================================================
+analysis:
+  output_path: "./test_data/results/showcase-debug/"
+  debug: true
+
+data:
+  WRF:
+    path: "./test_data/data/wrf-2019-*.nc"
+    topology: RegularGrid
+    reader: wrf
+    vars:
+      Temperatura: {name: T2, unit: kelvin}
+
+plots:
+  map:
+    type: spatial-map
+    data: WRF
+    time: "1/1/2019 - 1/2/2019"
+    vars: [Temperatura]

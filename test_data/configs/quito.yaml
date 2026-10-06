@@ -7,7 +7,7 @@ data:
     path: ["./test_data/data/DATOS-INSITU/QUITO/CO_Sep22.csv",
            "./test_data/data/DATOS-INSITU/QUITO/NO2_Sep22.csv"]
     topology: PointSurface
-    reader: QUITO
+    reader: variable-per-file
     metadata: "./test_data/data/DATOS-INSITU/QUITO/EstacionesCoordenadas.xlsx"
     var_files: {CO: "CO_Sep22.csv", NO2: "NO2_Sep22.csv"}
     vars:
@@ -21,8 +21,8 @@ data:
 plots:
   TC:
     type: timecycle
-    base: "QUITO"
-    time_interval: "1/9/2022-30/9/2022"
+    data: "QUITO"
+    time: "1/9/2022-30/9/2022"
     timestep: "h"
     time_buckets: "hour"
     vars:

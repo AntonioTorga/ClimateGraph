@@ -37,9 +37,9 @@ class TestTimeseriesPlot:
     def test_runs_with_list_vars(self, regular_grid_data, tmp_output_dir):
         cfg = TimeSeriesConfig(
             type="timeseries",
-            base="grid_stub",
+            data="grid_stub",
             vars=["Temperatura"],
-            time_interval=TIME_INTERVAL,
+            time=TIME_INTERVAL,
         )
         plot = Timeseries(
             name="ts_list",
@@ -54,12 +54,12 @@ class TestTimeseriesPlot:
     def test_runs_with_dict_vars_triggers_unit_conversion(
         self, regular_grid_data, tmp_output_dir
     ):
-        # Dict form exercises the change_unit branch on the base dataset.
+        # Dict form exercises the change_unit branch on the dataset.
         cfg = TimeSeriesConfig(
             type="ts",
-            base="grid_stub",
+            data="grid_stub",
             vars={"Temperatura": "kelvin"},
-            time_interval=TIME_INTERVAL,
+            time=TIME_INTERVAL,
         )
         plot = Timeseries(
             name="ts_dict",
@@ -74,9 +74,9 @@ class TestTimeseriesPlot:
     def test_custom_filename_honored(self, regular_grid_data, tmp_output_dir):
         cfg = TimeSeriesConfig(
             type="ts",
-            base="grid_stub",
+            data="grid_stub",
             vars=["Temperatura"],
-            time_interval=TIME_INTERVAL,
+            time=TIME_INTERVAL,
             filename="custom.jpg",
         )
         plot = Timeseries(
@@ -89,14 +89,77 @@ class TestTimeseriesPlot:
         plot.plot()
         assert (tmp_output_dir / "ts_named" / "custom.jpg").exists()
 
+    def test_list_time_produces_one_output_per_entry(
+        self, regular_grid_data, tmp_output_dir
+    ):
+        # Fixture spans 2019-01-01..06; split into two non-overlapping windows.
+        cfg = TimeSeriesConfig(
+            type="ts",
+            data="grid_stub",
+            vars=["Temperatura"],
+            time=["1/1/2019 - 3/1/2019", "4/1/2019 - 6/1/2019"],
+        )
+        plot = Timeseries(
+            name="ts_multi_time",
+            plot_config=cfg,
+            data_registry={"grid_stub": regular_grid_data},
+            domain_registry={},
+            output_path=tmp_output_dir,
+        )
+        plot.plot()
+        outputs = _outputs(tmp_output_dir, "ts_multi_time")
+        assert len(outputs) == 2
+        names = {p.name for p in outputs}
+        assert any("01-01-2019_03-01-2019" in n for n in names)
+        assert any("04-01-2019_06-01-2019" in n for n in names)
+
+    def test_resample_domain_in_timeseries(
+        self, regular_grid_data, point_surface_data, tmp_output_dir
+    ):
+        # 12b payoff: a resample_to domain (grid -> stations) used in a NAMED plot
+        # used to crash (KeyError Temperatura__...) because the plot resampled
+        # internally first. Now the domain applies to raw Data, so it just works.
+        from ClimateGraph.domain.domains import Attribute, AttributeConfig
+
+        cfg = AttributeConfig(
+            type="attr",
+            resample_to="point_stub",
+            radius_of_influence=500_000,
+            field_name="region",
+            field_value=13,
+        )
+        dom = Attribute(
+            "at_stations", domain_config=cfg, target_data=point_surface_data
+        )
+
+        plot_cfg = TimeSeriesConfig(
+            type="ts",
+            data=["point_stub", "grid_stub"],  # stations + grid-sampled-at-stations
+            domains=["at_stations"],
+            vars=["Temperatura"],
+            time=TIME_INTERVAL,
+        )
+        plot = Timeseries(
+            name="ts_resampled",
+            plot_config=plot_cfg,
+            data_registry={
+                "grid_stub": regular_grid_data,
+                "point_stub": point_surface_data,
+            },
+            domain_registry={"at_stations": dom},
+            output_path=tmp_output_dir,
+        )
+        plot.plot()  # must not raise
+        assert _outputs(tmp_output_dir, "ts_resampled")
+
 
 class TestTimeCyclePlot:
     def test_runs_with_day_bucket(self, regular_grid_data, tmp_output_dir):
         cfg = TimeCycleConfig(
             type="cycle",
-            base="grid_stub",
+            data="grid_stub",
             vars=["Temperatura"],
-            time_interval=TIME_INTERVAL,
+            time=TIME_INTERVAL,
             time_buckets="day",
         )
         plot = TimeCycle(
@@ -130,11 +193,9 @@ class TestTimeCyclePlot:
 
         cfg = TimeCycleConfig(
             type="cycle",
-            base="grid_stub",
-            other_data=["point_stub"],
-            radius_of_influence=500_000,
+            data=["grid_stub", "point_stub"],
             vars=["Temperatura"],
-            time_interval=TIME_INTERVAL,
+            time=TIME_INTERVAL,
             time_buckets="hour",
         )
         plot = TimeCycle(
@@ -149,7 +210,7 @@ class TestTimeCyclePlot:
         )
         plot.plot()
 
-        # Two datasets are drawn, but only the base contributes a std band.
+        # Two datasets are drawn, but only the reference (first) one has a std band.
         assert len(fills) == 1
         # Title must reference the configured bucket, not a hardcoded "Diurnal".
         assert titles and "Hour" in titles[0]
@@ -168,7 +229,7 @@ class TestSpatialOverlayPlot:
             type="so",
             base="grid_stub",
             superposed="point_stub",
-            time_interval=TIME_INTERVAL,
+            time=TIME_INTERVAL,
             vars=["Temperatura"],
         )
         plot = SpatialOverlay(
@@ -193,7 +254,7 @@ class TestSpatialMapPlot:
         cfg = SpatialMapConfig(
             type="map",
             data="grid_stub",
-            time_interval=TIME_INTERVAL,
+            time=TIME_INTERVAL,
             vars=["Temperatura"],
         )
         plot = SpatialMap(
@@ -213,7 +274,7 @@ class TestSpatialMapPlot:
         cfg = SpatialMapConfig(
             type="spatial-map",
             data="point_stub",
-            time_interval=TIME_INTERVAL,
+            time=TIME_INTERVAL,
             vars={"Temperatura": "kelvin"},
         )
         plot = SpatialMap(
@@ -237,7 +298,7 @@ class TestSpatialMapPlot:
         cfg = SpatialMapConfig(
             type="map",
             data="point_stub",
-            time_interval=TIME_INTERVAL,
+            time=TIME_INTERVAL,
             vars=["Temperatura"],
             drop_nans=True,
         )
@@ -259,10 +320,8 @@ class TestScatterPlot:
         # Scatter requires dict vars to drive its change_unit loop.
         cfg = ScatterConfig(
             type="scatter",
-            base="grid_stub",
-            other="point_stub",
-            radius_of_influence=500_000,
-            time_interval=TIME_INTERVAL,
+            data=["grid_stub", "point_stub"],
+            time=TIME_INTERVAL,
             vars={"Temperatura": "kelvin"},
         )
         plot = Scatter(
@@ -277,3 +336,29 @@ class TestScatterPlot:
         )
         plot.plot()
         assert _outputs(tmp_output_dir, "sc")
+
+    def test_aligns_datasets_with_mismatched_time(
+        self, point_surface_data, tmp_output_dir
+    ):
+        # resample_vars no longer snaps time, so Scatter aligns the two series
+        # itself. Pair a 6-step dataset with a 4-step one: without the inner-join
+        # align the reduced arrays would be different lengths and scatter would
+        # raise; with it, they pair on the overlapping timestamps.
+        short = point_surface_data.copy()
+        short.obj = point_surface_data.obj.isel(time=slice(0, 4))
+
+        cfg = ScatterConfig(
+            type="scatter",
+            data=["A", "B"],
+            time=TIME_INTERVAL,
+            vars={"Temperatura": "degC"},
+        )
+        plot = Scatter(
+            name="sc_align",
+            plot_config=cfg,
+            data_registry={"A": point_surface_data, "B": short},
+            domain_registry={},
+            output_path=tmp_output_dir,
+        )
+        plot.plot()  # must not raise on the length mismatch
+        assert _outputs(tmp_output_dir, "sc_align")

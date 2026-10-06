@@ -1,3 +1,5 @@
+"""Readers for station and point-observation data."""
+
 import importlib
 import pkgutil
 

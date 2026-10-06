@@ -30,8 +30,8 @@ data:
 plots:
   TC:
     type: timecycle
-    base: "CHIMERE"
-    time_interval: "1/6/2021-30/6/2021"
+    data: "CHIMERE"
+    time: "1/6/2021-30/6/2021"
     timestep: "h"
     time_buckets: "hour"
     vars:
@@ -41,3 +41,53 @@ plots:
       CO: "ppb"
       SO2: "ppb"
       NO2: "ppb"
+
+  surface_map:
+    type: spatial-map
+    data: "CHIMERE"
+    time: "15/6/2021"
+    dim_reduce:
+      z: {method: isel, value: 0}
+    reduction_method: mean
+    levels: 12
+    vars:
+      PM25: "ug/m**3"
+      NO2: "ppb"
+
+  # cross_section:
+  #   type: custom
+  #   time: "15/6/2021"
+  #   dim_reduce:
+  #     time: mean
+  #     x: mean
+  #   vars: [PM25]
+  #   subplots:
+  #     - type: contourf
+  #       dataset: CHIMERE
+  #       x: latitude
+  #       y: z
+  #       levels: 14
+  #       cmap: viridis
+  #   title: "PM2.5 latitude-height cross-section (zonal mean)"
+
+  layer_compare:
+    type: custom
+    time: "6/2021"
+    dim_reduce:
+      x: mean
+      y: mean
+    vars: [NO2]
+    subplots:
+      - type: series
+        dataset: CHIMERE
+        x: time
+        dim_reduce: {z: {method: isel, value: 0}}
+        label: "surface (z=0)"
+        color: black
+      - type: series
+        dataset: CHIMERE
+        x: time
+        dim_reduce: {z: {method: isel, value: 5}}
+        label: "upper level (z=5)"
+        color: tab:red
+    title: "NO2 at two vertical levels"

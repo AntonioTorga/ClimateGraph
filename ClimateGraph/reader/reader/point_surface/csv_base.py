@@ -1,3 +1,9 @@
+"""Base reader for station data stored as tables.
+
+Drives the per-file loop itself, since tabular inputs cannot go through
+``open_mfdataset``, and attaches station coordinates from a metadata file.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,8 +18,9 @@ from .default import DefaultPointSurfaceReader
 class CSVPointSurfaceReader(DefaultPointSurfaceReader):
     """Shared base for CSV/Excel point-surface readers.
 
-    The three in-situ datasets (Chile, São Paulo, Quito) live in CSV/Excel
-    rather than NetCDF and share three concerns this base centralises:
+    The layout-specific readers (station-per-file, single-file,
+    variable-per-file) live in CSV/Excel rather than NetCDF and share three
+    concerns this base centralises:
 
     1. **Per-file open is not NetCDF.** The default ``_open_many`` uses
        ``xr.open_mfdataset``; here it routes safe-mode through the exact same
@@ -30,8 +37,8 @@ class CSVPointSurfaceReader(DefaultPointSurfaceReader):
     ``latlon_aliases`` and implement ``_open_one`` / ``_to_xarray`` / ``_join``.
     """
 
-    # Pieces hold one (Quito) or a disjoint set (Chile per-station) of vars;
-    # filter the rename map to what's actually present in each piece.
+    # Pieces hold one (variable-per-file) or a disjoint set (station-per-file)
+    # of vars; filter the rename map to what's actually present in each piece.
     restrict_rename_to_present = True
 
     # Subclass-supplied defaults; overridable per data block via ``spec.extras``.
@@ -62,6 +69,7 @@ class CSVPointSurfaceReader(DefaultPointSurfaceReader):
 
     @classmethod
     def _postprocess(cls, ds: xr.Dataset, spec: ReadSpec) -> xr.Dataset:
+        """Attach the station metadata once the values are assembled."""
         ds = cls._attach_metadata(ds, spec)
         return super()._postprocess(ds, spec)
 
@@ -117,8 +125,8 @@ class CSVPointSurfaceReader(DefaultPointSurfaceReader):
         Numeric ids (whether stored as ``int``, ``float`` like ``109.0``, or
         the string ``"104"``) collapse to their integer string form so that a
         filename stem matches an ``int`` metadata id. Everything else is
-        stringified and stripped. Subclasses with text station names (Quito)
-        override this.
+        stringified and stripped. Subclasses with text station names (e.g.
+        variable-per-file with accented headers) override this.
         """
         try:
             f = float(value)

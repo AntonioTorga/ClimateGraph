@@ -1,3 +1,5 @@
+"""The reader base class and the per-topology reader families."""
+
 import importlib
 import pkgutil
 

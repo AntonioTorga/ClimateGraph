@@ -26,12 +26,17 @@ data:
         name: presionEstacion
         unit: "hectopascal"
 domains:
+
   RM:
     type: attr
+    resample_to: DMC
+    radius_of_influence: 10000
     field_name: region
     field_value:  13
   Litoral:
     type: attr
+    resample_to: DMC
+    radius_of_influence: 10000
     field_name: zonaGeografica
     field_value: Litoral
   Poly1:
@@ -40,22 +45,19 @@ domains:
 plots:
   ts:
     type: timeseries
-    base: "DMC"
-    other_data: ["WRF_D02"]
+    data: ["DMC", "WRF_D02"]
     domains: ["RM", "Litoral"]
-    time_interval: 1/1/2019-1/2/2019
+    time: 1/1/2019-1/2/2019
     timestep: "D"
-    radius_of_influence: 10000
     vars:
       Temperatura: kelvin
       Presion: pascal
   scatter:
     type: scatter
-    base: "DMC"
-    other: "WRF_D02"
-    time_interval: 1/1/2019-1/2/2019
+    data: ["DMC", "WRF_D02"]
+    domains: ["RM"]
+    time: 1/1/2019-1/2/2019
     timestep: "D"
-    radius_of_influence: 10000
     dimension: time
     vars:
       Temperatura: kelvin
@@ -68,19 +70,19 @@ plots:
     vars:
       Temperatura: kelvin
       Presion: pascal
-    time_interval: 1/1/2019-1/2/2019
+    time: 1/1/2019-1/2/2019
     reduction_method: mean
   map_grid:
     type: spatial-map
     data: WRF_D02
     vars:
       Temperatura: kelvin
-    time_interval: 1/1/2019-1/2/2019
+    time: 1/1/2019-1/2/2019
     reduction_method: mean
   map_point:
     type: spatial-map
     data: DMC
     vars:
       Temperatura: kelvin
-    time_interval: 1/1/2019-1/2/2019
+    time: 1/1/2019-1/2/2019
     reduction_method: mean

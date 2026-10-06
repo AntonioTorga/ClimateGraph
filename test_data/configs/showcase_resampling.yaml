@@ -1,0 +1,32 @@
+analysis:
+  output_path: "./test_data/results/showcase-resampling/"
+
+data:
+  WRF:
+    path: "./test_data/data/wrf-2019-*.nc"
+    topology: RegularGrid
+    reader: wrf
+    vars:
+      Temperatura: {name: T2, unit: kelvin}
+  DMC:
+    path: "./test_data/data/dmc*.nc"
+    topology: PointSurface
+    reader: DMC
+    vars:
+      Temperatura: {name: temperatura, unit: degC}
+
+domains:
+  at_stations:
+    type: all              # no attribute filter — just the reprojection
+    resample_to: DMC       # sample onto the DMC station points
+    radius_of_influence: 20000
+
+plots:
+  obs_vs_model:
+    type: timeseries
+    data: [DMC, WRF]       # observations + model-sampled-at-stations
+    domains: [at_stations]
+    time: "1/1/2019 - 1/2/2019"
+    timestep: "D"
+    vars:
+      Temperatura: degC     # WRF (kelvin) converts; DMC already in degC
