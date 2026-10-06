@@ -1,3 +1,9 @@
+"""Drawable units for composed figures.
+
+A primitive draws one layer onto shared axes, which is what a ``custom`` plot
+composes.
+"""
+
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar
 
@@ -36,7 +42,7 @@ class Primitive(RegistryMixin, ABC):
     wants_legend: ClassVar[bool] = False
 
     def __init__(self, name: str, subplot_config: BaseModel, **kwargs):
-        """__init__ Primitive initialization.
+        """Primitive initialization.
 
         Parameters
         ----------
@@ -52,10 +58,12 @@ class Primitive(RegistryMixin, ABC):
 
     @classmethod
     def get_primitive_class(cls, name: str):
+        """Look up a registered primitive subclass by name."""
         return cls.get_class(name)
 
     @classmethod
     def check_primitive_class(cls, name: str) -> bool:
+        """Return True if ``type`` names a registered primitive."""
         return cls.check_class(name)
 
     @abstractmethod
@@ -68,7 +76,7 @@ class Primitive(RegistryMixin, ABC):
         y: str | None,
         label: str | None,
     ) -> "mpl.artist.Artist":
-        """render Draw the prepared data onto ``ax`` and return the artist.
+        """Draw the prepared data onto ``ax`` and return the artist.
 
         Parameters
         ----------

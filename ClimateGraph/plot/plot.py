@@ -1,3 +1,10 @@
+"""Figure generation.
+
+The abstract base for every plot type: resolves the domains a figure runs
+under, iterates the time, domain and variable product, and handles axis
+decoration and saving so the concrete types only draw.
+"""
+
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -24,7 +31,7 @@ def _grid_positions(
     offset: float = 0.0,
     tick_locs: list[float] | None = None,
 ) -> list[float]:
-    """_grid_positions Where to draw an axis's reference lines.
+    """Where to draw an axis's reference lines.
 
     Two modes:
     - ``spec == "ticks"``: one line per major tick (``tick_locs``), spaced by the
@@ -111,7 +118,7 @@ class Plot(RegistryMixin, ABC):
         domain_registry: dict[str, Domain],
         output_path: Path,
     ) -> "Plot":
-        """create Creation of a Plot object with the adequate Plot subclass. Meant to be set and lazily ran.
+        """Creation of a Plot object with the adequate Plot subclass. Meant to be set and lazily ran.
 
         Parameters
         ----------
@@ -148,7 +155,7 @@ class Plot(RegistryMixin, ABC):
     def __init__(
         self, name, plot_config, data_registry, domain_registry, output_path, **kwargs
     ):
-        """__init__ Plot initialization dunder method.
+        """Plot initialization dunder method.
 
         Parameters
         ----------
@@ -177,19 +184,21 @@ class Plot(RegistryMixin, ABC):
 
     @classmethod
     def check_plot_class(cls, type: str) -> bool:
+        """Return True if ``type`` names a registered plot."""
         return cls.check_class(type)
 
     @classmethod
     def get_plot_class(cls, name: str):
+        """Look up a registered plot subclass by name."""
         return cls.get_class(name)
 
     @abstractmethod
     def plot(self):
-        """plot Abstract method. Run the plot operation with the instance attributes and plot configuration."""
+        """Abstract method. Run the plot operation with the instance attributes and plot configuration."""
         pass
 
     def resolve_domains(self) -> dict[str, Domain | None]:
-        """resolve_domains Select the domains this plot references from the registry.
+        """Select the domains this plot references from the registry.
 
         Falls back to a single unnamed no-op slot (``{"": None}``) when the plot
         declares no domains, so callers can iterate uniformly.
@@ -212,7 +221,7 @@ class Plot(RegistryMixin, ABC):
         domains: dict[str, Domain | None],
         vars: list[str] | None,
     ):
-        """iterate_contexts Yield the (time, domain, var) render contexts.
+        """Yield the (time, domain, var) render contexts.
 
         Centralizes the time x domain x var nesting duplicated across the plot
         classes. Time is normalized here (a single date, an interval, or a list
@@ -243,7 +252,7 @@ class Plot(RegistryMixin, ABC):
                         yield time_interval, dom_name, dom, var
 
     def figure_kwargs(self, **defaults) -> dict:
-        """figure_kwargs Build the kwargs for ``plt.figure`` from ``plot_kwargs``.
+        """Build the kwargs for ``plt.figure`` from ``plot_kwargs``.
 
         Picks the figure-relevant keys (see ``FIGURE_KWARGS``) out of the
         user-supplied ``plot_kwargs`` and layers them on top of any ``defaults``
@@ -267,7 +276,7 @@ class Plot(RegistryMixin, ABC):
         return merged
 
     def savefig_kwargs(self, **defaults) -> dict:
-        """savefig_kwargs Build the kwargs for ``figure.savefig`` from ``plot_kwargs``.
+        """Build the kwargs for ``figure.savefig`` from ``plot_kwargs``.
 
         Same idea as ``figure_kwargs`` but for the save-relevant keys (see
         ``SAVEFIG_KWARGS``).
@@ -284,7 +293,7 @@ class Plot(RegistryMixin, ABC):
         return merged
 
     def _decorate_axes(self, figure: mpl.figure.Figure):
-        """_decorate_axes Apply the config's axis decoration to every data axes.
+        """Apply the config's axis decoration to every data axes.
 
         Colorbar axes are skipped. Cartopy ``GeoAxes`` route their grid through
         ``gridlines()`` (a proper geographic graticule) using the same computed
@@ -326,7 +335,7 @@ class Plot(RegistryMixin, ABC):
                         ax.set_yticklabels(list(yticks.values()))
 
     def _apply_grid(self, ax, grid, is_geo: bool):
-        """_apply_grid Draw the dashed reference lines on one axes."""
+        """Draw the dashed reference lines on one axes."""
         style = {
             "color": grid.color,
             "alpha": grid.alpha,
@@ -361,7 +370,7 @@ class Plot(RegistryMixin, ABC):
             ax.axhline(value, zorder=0, **style)
 
     def _finalize(self, figure: mpl.figure.Figure, filename: str):
-        """_finalize Post-render pipeline: decorate the axes, then write the figure.
+        """Post-render pipeline: decorate the axes, then write the figure.
 
         The single place every plot class funnels through once its data is drawn
         (mirrors ``Reader.read -> _postprocess -> _finalize``). Additional
@@ -379,7 +388,7 @@ class Plot(RegistryMixin, ABC):
         self.savefig(figure, filename)
 
     def savefig(self, figure: mpl.figure.Figure, filename: str):
-        """savefig Matplotlib Figure saving. Used by plot function to save to system. Manages kwargs given through the plot configuration relevant to saving.
+        """Matplotlib Figure saving. Used by plot function to save to system. Manages kwargs given through the plot configuration relevant to saving.
 
         Parameters
         ----------

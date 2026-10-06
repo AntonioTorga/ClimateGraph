@@ -1,3 +1,5 @@
+"""CSV layout: one file containing every station."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -30,6 +32,7 @@ class SingleFileReader(CSVPointSurfaceReader):
 
     @classmethod
     def _open_one(cls, path: Path, spec: ReadSpec) -> pd.DataFrame:
+        """Read the one CSV holding every station into a frame."""
         time_col = spec.extras.get("time_col", cls.default_time_col)
         df = pd.read_csv(path)
         # Parse the tz-aware timestamp, then drop the tz to keep naive local
@@ -39,6 +42,7 @@ class SingleFileReader(CSVPointSurfaceReader):
 
     @classmethod
     def _to_xarray(cls, raw: pd.DataFrame, spec: ReadSpec) -> xr.Dataset:
+        """Pivot the frame to a dataset indexed by time and site."""
         time_col = spec.extras.get("time_col", cls.default_time_col)
         code_col = spec.extras.get("station_key", cls.default_station_key)
 
@@ -52,4 +56,5 @@ class SingleFileReader(CSVPointSurfaceReader):
     @classmethod
     def _join(cls, pieces: list[xr.Dataset], spec: ReadSpec) -> xr.Dataset:
         # Single file in practice; base default handles len == 1.
+        """Concatenate the per-file datasets along time."""
         return super()._join(pieces, spec)

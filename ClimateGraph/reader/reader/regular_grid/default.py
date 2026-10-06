@@ -1,3 +1,5 @@
+"""Base reader for gridded NetCDF output."""
+
 import xarray as xr
 
 from ..reader import Reader, ReadSpec
@@ -19,6 +21,7 @@ class DefaultRegularGridReader(Reader):
 
     @classmethod
     def _preprocess(cls, ds: xr.Dataset, spec: ReadSpec) -> xr.Dataset:
+        """Apply the variable renaming and selection declared in the spec."""
         rename = dict(cls.rename)
         if cls.restrict_rename_to_present:
             # Only the class map is filtered — it is the one spelling out

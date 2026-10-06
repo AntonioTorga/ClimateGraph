@@ -1,3 +1,5 @@
+"""Station and point-observation topology."""
+
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -33,7 +35,7 @@ class PointSurface(Data):
     geom_dims = ("site",)
 
     def _set_geom(self):
-        """_set_geom Method for setting the Pyresample Geometry object used for resampling. In this case it is a SwathDefinition object."""
+        """Build the pyresample ``SwathDefinition`` over the one-dimensional site coordinates."""
         lons, lats = self.get_coordinates(["longitude", "latitude"], as_array=True)
         self._geom = SwathDefinition(lons=lons, lats=lats, crs=self.crs)
 

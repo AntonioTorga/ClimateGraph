@@ -1,3 +1,9 @@
+"""Self-registering class registries.
+
+Lets an abstract base class keep a registry of its subclasses, so defining a
+subclass is enough to make it usable from a control file.
+"""
+
 from typing import Annotated, ClassVar, Union
 
 from pydantic import BaseModel, Field

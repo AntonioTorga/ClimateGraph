@@ -1,3 +1,5 @@
+"""The concrete domain types and their config models."""
+
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -47,7 +49,7 @@ class Attribute(Domain):
     aliases = ["attribute", "attr"]
 
     def _filter(self, data: "Data") -> "Data":
-        """_filter Filters the data with a mask defined by a field and a field value.
+        """Keep the data where the field matches the configured value.
 
         Parameters
         ----------
@@ -84,7 +86,7 @@ class Polygon(Domain):
     aliases = ["polygon", "poly"]
 
     def _filter(self, data: "Data") -> "Data":
-        """_filter Constructs the polygons with a set of vertices and uses them to filter the data.
+        """Build polygons from the configured vertices and mask the data with them.
 
         Parameters
         ----------
@@ -134,6 +136,7 @@ class All(Domain):
     aliases = ["all"]
 
     def _filter(self, data: "Data") -> "Data":
+        """Return the data unchanged."""
         return data
 
 
@@ -176,6 +179,7 @@ class PointsConfig(BaseDomainConfig):
 
     @model_validator(mode="after")
     def _exactly_one_source(self) -> "PointsConfig":
+        """Require exactly one source of points: an inline list or a file."""
         if (self.path is None) == (self.points is None):
             raise ValueError(
                 "Points domain needs exactly one of 'path' (CSV) or 'points' (inline)."
@@ -220,6 +224,11 @@ class Points(Domain):
     aliases = ["points", "pts"]
 
     def _filter(self, data: "Data") -> "Data":
+        """Select a single site when this domain is one of a fan-out expansion.
+
+        The resampling onto the point set has already happened in ``apply``.
+        Without ``select_name`` the whole point set is kept.
+        """
         sel = self.domain_config.select_name
         if sel is None:
             return data
@@ -243,7 +252,7 @@ class Shapefile(Domain):
     aliases = ["shapefile", "shp"]
 
     def _filter(self, data: "Data") -> "Data":
-        """_filter Loads shapefile and constructs a regionmask.regionmask with it. Applies the mask over the provided data.
+        """Build a region mask from the shapefile and apply it to the data.
 
         Parameters
         ----------

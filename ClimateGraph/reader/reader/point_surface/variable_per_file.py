@@ -1,3 +1,5 @@
+"""CSV layout: one file per variable."""
+
 from __future__ import annotations
 
 import unicodedata
@@ -32,6 +34,7 @@ class VariablePerFileReader(CSVPointSurfaceReader):
 
     @classmethod
     def _open_one(cls, path: Path, spec: ReadSpec) -> pd.DataFrame:
+        """Read one variable's CSV into a frame."""
         time_col = spec.extras.get("time_col", cls.default_time_col)
         df = pd.read_csv(path)
         df[time_col] = pd.to_datetime(df[time_col], format=cls.time_format)
@@ -41,6 +44,7 @@ class VariablePerFileReader(CSVPointSurfaceReader):
 
     @classmethod
     def _to_xarray(cls, raw: pd.DataFrame, spec: ReadSpec) -> xr.Dataset:
+        """Convert one variable's frame into a dataset holding that variable."""
         time_col = spec.extras.get("time_col", cls.default_time_col)
         canonical = raw.attrs["var"]
         # Name the single data var as the file-native name so the inherited
@@ -58,10 +62,12 @@ class VariablePerFileReader(CSVPointSurfaceReader):
     @classmethod
     def _join(cls, pieces: list[xr.Dataset], spec: ReadSpec) -> xr.Dataset:
         # Variable-per-file: combine the differing vars on shared time/site.
+        """Merge the per-variable datasets into one."""
         return xr.merge(pieces)
 
     @classmethod
     def _var_for(cls, path: Path, spec: ReadSpec) -> str:
+        """Work out which variable a file holds, from its name or the spec."""
         var_files = spec.extras.get("var_files")
         if not var_files:
             raise ValueError(
@@ -79,6 +85,7 @@ class VariablePerFileReader(CSVPointSurfaceReader):
     def _norm_site_key(value) -> str:
         # Strip accents, drop spaces, uppercase — turns the Excel "Guamaní" /
         # "El Camal" into the CSV headers "GUAMANI" / "ELCAMAL".
+        """Normalize a site identifier so metadata and data join reliably."""
         s = unicodedata.normalize("NFKD", str(value))
         s = "".join(c for c in s if not unicodedata.combining(c))
         return s.upper().replace(" ", "")

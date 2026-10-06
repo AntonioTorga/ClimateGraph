@@ -3,13 +3,13 @@ analysis:
   output_path: "./test_data/results/minimal-single/"
 
 data:
-  WRF:
-    path: "./test_data/data/wrf-20*.nc"
+  CHIM:
+    path: "./test_data/data/chim-20*.nc"
     topology: RegularGrid
-    reader: wrf
+    reader: chimere
 
 plots:
   map:
     type: spatial-map
-    data: WRF
-    vars: T2
+    data: CHIM
+    vars: PM25

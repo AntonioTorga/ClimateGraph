@@ -1,3 +1,5 @@
+"""The concrete primitives and their subplot config models."""
+
 from typing import ClassVar, Literal
 
 import numpy as np
@@ -11,13 +13,13 @@ from .primitive import Primitive
 def _drop_nan_points(
     x: np.ndarray, y: np.ndarray, vals: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """_drop_nan_points Drop entries whose value is NaN, keeping x/y/value aligned."""
+    """Drop entries whose value is NaN, keeping x/y/value aligned."""
     keep = ~np.isnan(vals)
     return x[keep], y[keep], vals[keep]
 
 
 class SubplotConfig(BaseModel):
-    """SubplotConfig Shared config for every primitive subplot.
+    """Shared config for every primitive subplot.
 
     Flattened (not nested) so a ``subplots:`` entry reads naturally in YAML —
     ``type: contourf`` sits next to ``dataset:``/``x:``/``y:`` directly. Extra
@@ -46,6 +48,7 @@ class SubplotConfig(BaseModel):
 
     @model_validator(mode="after")
     def _check_required_coords(self):
+        """Check the subplot declares the coordinates this primitive needs."""
         missing = sorted(c for c in self.required_coords if getattr(self, c) is None)
         if missing:
             raise ValueError(
@@ -56,14 +59,14 @@ class SubplotConfig(BaseModel):
 
 
 class SeriesConfig(SubplotConfig):
-    """SeriesConfig A line along one dimension (``x``)."""
+    """A line along one dimension (``x``)."""
 
     required_coords: ClassVar[frozenset[str]] = frozenset({"x"})
     type: Literal["series", "line"]
 
 
 class Series(Primitive):
-    """Series primitive: a line of the variable along the ``x`` coordinate."""
+    """Primitive: a line of the variable along the ``x`` coordinate."""
 
     config = SeriesConfig
     aliases = ["series", "line"]
@@ -71,6 +74,7 @@ class Series(Primitive):
     wants_legend = True
 
     def render(self, ax, data, *, x, y, label):
+        """Draw a line along one dimension."""
         xvals = (
             data[x].values
             if x in data.coords
@@ -81,7 +85,7 @@ class Series(Primitive):
 
 
 class ContourFillConfig(SubplotConfig):
-    """ContourFillConfig A filled contour over a 2-D (``x``, ``y``) grid."""
+    """A filled contour over a 2-D (``x``, ``y``) grid."""
 
     required_coords: ClassVar[frozenset[str]] = frozenset({"x", "y"})
     type: Literal["contourf", "contour_fill", "contourfill"]
@@ -90,7 +94,7 @@ class ContourFillConfig(SubplotConfig):
 
 
 class ContourFill(Primitive):
-    """ContourFill primitive: a filled contour of the variable on x/y.
+    """Primitive: a filled contour of the variable on x/y.
 
     No CRS / projection awareness (unlike ``SpatialOverlay``) — plain axes,
     generic by design. Projection kwargs, if ever needed, flow through
@@ -103,6 +107,7 @@ class ContourFill(Primitive):
     wants_colorbar = True
 
     def render(self, ax, data, *, x, y, label):
+        """Draw filled contours over two coordinates."""
         cfg = self.subplot_config
         return data.plot.contourf(
             x=x,
@@ -117,7 +122,7 @@ class ContourFill(Primitive):
 
 
 class PointsConfig(SubplotConfig):
-    """PointsConfig A scatter of points at (``x``, ``y``) coloured by value."""
+    """A scatter of points at (``x``, ``y``) coloured by value."""
 
     required_coords: ClassVar[frozenset[str]] = frozenset({"x", "y"})
     type: Literal["points", "scatter"]
@@ -128,7 +133,7 @@ class PointsConfig(SubplotConfig):
 
 
 class Points(Primitive):
-    """Points primitive: a coordinate scatter coloured by the variable value."""
+    """Primitive: a coordinate scatter coloured by the variable value."""
 
     config = PointsConfig
     aliases = ["points", "scatter"]
@@ -136,6 +141,7 @@ class Points(Primitive):
     wants_colorbar = True
 
     def render(self, ax, data, *, x, y, label):
+        """Draw coloured points at two coordinates."""
         cfg = self.subplot_config
         xv = np.asarray(data[x].values).ravel()
         yv = np.asarray(data[y].values).ravel()

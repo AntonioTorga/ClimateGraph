@@ -1,3 +1,9 @@
+"""Transforms applied to xarray objects.
+
+The steps a dataset passes through between being read and being drawn. Each
+mutating step records itself in the dataset's ``history`` attribute.
+"""
+
 import ast
 import logging
 import operator as _op
@@ -34,12 +40,13 @@ def dim_reduction(
     obj : xr.Dataset | xr.DataArray
         Data to reduce.
     spec : dict[str, str | dict]
-        Mapping of dim name → reduction spec. Each value is either:
-        - a string method name (``"mean"``, ``"min"``, ``"max"``)
-        - a dict with ``method`` key plus a ``value`` key for isel/sel:
-          ``{"method": "isel", "value": 0}``
-          ``{"method": "sel", "value": 5.0}``
-          ``{"method": "mean"}``
+        Mapping of dim name to reduction spec. Each value is either a string
+        method name (``"mean"``, ``"min"``, ``"max"``), or a dict with a
+        ``method`` key plus a ``value`` key for ``isel`` / ``sel``::
+
+            {"method": "isel", "value": 0}
+            {"method": "sel", "value": 5.0}
+            {"method": "mean"}
     name : str
         Identifier for history recording (e.g. dataset name or variable name).
 
@@ -87,7 +94,7 @@ _ALLOWED_UNARYOPS = {ast.UAdd: _op.pos, ast.USub: _op.neg}
 
 
 def apply_operation(operation: str, variables: dict[str, xr.DataArray]) -> xr.DataArray:
-    """apply_operation Evaluate a small arithmetic "operation" over variables.
+    """Evaluate a small arithmetic "operation" over variables.
 
     Two uses:
     - unit conversions pint can't express like operations over the data with constants (+273 for example)
@@ -150,7 +157,7 @@ def apply_operation(operation: str, variables: dict[str, xr.DataArray]) -> xr.Da
 def normalize_vars(
     vars: dict[str, dict] | list[str] | None,
 ) -> dict[str, dict] | None:
-    """normalize_vars Coerce the user-supplied ``vars`` into the canonical
+    """Coerce the user-supplied ``vars`` into the canonical
     dict-or-None shape the rest of the pipeline expects.
 
     - a dict returned unchanged (today's full form, units optional);
@@ -176,7 +183,7 @@ def normalize_vars(
 
 
 def variable_aggregation(ds: xr.Dataset, aggregation_dict: dict) -> xr.Dataset:
-    """variable_aggregation Creates new variable from variable aggregation.
+    """Creates new variable from variable aggregation.
 
     Parameters
     ----------
@@ -213,7 +220,7 @@ def time_resampling(
     time_interval: str | None = None,
     reduction_method: ReductionMethodEnum = ReductionMethodEnum.mean,
 ) -> xr.Dataset | xr.DataArray:
-    """time_resampling Implements time resampling and alignment.
+    """Implements time resampling and alignment.
 
     Parameters
     ----------
@@ -244,7 +251,7 @@ def time_resampling(
 def change_unit(
     xa: xr.DataArray, src_unit: str | None, dst_unit: str | None
 ) -> xr.DataArray:
-    """change_unit Unit conversion method for datasets.
+    """Unit conversion method for datasets.
 
     Parameters
     ----------

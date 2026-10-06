@@ -1,3 +1,10 @@
+"""Spatial and attribute subsetting.
+
+A domain narrows a dataset to the part a plot is about. Applying one is a
+two-step template: an optional reprojection onto another dataset's geometry,
+then the subclass's filter.
+"""
+
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
@@ -33,7 +40,7 @@ class Domain(RegistryMixin, ABC):
         domain_config: BaseModel,
         target_data: "Data | None" = None,
     ) -> "Domain":
-        """create Creation of a Domain object with the adequate Domain subclass. Applied over Data objects.
+        """Build a Domain of the subclass matching ``type``.
 
         Parameters
         ----------
@@ -72,7 +79,7 @@ class Domain(RegistryMixin, ABC):
         target_data: "Data | None" = None,
         **kwargs,
     ):
-        """__init__ Domain initialization dunder method.
+        """Create a domain. ``target_data`` is the geometry to reproject onto, if any.
 
         Parameters
         ----------
@@ -92,14 +99,16 @@ class Domain(RegistryMixin, ABC):
 
     @classmethod
     def check_domain_class(cls, type: str) -> bool:
+        """Return True if ``type`` names a registered domain."""
         return cls.check_class(type)
 
     @classmethod
     def get_domain_class(cls, name: str):
+        """Look up a registered domain subclass by name."""
         return cls.get_class(name)
 
     def apply(self, data: "Data") -> "Data":
-        """apply Two-step template: optional resample pre-step, then the filter step.
+        """Apply the domain: optional resample pre-step, then the filter step.
 
         Parameters
         ----------
@@ -118,7 +127,7 @@ class Domain(RegistryMixin, ABC):
         return self._filter(data)
 
     def _resample(self, data: "Data") -> "Data":
-        """_resample Reproject ``data`` onto the resample target's geometry.
+        """Reproject ``data`` onto the resample target's geometry.
 
         ``resample_vars`` is purely spatial, so the reprojected result keeps
         ``data``'s own time axis and inherits the target's spatial coords (site /
@@ -157,7 +166,7 @@ class Domain(RegistryMixin, ABC):
 
     @abstractmethod
     def _filter(self, data: "Data") -> "Data":
-        """_filter Subclass hook: filter ``data`` (already resampled if requested).
+        """Subclass hook: narrow ``data`` (already resampled if requested).
 
         Parameters
         ----------

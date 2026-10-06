@@ -1,3 +1,5 @@
+"""Reader for WRF model output."""
+
 import xarray as xr
 
 from ..reader import ReadSpec

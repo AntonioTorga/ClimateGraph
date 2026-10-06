@@ -1,0 +1,39 @@
+# Model against observations, value by value. The `at_stations` domain samples
+# the model grid at the station locations first, so the two datasets are
+# comparable point by point.
+analysis:
+  output_path: "./docs/examples/output"
+
+data:
+  STATIONS:
+    path: "./docs/examples/data/stations.nc"
+    topology: PointSurface
+    reader: defaultpointsurface
+    vars:
+      PM25: {name: pm25, unit: "ug/m**3"}
+  MODEL:
+    path: "./docs/examples/data/model.nc"
+    topology: RegularGrid
+    reader: defaultgrid
+    vars:
+      PM25: {name: pm25, unit: "ug/m**3"}
+
+domains:
+  at_stations:
+    type: all
+    resample_to: STATIONS
+
+plots:
+  scatter:
+    type: scatter
+    data: [STATIONS, MODEL]
+    domains: [at_stations]
+    time: "1/6/2021 - 14/6/2021"
+    vars: {PM25: "ug/m**3"}
+    title: "Model against observations, co-located"
+    xlabel: "Observed [ug/m3]"
+    ylabel: "Modelled [ug/m3]"
+    figsize: [5.5, 5.5]
+    grid: true
+    dpi: 110
+    format: png

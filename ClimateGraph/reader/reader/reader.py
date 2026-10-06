@@ -1,3 +1,9 @@
+"""The read lifecycle.
+
+Turns files into an :class:`xarray.Dataset` through a fixed sequence of hooks.
+Subclasses plug into individual steps rather than overriding the walk itself.
+"""
+
 from __future__ import annotations
 
 import logging

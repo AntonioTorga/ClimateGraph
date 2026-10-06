@@ -1,3 +1,13 @@
+"""Pydantic control file model.
+
+Pydantic models for every block of a control file, composed by
+:class:`ControlFile`. Each model carries the checks that belong to it, and
+``ControlFile`` carries the ones that do consistency checks between blocks
+
+The plot and domain schemas are not written here: they are assembled at import
+time from the abstract class registry.
+"""
+
 from pathlib import Path
 from typing import Literal
 
@@ -19,8 +29,10 @@ _DATASET_REF_FIELDS = ("base", "superposed", "data")
 
 
 class AnalysisModel(BaseModel):
-    """AnalysisModel Analysis block pydantic model. Just has output_path as a pathlib.Path and a debug flag.
-    Doesn't allow extra parameters.
+    """The ``analysis`` block: run-scoped settings.
+
+    Forbids extra keys, so a misspelled setting here is an error rather than a
+    silent no-op.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -31,6 +43,7 @@ class AnalysisModel(BaseModel):
     @field_validator("output_path")
     @classmethod
     def val_output_path(cls, v: Path):
+        """Resolve the output path, creating the directory if it does not exist."""
         v = v.resolve()
         if not v.exists():
             v.mkdir(parents=True)
@@ -42,13 +55,10 @@ DomainModel = Domain.build_config_union()
 
 
 class VarModel(BaseModel):
-    """VarModel Variable block pydantic model. Just has a name for the variable and pint-accepted unit.
-    Doesn't allow extra parameters.
+    """One entry of a dataset's ``vars`` mapping.
 
-    Parameters
-    ----------
-    BaseModel : _type_
-        _description_
+    Carries the file-native name to rename from, a pint unit enabling conversion
+    at plot time, and arithmetic applied at read time. Forbids extra keys.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -65,6 +75,7 @@ class VarModel(BaseModel):
 
     @model_validator(mode="after")
     def check_name_or_operation(self):
+        """Require a ``name``, an ``operation``, or both."""
         if self.name is None and self.operation is None:
             raise ValueError(
                 "a variable must declare a 'name' (read from the file) and/or an "
@@ -74,11 +85,15 @@ class VarModel(BaseModel):
 
 
 class DataModel(BaseModel):
-    """DataModel Data block pydantic model. Accepts topology and reader (they have to match).
-    Also a single path or path list for the files that the Data object will represent.
-    Accept vars mapping where the key is the name given to the variable for plotting names and internal reference.
-    Also a Cartopy Coordinate Reference System managed by the CRSEnum from utils.general_utils
-    Allows for extra parameters that get turned into reader kwargs.
+    """One entry of the ``data`` block: a dataset declaration.
+
+    The topology and the reader must be consistent — a reader is registered
+    against the topology it can read. Variable names declared here are the
+    handles used everywhere else in the control file.
+
+    Allows extra keys on purpose: anything unrecognised is forwarded to the
+    reader as a keyword argument, so reader-specific options need no schema
+    change here.
     """
 
     model_config = ConfigDict(extra="allow")
@@ -103,6 +118,7 @@ class DataModel(BaseModel):
     @field_validator("topology")
     @classmethod
     def val_data_topology(cls, v: str):
+        """Check the topology is one the Data registry knows."""
         if not Data.check_topology_type(v):
             raise ValueError(
                 f"Topology type {v} not listed as possible data type.\nPossible data types are: {list(Data.registry.keys())}"
@@ -112,6 +128,7 @@ class DataModel(BaseModel):
     @field_validator("path")
     @classmethod
     def val_file_path(cls, v):
+        """Expand the path or glob and require it to match at least one file."""
         path = manage_path(v)
         if not path:
             raise ValueError(f"No files found for path {v}")
@@ -120,6 +137,7 @@ class DataModel(BaseModel):
     @field_validator("save_to")
     @classmethod
     def val_save_to(cls, v: Path | None):
+        """Require ``save_to`` to name a NetCDF file rather than a directory."""
         # fail at check time for save_to argument
         if v is None:
             return v
@@ -132,6 +150,7 @@ class DataModel(BaseModel):
 
     @model_validator(mode="after")
     def check_type_and_subtype_are_consistent(self):
+        """Check the reader is registered against the declared topology."""
         if not (Reader.check_reader_type(self.topology, self.reader)):
             raise ValueError(
                 f"Topology {self.topology} doesn't have reader of type {self.reader}."
@@ -140,7 +159,10 @@ class DataModel(BaseModel):
 
 
 class ControlFile(BaseModel):
-    """ControlFile Complete Control/Configuration pydantic model. Gets the other pydantic models together."""
+    """The whole control file.
+
+    Composes the block models and performs inter block checks.
+    """
 
     analysis: AnalysisModel
     data: dict[str, DataModel]
@@ -150,6 +172,11 @@ class ControlFile(BaseModel):
 
     @model_validator(mode="after")
     def check_plot_domain_refs(self):
+        """Check every domain a plot references is defined.
+
+        Without this a typo fell through to the "no domain" branch and the plot
+        silently rendered against the full dataset.
+        """
         # Pre-M3 a typo in a plot's `domains:` list silently fell through
         # to the "no domain" branch and the plot rendered against full
         # data — a confusing failure mode. Catch unknown names early.
@@ -170,12 +197,9 @@ class ControlFile(BaseModel):
     def check_plot_var_refs(self):
         """Catch plot var names that can't resolve in a referenced dataset.
 
-        With canonical names now optional, a plot's var names must match the
-        names each referenced dataset actually exposes (dict keys, list entries,
-        or — when vars is omitted — the file-native names). We can only check
-        datasets that *declared* their vars (dict or list); datasets with
-        ``vars=None`` expose names we can't know until load, so those defer to
-        the runtime ``KeyError`` in ``Data.get_var``.
+        With canonical names now optional, if vars was set then performs a check
+        against it. If not it ignores and assumes you are referencing a real name in the ds.
+        If mistaken a KeyError will occur at runtime.
         """
         if not self.plots:
             return self
@@ -203,12 +227,9 @@ class ControlFile(BaseModel):
     def check_custom_subplot_var_refs(self):
         """Catch ``type: custom`` subplot var names that can't resolve.
 
-        ``check_plot_var_refs`` pairs one flat var-set against every referenced
-        dataset — wrong for a Custom plot, where subplot A's var must check
-        against subplot A's own ``dataset``. This validator does that per subplot:
-        the var it uses (its own ``var`` if set, else the plot-level ``vars``)
-        must be declared in its dataset. Datasets with ``vars=None`` defer to the
-        runtime ``KeyError`` in ``Data.get_var``.
+        ``check_plot_var_refs`` equivalent for subplots. Checks that every var referenced
+        exists in the target Dataset (be it specific to the subplot or at custom plot level)
+        If dataset vars are not defined, could lead to a KeyError in get_vars
         """
         if not self.plots:
             return self

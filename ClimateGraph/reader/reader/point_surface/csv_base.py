@@ -1,3 +1,9 @@
+"""Base reader for station data stored as tables.
+
+Drives the per-file loop itself, since tabular inputs cannot go through
+``open_mfdataset``, and attaches station coordinates from a metadata file.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -63,6 +69,7 @@ class CSVPointSurfaceReader(DefaultPointSurfaceReader):
 
     @classmethod
     def _postprocess(cls, ds: xr.Dataset, spec: ReadSpec) -> xr.Dataset:
+        """Attach the station metadata once the values are assembled."""
         ds = cls._attach_metadata(ds, spec)
         return super()._postprocess(ds, spec)
 

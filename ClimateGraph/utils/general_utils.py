@@ -1,3 +1,9 @@
+"""Enums, path expansion and time parsing.
+
+The leaf utilities: how the control file's string values become real objects,
+and how paths and dates are interpreted.
+"""
+
 import datetime
 import glob
 import logging
@@ -17,7 +23,7 @@ TIME_INTERVAL_FORMAT = r"^(.+?)\s*(?:-|to)\s*(.+)$"  # Accepts "date - date" or 
 
 
 class TimestepEnum(str, Enum):
-    """TimestepEnum Enum used for timestep handling. Keeps consistent timestep values."""
+    """Enum used for timestep handling. Keeps consistent timestep values."""
 
     business_day = "B"
     daily = "D"
@@ -34,7 +40,7 @@ class TimestepEnum(str, Enum):
 
 
 class TimeBucketEnum(str, Enum):
-    """TimeBucketEnum Enum used for timestep handling. Keeps consistent timestep values."""
+    """Enum used for timestep handling. Keeps consistent timestep values."""
 
     minute = "minute"
     hour = "hour"
@@ -45,7 +51,7 @@ class TimeBucketEnum(str, Enum):
 
 
 class ReductionMethodEnum(str, Enum):
-    """ReductionMethodEnum Enum used for Reduction Method handling. Keeps consistent Reduction methods values."""
+    """Enum used for Reduction Method handling. Keeps consistent Reduction methods values."""
 
     def __new__(cls, value, func):
         obj = str.__new__(cls, value)
@@ -59,7 +65,7 @@ class ReductionMethodEnum(str, Enum):
 
 
 class CRSEnum(str, Enum):
-    """CRSEnum Enum used for Coordinate Reference System handling. Keeps consistent CRS values."""
+    """Enum used for Coordinate Reference System handling. Keeps consistent CRS values."""
 
     def __new__(cls, value, crs):
         obj = str.__new__(cls, value)
@@ -74,7 +80,7 @@ def manage_path(
     paths: str | Path | list[str] | list[Path],
     sort: bool = False,
 ) -> list[Path]:
-    """manage_path Handles paths, including lists of paths and paths with hotkeys (*,?, etc).
+    """Handles paths, including lists of paths and glob patterns (``*``, ``?``).
 
     Parameters
     ----------
@@ -135,7 +141,7 @@ COARSE_OFFSETS = {
 
 
 def _parse_with_resolution(token: str) -> tuple[pd.Timestamp, str]:
-    """_parse_with_resolution Parse a date token and detect its resolution.
+    """Parse a date token and detect its resolution.
 
     Parameters
     ----------
@@ -165,7 +171,7 @@ def _parse_with_resolution(token: str) -> tuple[pd.Timestamp, str]:
 
 
 def _bucket_end(value: pd.Timestamp, resolution: str) -> pd.Timestamp:
-    """_bucket_end End of the bucket ``value`` falls in, for its resolution.
+    """End of the bucket ``value`` falls in, for its resolution.
 
     For coarse resolutions (day/month/year) returns the last representable
     instant of the bucket (start of the next bucket minus 1 ns), so an inclusive
@@ -182,7 +188,7 @@ def _bucket_end(value: pd.Timestamp, resolution: str) -> pd.Timestamp:
 def manage_time_interval(
     time_interval: str,
 ) -> tuple[pd.Timestamp, pd.Timestamp]:
-    """manage_time_interval Turn a time-interval string into (start, end).
+    """Turn a time-interval string into (start, end).
 
     Accepts either a single date or a "start - (or to) end" range. Each endpoint is treated
     as an *interval covering its own resolution* when that resolution is coarser
@@ -194,7 +200,7 @@ def manage_time_interval(
     Parameters
     ----------
     time_interval : str
-        A single date or a "start [-|to] end" range in dayfirst format.
+        A single date or a ``"start [-|to] end"`` range in dayfirst format.
 
     Returns
     -------
@@ -234,7 +240,7 @@ def manage_time_interval(
 
 
 def normalize_time(time: str | list[str] | None) -> list[str | None]:
-    """normalize_time Coerce a plot's ``time`` field into a list of entries to
+    """Coerce a plot's ``time`` field into a list of entries to
     iterate over. A single date/interval/None becomes a one-element list; a
     list passes through unchanged, fanning the plot out into one output per entry.
 

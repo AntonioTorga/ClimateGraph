@@ -1,3 +1,9 @@
+"""Pluggable spatial resampling backends.
+
+A protocol plus the pyresample implementation, so another backend can be added
+without changing the code that calls for a resample.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -56,11 +62,13 @@ class PyresampleEngine:
         sigmas: float = 10000,
         neighbours: int | None = None,
     ):
+        """Configure the engine with the resampling method and its options."""
         self.method = method
         self.sigmas = sigmas
         self.neighbours = neighbours or (1 if method == "nearest" else 8)
 
     def prepare(self, src_geom, dst_geom, radius_of_influence: int, **kwargs) -> tuple:
+        """Build whatever the backend needs before resampling onto a geometry."""
         return kd_tree.get_neighbour_info(
             src_geom,
             dst_geom,
@@ -71,6 +79,7 @@ class PyresampleEngine:
     def make_resampler(
         self, info: tuple, dst_shape: tuple, src_shape: tuple
     ) -> Callable:
+        """Return a callable that resamples one array onto the target geometry."""
         valid_input, valid_output, index_array, dist_array = info
 
         if self.method == "nearest":

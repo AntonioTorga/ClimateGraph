@@ -1,3 +1,11 @@
+"""Control file reading and object construction.
+
+Reads a control file in any supported format, validates it against the Pydantic
+schema in :mod:`ClimateGraph.utils.control_model`, and builds the three
+registries the run works from: the datasets, the domains and the plots.
+
+"""
+
 import json
 import logging
 from pathlib import Path
@@ -113,7 +121,7 @@ class Parser:
 
     @staticmethod
     def parse_control(control_path: Path):
-        """parse_control Parse configuration file with Pydantic model.
+        """Validate a control file and build the objects it describes.
 
         Parameters
         ----------
@@ -231,7 +239,7 @@ class Parser:
 
     @staticmethod
     def read_control(control_path: Path):
-        """read_control Reads files into Mappings. Currently manages .json, .yml and .yaml
+        """Read a control file into a python dictionary. Supports ``.json``, ``.yml`` and ``.yaml``.
 
         Parameters
         ----------

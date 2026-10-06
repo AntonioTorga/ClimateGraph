@@ -1,3 +1,9 @@
+"""The dataset abstraction.
+
+Brings datasets onto a common set of dimensions regardless of their format, file
+layout or shape, so the rest of the framework can work with them interchangeably.
+"""
+
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -52,7 +58,7 @@ class Data(RegistryMixin, ABC):
         crs: ccrs,
         reader_kwargs: dict,
     ):
-        """create Creation of a Data object with the adequate Data subclass
+        """Build a Data object of the subclass matching ``topology``.
 
         Parameters
         ----------
@@ -89,7 +95,7 @@ class Data(RegistryMixin, ABC):
         crs: ccrs.CRS,
         reader_kwargs: dict[str, Any] | None = None,
     ):
-        """__init__ Data initialization dunder method.
+        """Create a dataset handle. Nothing is read until ``obj`` is accessed.
 
         Parameters
         ----------
@@ -122,7 +128,7 @@ class Data(RegistryMixin, ABC):
         self.crs = crs
 
     def copy(self):
-        """copy Create an exact copy of the object and return it. Used for domain application.
+        """Return a copy of this object. Used when a domain produces a filtered dataset.
 
         Returns
         -------
@@ -146,12 +152,16 @@ class Data(RegistryMixin, ABC):
 
     @abstractmethod
     def _set_geom(self):
-        """_set_geom Method for setting the Pyresample Geometry object used for resampling. Main method of the topology abstraction."""
+        """Build the pyresample geometry used for resampling.
+
+        The core of the topology abstraction: each topology defines its own
+        spatial geometry here.
+        """
         pass
 
     @property
     def obj(self) -> xr.Dataset:
-        """obj Property getter method for getting the obj object. Used for lazy loading of Data objects.
+        """The underlying dataset, loaded on first access.
 
         Returns
         -------
@@ -164,7 +174,7 @@ class Data(RegistryMixin, ABC):
 
     @obj.setter
     def obj(self, _obj: xr.Dataset):
-        """obj Property setter method for getting the obj object. Used for lazy loading of Data objects. Takes care of removing precomputed data for the previous Dataset.
+        """Replace the underlying dataset, clearing everything derived from the old one.
 
         Parameters
         ----------
@@ -185,7 +195,7 @@ class Data(RegistryMixin, ABC):
 
     @property
     def vars(self):
-        """vars Property getter method for getting the vars.
+        """The variable names this dataset exposes.
 
         Returns
         -------
@@ -198,7 +208,7 @@ class Data(RegistryMixin, ABC):
         return self._vars
 
     def var_unit(self, var_name: str) -> str | None:
-        """var_unit Resolve the declared source unit for ``var_name``.
+        """Resolve the declared source unit for ``var_name``.
 
         Single choke point for reading a variable's declared unit, so callers
         never index self.vars[...]["unit"]
@@ -221,7 +231,7 @@ class Data(RegistryMixin, ABC):
 
     @property
     def dims(self):
-        """dims Property getter method for getting a dimension mapping (dimension name to dimension size).
+        """Mapping of dimension name to dimension size.
 
         Returns
         -------
@@ -234,7 +244,7 @@ class Data(RegistryMixin, ABC):
 
     @property
     def bbox(self):
-        """bbox Property getter method for getting a bounding box around the spatial data.
+        """Bounding box around the spatial extent of the dataset.
 
         Returns
         -------
@@ -252,7 +262,7 @@ class Data(RegistryMixin, ABC):
         return self._bbox
 
     def load_obj(self):
-        """load_obj Load the actual data into the obj attribute by building
+        """Read the dataset into ``obj`` by building
         a ReadSpec and invoking ``reader.read(spec)``. ``load_mode``,
         ``cache_dir`` and ``engine`` are pulled out of ``reader_kwargs``
         if present; the remainder lives on ``spec.extras`` for the
@@ -288,7 +298,7 @@ class Data(RegistryMixin, ABC):
         as_array: bool = False,
         dim_reduce: dict[str, str | dict] | None = None,
     ) -> xr.DataArray | np.ndarray:
-        """get_var Get variable from the obj attribute.
+        """Get a variable, reduced and unit-converted, ready to draw.
 
         Parameters
         ----------
@@ -352,7 +362,7 @@ class Data(RegistryMixin, ABC):
         coord_names: list[str] | str,
         as_array: bool = False,
     ) -> list[xr.DataArray] | xr.DataArray | list[np.ndarray] | np.ndarray:
-        """get_coordinates Get coordinate from the obj attribute.
+        """Get one or more coordinates from the dataset.
 
         Parameters
         ----------

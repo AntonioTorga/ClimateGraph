@@ -1,3 +1,5 @@
+"""Spatial and attribute subsetting applied to datasets."""
+
 import importlib
 import pkgutil
 

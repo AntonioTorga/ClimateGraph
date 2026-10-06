@@ -1,3 +1,5 @@
+"""CSV layout: one file per station."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -25,6 +27,7 @@ class StationPerFileReader(CSVPointSurfaceReader):
 
     @classmethod
     def _open_one(cls, path: Path, spec: ReadSpec) -> pd.DataFrame:
+        """Read one station's CSV into a frame."""
         time_col = spec.extras.get("time_col", cls.default_time_col)
         df = pd.read_csv(path, parse_dates=[time_col])
         # Stash the station id (filename stem) for _to_xarray, which has no
@@ -34,6 +37,7 @@ class StationPerFileReader(CSVPointSurfaceReader):
 
     @classmethod
     def _to_xarray(cls, raw: pd.DataFrame, spec: ReadSpec) -> xr.Dataset:
+        """Convert one station's frame into a single-site dataset."""
         time_col = spec.extras.get("time_col", cls.default_time_col)
         df = raw.set_index(time_col)
         df.index.name = "time"
@@ -43,6 +47,7 @@ class StationPerFileReader(CSVPointSurfaceReader):
 
     @classmethod
     def _join(cls, pieces: list[xr.Dataset], spec: ReadSpec) -> xr.Dataset:
+        """Concatenate the per-station datasets along the site dimension."""
         if len(pieces) == 1:
             return pieces[0]
         # One station per file: stack along site (NOT the default time-concat),

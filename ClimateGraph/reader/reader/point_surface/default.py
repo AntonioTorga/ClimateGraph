@@ -1,3 +1,5 @@
+"""Base reader for station data stored as NetCDF."""
+
 import xarray as xr
 
 from ..reader import Reader, ReadSpec
@@ -19,6 +21,7 @@ class DefaultPointSurfaceReader(Reader):
 
     @classmethod
     def _preprocess(cls, ds: xr.Dataset, spec: ReadSpec) -> xr.Dataset:
+        """Apply the variable renaming and selection declared in the spec."""
         rename = dict(cls.rename)
         rename.update(spec.extras.get("rename", {}))
         if spec.vars is not None:

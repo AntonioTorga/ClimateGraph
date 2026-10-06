@@ -1,0 +1,33 @@
+# A gridded field with the station observations drawn over it.
+analysis:
+  output_path: "./docs/examples/output"
+
+data:
+  STATIONS:
+    path: "./docs/examples/data/stations.nc"
+    topology: PointSurface
+    reader: defaultpointsurface
+    vars:
+      PM25: {name: pm25, unit: "ug/m**3"}
+  MODEL:
+    path: "./docs/examples/data/model.nc"
+    topology: RegularGrid
+    reader: defaultgrid
+    vars:
+      PM25: {name: pm25, unit: "ug/m**3"}
+
+plots:
+  spatial-overlay:
+    type: spatial-overlay
+    base: MODEL
+    superposed: STATIONS
+    time: "8/6/2021"
+    vars: {PM25: "ug/m**3"}
+    cmap: YlOrBr
+    levels: 14
+    drop_nans: true
+    markersize: 110
+    title: "Stations over the modelled field"
+    figsize: [7, 5.5]
+    dpi: 110
+    format: png

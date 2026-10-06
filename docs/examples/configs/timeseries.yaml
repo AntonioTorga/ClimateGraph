@@ -1,0 +1,32 @@
+# Two datasets over time. Each is reduced over its own geometry, so this
+# compares the station-network mean against the whole-grid mean.
+analysis:
+  output_path: "./docs/examples/output"
+
+data:
+  STATIONS:
+    path: "./docs/examples/data/stations.nc"
+    topology: PointSurface
+    reader: defaultpointsurface
+    vars:
+      PM25: {name: pm25, unit: "ug/m**3"}
+  MODEL:
+    path: "./docs/examples/data/model.nc"
+    topology: RegularGrid
+    reader: defaultgrid
+    vars:
+      PM25: {name: pm25, unit: "ug/m**3"}
+
+plots:
+  timeseries:
+    type: timeseries
+    data: [STATIONS, MODEL]
+    time: "1/6/2021 - 10/6/2021"
+    timestep: h
+    vars: {PM25: "ug/m**3"}
+    title: "PM2.5 — observations against model"
+    ylabel: "PM2.5 [ug/m3]"
+    figsize: [10, 4]
+    grid: true
+    dpi: 110
+    format: png

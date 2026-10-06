@@ -1,3 +1,5 @@
+"""The concrete plot types and their config models."""
+
 import contextlib
 import math
 from typing import Literal
@@ -25,22 +27,12 @@ from ClimateGraph.utils.general_utils import (
 from . import primitives as _primitives  # noqa: F401  registers primitive configs
 from .plot import Plot
 from .primitive import Primitive
+from .primitives import _drop_nan_points
 
 # Discriminated union over the registered primitive configs (Series/ContourFill/
 # Points). Built here — after importing `primitives` — so every primitive config
 # is registered before CustomPlotConfig references it.
 PrimitiveModel = Primitive.build_config_union()
-
-
-def _drop_nan_points(
-    lons: np.ndarray, lats: np.ndarray, vals: np.ndarray
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """_drop_nan_points Drop the entries whose value is NaN, keeping the
-    longitude / latitude / value arrays aligned. Used to strip empty stations
-    from scatter overlays so they neither draw nor stretch the auto extent.
-    """
-    keep = ~np.isnan(vals)
-    return lons[keep], lats[keep], vals[keep]
 
 
 def _pad_extent(
@@ -50,7 +42,7 @@ def _pad_extent(
     lat_max: float,
     padding: float,
 ) -> tuple[float, float, float, float]:
-    """_pad_extent Grow a (lon_min, lon_max, lat_min, lat_max) extent outward by
+    """Grow a (lon_min, lon_max, lat_min, lat_max) extent outward by
     ``padding`` (a fraction of each axis span) so auto-computed map bounds don't
     clip markers sitting on the edge. A zero-width span (e.g. a single point)
     falls back to a fixed 0.5-degree pad so ``set_extent`` stays valid.
@@ -68,7 +60,7 @@ def _pad_extent(
 
 
 def _unit_label(name: str, unit: str | None) -> str:
-    """_unit_label Format an axis/colorbar label as ``name [unit]``.
+    """Format an axis/colorbar label as ``name [unit]``.
 
     Single style for every plot (square brackets), and omits the unit entirely
     when it's unknown (``None``) so labels never read ``"Temperatura [None]"``.
@@ -77,7 +69,7 @@ def _unit_label(name: str, unit: str | None) -> str:
 
 
 class GridConfig(BaseModel):
-    """GridConfig Dashed reference lines that make an axis's resolution legible.
+    """Dashed reference lines that make an axis's resolution legible.
 
     ``x``/``y`` accept either ``"ticks"`` (one line per major tick — the default)
     or an integer N (exactly N evenly-spaced interior lines, none on the spines).
@@ -96,7 +88,7 @@ class GridConfig(BaseModel):
 
 
 class BasePlotConfig(BaseModel):
-    """BasePlotConfig Base configuration as for all plots, Pydantic Model. Used to manage common arguments."""
+    """Base configuration as for all plots, Pydantic Model. Used to manage common arguments."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -136,34 +128,34 @@ class BasePlotConfig(BaseModel):
 
 
 class TimeSeriesConfig(BasePlotConfig):
-    """TimeSeriesConfig Timeseries plot configuration as Pydantic Model."""
+    """Timeseries plot configuration as Pydantic Model."""
 
     type: Literal["timeseries", "ts", "time-series"]
     data: str | list[str]
     time: str | list[str] | None = Field(default=None)
     timestep: TimestepEnum | None = Field(default=None)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
-    colors: str | None = Field(default=None)  # TODO: implement
 
     @field_validator("data", mode="before")
     @classmethod
     def _wrap_single_data(cls, v):
+        """Accept a single dataset name as well as a list."""
         return [v] if isinstance(v, str) else v
 
 
 class Timeseries(Plot):
-    """Timeseries plot class. Implements all particular operations for Timeseries plot creation."""
+    """Plot class. Implements all particular operations for Timeseries plot creation."""
 
     config = TimeSeriesConfig
     aliases = ["ts", "time-series"]
 
     def plot(self):
-        """plot Iterate over self.plot_config.time entries, rendering once per entry."""
+        """Iterate over self.plot_config.time entries, rendering once per entry."""
         for time_interval in normalize_time(self.plot_config.time):
             self._plot_one(time_interval)
 
     def _plot_one(self, time_interval: str | None):
-        """_plot_one Timeseries plotting method for a single time entry.
+        """Timeseries plotting method for a single time entry.
         The process goes as follows:
         1) Process arguments.
         2) Process base data: Time resampling and aligning, and unit conversion.
@@ -248,7 +240,7 @@ class Timeseries(Plot):
 
 
 class ScatterConfig(BasePlotConfig):
-    """ScatterConfig Scatter plot configuration Pydantic model."""
+    """Scatter plot configuration Pydantic model."""
 
     type: Literal["scatter", "sc"]
     # Exactly two datasets — [x-axis, y-axis]. Co-location (pairing per site)
@@ -258,11 +250,11 @@ class ScatterConfig(BasePlotConfig):
     dimension: str = Field(default="time")
     timestep: TimestepEnum | None = Field(default=None)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
-    colors: str | None = Field(default=None)  # TODO: implement
 
     @field_validator("data")
     @classmethod
     def _exactly_two(cls, v):
+        """Require exactly two datasets: the x axis and the y axis."""
         if len(v) != 2:
             raise ValueError(
                 "scatter 'data' must list exactly two datasets: [x-axis, y-axis]."
@@ -271,7 +263,7 @@ class ScatterConfig(BasePlotConfig):
 
 
 class Scatter(Plot):
-    """Scatter plot class. Implements all particular operations for scatter plot creation.
+    """Plot class. Implements all particular operations for scatter plot creation.
 
     Parameters
     ----------
@@ -283,12 +275,12 @@ class Scatter(Plot):
     aliases = ["sc"]
 
     def plot(self):
-        """plot Iterate over self.plot_config.time entries, rendering once per entry."""
+        """Iterate over self.plot_config.time entries, rendering once per entry."""
         for time_interval in normalize_time(self.plot_config.time):
             self._plot_one(time_interval)
 
     def _plot_one(self, time_interval: str | None):
-        """_plot_one Scatter plotting method for a single time entry.
+        """Scatter plotting method for a single time entry.
 
         Pairs two datasets value-for-value: ``data[0]`` on x, ``data[1]`` on y.
         Per domain, each dataset gets the domain applied as a RAW Data object (a
@@ -394,18 +386,18 @@ class SpatialOverlayConfig(BasePlotConfig):
 
 
 class SpatialOverlay(Plot):
-    """SpatialOverlay plot class. Implements all particular operations for spatial-overlay plot creation."""
+    """Plot class. Implements all particular operations for spatial-overlay plot creation."""
 
     aliases = ["spatial-overlay", "spatialoverlay", "so"]
     config = SpatialOverlayConfig
 
     def plot(self):
-        """plot Iterate over self.plot_config.time entries, rendering once per entry."""
+        """Iterate over self.plot_config.time entries, rendering once per entry."""
         for time_interval in normalize_time(self.plot_config.time):
             self._plot_one(time_interval)
 
     def _plot_one(self, time_interval: str | None):
-        """_plot_one Spatial Overlay plotting method for a single time entry.
+        """Spatial Overlay plotting method for a single time entry.
         The process goes as follows:
         1) Process arguments.
         2) Iterate through Domains.
@@ -578,7 +570,7 @@ class SpatialMapConfig(BasePlotConfig):
 
 
 class SpatialMap(Plot):
-    """SpatialMap plot class. Plots a single dataset over a map.
+    """Plot class. Plots a single dataset over a map.
 
     The rendering style is chosen from the dataset topology: spatially
     distributed data (``RegularGrid``) is drawn as a filled contour
@@ -591,12 +583,12 @@ class SpatialMap(Plot):
     config = SpatialMapConfig
 
     def plot(self):
-        """plot Iterate over self.plot_config.time entries, rendering once per entry."""
+        """Iterate over self.plot_config.time entries, rendering once per entry."""
         for time_interval in normalize_time(self.plot_config.time):
             self._plot_one(time_interval)
 
     def _plot_one(self, time_interval: str | None):
-        """_plot_one Spatial Map plotting method for a single time entry.
+        """Spatial Map plotting method for a single time entry.
         The process goes as follows:
         1) Process arguments.
         2) Iterate through Domains.
@@ -722,7 +714,7 @@ class SpatialMap(Plot):
 
 
 class TimeCycleConfig(BasePlotConfig):
-    """TimeCycleConfig TimeCycle plot configuration as Pydantic Model."""
+    """TimeCycle plot configuration as Pydantic Model."""
 
     type: Literal["timecycle", "time cycle", "cycle"]
     # One or more datasets; the first is the reference and gets the ± std band.
@@ -735,10 +727,12 @@ class TimeCycleConfig(BasePlotConfig):
     @field_validator("data", mode="before")
     @classmethod
     def _wrap_single_data(cls, v):
+        """Accept a single dataset name as well as a list."""
         return [v] if isinstance(v, str) else v
 
     @model_validator(mode="after")
     def check_timestep_vs_bucket(self) -> "TimeCycleConfig":
+        """Reject a timestep coarser than the bucket it is grouped into."""
         if self.timestep is None:
             return self
         # map both to hours for comparison
@@ -764,15 +758,23 @@ class TimeCycleConfig(BasePlotConfig):
 
 
 class TimeCycle(Plot):
+    """Average cycle over a time bucket.
+
+    Groups the series by the configured bucket (hour, day, season, ...) and draws
+    the mean of each group. The first dataset is the reference and also gets a
+    standard-deviation band.
+    """
+
     config = TimeCycleConfig
     aliases = ["time cycle", "cycle"]
 
     def plot(self):
-        """plot Iterate over self.plot_config.time entries, rendering once per entry."""
+        """Iterate over self.plot_config.time entries, rendering once per entry."""
         for time_interval in normalize_time(self.plot_config.time):
             self._plot_one(time_interval)
 
     def _plot_one(self, time_interval: str | None):
+        """Render one figure for a single time entry."""
         vars = self.plot_config.vars
         domains = self.resolve_domains()
         timestep = self.plot_config.timestep
@@ -867,7 +869,7 @@ class TimeCycle(Plot):
 
 
 class CustomPlotConfig(BasePlotConfig):
-    """CustomPlotConfig Free-form composition of primitives on shared axes.
+    """Free-form composition of primitives on shared axes.
 
     Var-scope is mutually exclusive: EITHER ``vars`` is set at the plot level
     (the whole composition re-renders once per var, every subplot sees that
@@ -885,6 +887,7 @@ class CustomPlotConfig(BasePlotConfig):
 
     @model_validator(mode="after")
     def check_var_scope(self) -> "CustomPlotConfig":
+        """Require plot-level ``vars`` or per-subplot ``var``, never both."""
         plot_vars_set = self.vars is not None
         subplot_vars = [getattr(sp, "var", None) for sp in self.subplots]
         any_subplot_var = any(v is not None for v in subplot_vars)
@@ -903,7 +906,7 @@ class CustomPlotConfig(BasePlotConfig):
 
 
 class Custom(Plot):
-    """Custom plot: overlay primitives on one shared set of axes.
+    """Plot: overlay primitives on one shared set of axes.
 
     The orchestrator owns all data preparation; primitives only draw. For each
     (time, domain, var) context it prepares each subplot's data — resolve
@@ -917,7 +920,7 @@ class Custom(Plot):
     aliases = ["custom"]
 
     def plot(self):
-        """plot Render one figure per (time, domain, var) context."""
+        """Render one figure per (time, domain, var) context."""
         domains = self.resolve_domains()
         plot_vars = self.plot_config.vars
         # dict form ({var: unit}) fans out over its keys; None → single None slot.
@@ -983,6 +986,7 @@ class Custom(Plot):
         return da, dst_unit
 
     def _render_composition(self, time_interval, dom_name, dom, plot_var):
+        """Draw every primitive of the composition onto the shared axes."""
         figure = plt.figure(**self.figure_kwargs())
         ax = figure.add_subplot(1, 1, 1)
 
