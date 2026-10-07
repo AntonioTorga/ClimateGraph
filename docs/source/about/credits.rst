@@ -3,6 +3,12 @@ Credits
 ClimateGraph was conceived under the umbrella of Fondecyt Project 1231717,
 directed by Nicolas Huneeus.
 
+Funding
+-------
+
+This project is funded by ANID (Agencia Nacional de Investigación y Desarrollo)
+Chile, through the FONDECYT Regular project N° 1231717.
+
 
 Author
 ------
