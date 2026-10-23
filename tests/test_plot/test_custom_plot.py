@@ -129,6 +129,51 @@ class TestCustomRuns:
         assert len(outs) == 1
         assert "custom--Temperatura-01-01-2019_06-01-2019" in outs[0].name
 
+    def test_raster_on_curvilinear_coords(self, regular_grid_data, tmp_output_dir):
+        # RegularGrid carries 2-D latitude/longitude; this is the case imshow
+        # cannot draw at all ("imshow requires 1D coordinates").
+        cfg = CustomPlotConfig(
+            type="custom",
+            vars=["Temperatura"],
+            time=TIME_INTERVAL,
+            subplots=[
+                {
+                    "type": "raster",
+                    "dataset": "grid",
+                    "x": "longitude",
+                    "y": "latitude",
+                }
+            ],
+        )
+        self._make(cfg, {"grid": regular_grid_data}, tmp_output_dir).plot()
+        assert len(_outputs(tmp_output_dir, "combo")) == 1
+
+    def test_raster_under_contour_lines(self, regular_grid_data, tmp_output_dir):
+        # The pairing the single-colour decision is for: the mesh owns the
+        # colour scale, the lines carry their values on inline labels.
+        cfg = CustomPlotConfig(
+            type="custom",
+            vars=["Temperatura"],
+            time=TIME_INTERVAL,
+            subplots=[
+                {
+                    "type": "raster",
+                    "dataset": "grid",
+                    "x": "longitude",
+                    "y": "latitude",
+                },
+                {
+                    "type": "contour",
+                    "dataset": "grid",
+                    "x": "longitude",
+                    "y": "latitude",
+                    "levels": 5,
+                },
+            ],
+        )
+        self._make(cfg, {"grid": regular_grid_data}, tmp_output_dir).plot()
+        assert len(_outputs(tmp_output_dir, "combo")) == 1
+
     def test_series_along_time(self, point_surface_data, tmp_output_dir):
         cfg = CustomPlotConfig(
             type="custom",

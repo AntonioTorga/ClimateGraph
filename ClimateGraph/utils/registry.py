@@ -4,6 +4,7 @@ Lets an abstract base class keep a registry of its subclasses, so defining a
 subclass is enough to make it usable from a control file.
 """
 
+import inspect
 from typing import Annotated, ClassVar, Union
 
 from pydantic import BaseModel, Field
@@ -20,6 +21,10 @@ class RegistryMixin:
     class variable.  Only aliases declared directly on the subclass are
     registered (not inherited ones), matching the Reader convention.
 
+    Abstract subclasses are skipped: a family may put a shared base between the
+    root ABC and its concrete types, and a class that cannot be instantiated
+    could never be named in a control file.
+
     The mixin intentionally does NOT define ``registry`` itself — each root ABC
     owns a separate dict so their namespaces never collide.
     """
@@ -29,6 +34,12 @@ class RegistryMixin:
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
+
+        # Reliable here even though ABCMeta has not set ``__abstractmethods__``
+        # yet: ``inspect.isabstract`` falls back to scanning the class dict and
+        # its bases precisely for the mid-class-creation case.
+        if inspect.isabstract(cls):
+            return
 
         # Walk the MRO (skipping cls itself and RegistryMixin) to find the first
         # ancestor that declares its own ``registry`` dict.  That ancestor is the

@@ -6,9 +6,11 @@ import pytest
 
 from ClimateGraph.utils.general_utils import (
     CRSEnum,
+    ExpandableModel,
     ReductionMethodEnum,
     TimeBucketEnum,
     TimestepEnum,
+    expand,
     manage_path,
     manage_time_interval,
     normalize_time,
@@ -167,3 +169,112 @@ class TestEnums:
         # These keys back the groupby in TimeCycle; protect them.
         assert TimeBucketEnum.day.value == "day"
         assert TimeBucketEnum.hour.value == "hour"
+
+
+class _Fan(ExpandableModel):
+    """Two independent axes plus a field that must survive untouched."""
+
+    expands = ("alpha", "beta")
+
+    alpha: str | list[str] | None = None
+    beta: int | list[int] | None = None
+    unrelated: str = "fixed"
+
+
+class _Mapped(ExpandableModel):
+    """The name-to-unit mapping case."""
+
+    expands = ("vars",)
+
+    vars: str | list[str] | dict[str, str] | None = None
+
+
+class _Gated(ExpandableModel):
+    """An axis that only fans out on request, like a domain's one_for_each."""
+
+    expands = ("values",)
+
+    values: str | list[str] | None = None
+    one_for_each: bool = False
+
+    def expansion_gate(self, field):
+        return self.one_for_each
+
+
+class _Computed(ExpandableModel):
+    """An axis whose values come from elsewhere, like a Points domain."""
+
+    expands = ("chosen",)
+
+    chosen: str | None = None
+    points: list[str] = []
+
+    def expansion_values(self, field):
+        return list(self.points)
+
+
+class TestExpand:
+    def test_no_axes_yields_the_model_itself(self):
+        class _Plain(ExpandableModel):
+            value: int = 1
+
+        model = _Plain()
+        assert expand(model) == [({}, model)]
+
+    def test_single_axis_scalarises(self):
+        results = expand(_Fan(alpha=["a", "b"]))
+        assert [slots["alpha"] for slots, _ in results] == ["a", "b"]
+        # The copy holds a single value, not a one-element list: anything
+        # downstream has no loop left to run.
+        assert [copy.alpha for _, copy in results] == ["a", "b"]
+
+    def test_product_of_two_axes(self):
+        results = expand(_Fan(alpha=["a", "b"], beta=[1, 2, 3]))
+        assert len(results) == 6
+        assert [(s["alpha"], s["beta"]) for s, _ in results] == [
+            ("a", 1),
+            ("a", 2),
+            ("a", 3),
+            ("b", 1),
+            ("b", 2),
+            ("b", 3),
+        ]
+
+    def test_non_axis_fields_survive(self):
+        _, copy = expand(_Fan(alpha=["a"], unrelated="kept"))[0]
+        assert copy.unrelated == "kept"
+
+    def test_scalar_and_none_yield_one_copy(self):
+        assert len(expand(_Fan(alpha="solo"))) == 1
+        assert expand(_Fan())[0][1].alpha is None
+
+    def test_empty_list_is_not_an_axis(self):
+        # Zero figures would be the wrong reading of `domains: []`.
+        results = expand(_Fan(alpha=[]))
+        assert len(results) == 1
+        assert results[0][1].alpha == []
+
+    def test_mapping_keeps_its_unit_and_names_its_key(self):
+        results = expand(_Mapped(vars={"PM25": "ug/m**3", "NO2": "ppb"}))
+        assert [copy.vars for _, copy in results] == [
+            {"PM25": "ug/m**3"},
+            {"NO2": "ppb"},
+        ]
+        assert [slots["vars"] for slots, _ in results] == ["PM25", "NO2"]
+
+    def test_closed_gate_suppresses_the_axis(self):
+        grouped = expand(_Gated(values=["a", "b"], one_for_each=False))
+        assert len(grouped) == 1
+        assert grouped[0][1].values == ["a", "b"]
+
+        each = expand(_Gated(values=["a", "b"], one_for_each=True))
+        assert [copy.values for _, copy in each] == ["a", "b"]
+
+    def test_values_may_come_from_elsewhere(self):
+        results = expand(_Computed(points=["centro", "sur"]))
+        assert [copy.chosen for _, copy in results] == ["centro", "sur"]
+
+    def test_copies_are_independent_of_the_original(self):
+        original = _Fan(alpha=["a", "b"])
+        expand(original)
+        assert original.alpha == ["a", "b"]

@@ -66,24 +66,53 @@ class Primitive(RegistryMixin, ABC):
         """Return True if ``type`` names a registered primitive."""
         return cls.check_class(name)
 
+    @classmethod
+    def required_vars(cls, subplot_config: BaseModel) -> dict[str, str]:
+        """Variables this primitive needs beyond the plot's own, by role.
+
+        Empty for the single-variable primitives, which read the plot's or the
+        subplot's ``var``. When it is non-empty the orchestrator prepares each
+        named variable through the same pipeline and hands ``render`` an
+        ``xr.Dataset`` keyed by role rather than a lone array.
+
+        A classmethod taking the config, not a class attribute, because a
+        primitive may accept alternative spellings of the same requirement —
+        ``arrows`` takes either ``u``/``v`` or ``speed``/``direction``, so the
+        answer depends on what was written.
+
+        Parameters
+        ----------
+        subplot_config : BaseModel
+            The subplot config to read the variable names off.
+
+        Returns
+        -------
+        dict[str, str]
+            Role name to variable name.
+        """
+        return {}
+
     @abstractmethod
     def render(
         self,
         ax: "mpl.axes.Axes",
-        data: "xr.DataArray",
+        data: "xr.DataArray | xr.Dataset",
         *,
         x: str | None,
         y: str | None,
         label: str | None,
     ) -> "mpl.artist.Artist":
         """Draw the prepared data onto ``ax`` and return the artist.
+        Data could be a datarray if a two or more arrays are needed. E.G. wind arrows
 
         Parameters
         ----------
         ax : matplotlib Axes
             The shared axes to draw on.
-        data : xr.DataArray
+        data : xr.DataArray | xr.Dataset
             Fully prepared data (domain/time/dim-reduce/unit already applied).
+            A Dataset keyed by role when the primitive declares
+            ``required_vars``, the plot's variable as a lone array otherwise.
         x : str | None
             Coordinate name bound to the x axis.
         y : str | None

@@ -34,6 +34,18 @@ def _weekly(dayofweek: np.ndarray) -> np.ndarray:
     return np.where(dayofweek >= 5, 0.72, 1.0)
 
 
+def _wind(hours: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Up-valley westerly by day, weak drainage easterly overnight.
+
+    Roughly how the Santiago basin behaves: the afternoon breeze pushes in
+    from the west and ventilates the valley, and it collapses after sunset,
+    which is why the pollution peak is in the evening.
+    """
+    u = 3.5 * np.sin(2 * np.pi * (hours - 9) / 24) + 0.4
+    v = -1.1 * np.cos(2 * np.pi * (hours - 6) / 24)
+    return u, v
+
+
 def make_grid(path: Path, nx: int = 30, ny: int = 22, days: int = 14) -> Path:
     """Write a gridded NetCDF shaped like regional model output.
 
@@ -65,9 +77,17 @@ def make_grid(path: Path, nx: int = 30, ny: int = 22, days: int = 14) -> Path:
     )
     field = np.clip(field, 1.0, None)
 
+    # Wind: the diurnal valley breeze, weakened toward the eastern slopes.
+    u_t, v_t = _wind(hours)
+    shelter = 0.55 + 0.75 * west_east
+    u10 = u_t[:, None, None] * shelter[None, :, :]
+    v10 = v_t[:, None, None] * shelter[None, :, :]
+
     ds = xr.Dataset(
         {
             "pm25": (("time", "y", "x"), field.astype("float32")),
+            "u10": (("time", "y", "x"), u10.astype("float32")),
+            "v10": (("time", "y", "x"), v10.astype("float32")),
         },
         coords={
             "time": time,
@@ -76,6 +96,8 @@ def make_grid(path: Path, nx: int = 30, ny: int = 22, days: int = 14) -> Path:
         },
     )
     ds["pm25"].attrs["units"] = "ug/m3"
+    ds["u10"].attrs["units"] = "m/s"
+    ds["v10"].attrs["units"] = "m/s"
     ds.attrs["title"] = "Synthetic gridded model output for the ClimateGraph docs"
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -118,8 +140,22 @@ def make_stations(path: Path, days: int = 14) -> Path:
     gaps = rng.random(values.shape) < 0.04
     values[gaps] = np.nan
 
+    # Stations report speed and a direction the wind blows *from*, rather than
+    # the components a model writes. Derived from the same breeze so the two
+    # datasets tell one story.
+    u_t, v_t = _wind(hours)
+    shelter = 0.55 + 0.75 * west_east
+    u_s = u_t[:, None] * shelter[None, :]
+    v_s = v_t[:, None] * shelter[None, :]
+    ws = np.hypot(u_s, v_s)
+    wd = (270.0 - np.degrees(np.arctan2(v_s, u_s))) % 360.0
+
     ds = xr.Dataset(
-        {"pm25": (("time", "site"), values.astype("float32"))},
+        {
+            "pm25": (("time", "site"), values.astype("float32")),
+            "ws": (("time", "site"), ws.astype("float32")),
+            "wd": (("time", "site"), wd.astype("float32")),
+        },
         coords={
             "time": time,
             "site": names,
@@ -128,6 +164,8 @@ def make_stations(path: Path, days: int = 14) -> Path:
         },
     )
     ds["pm25"].attrs["units"] = "ug/m3"
+    ds["ws"].attrs["units"] = "m/s"
+    ds["wd"].attrs["units"] = "degree"
     ds.attrs["title"] = "Synthetic station observations for the ClimateGraph docs"
 
     path.parent.mkdir(parents=True, exist_ok=True)

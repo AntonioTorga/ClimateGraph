@@ -22,6 +22,7 @@ from pydantic import (
 from ClimateGraph.data import Data
 from ClimateGraph.domain import Domain
 from ClimateGraph.plot import Plot
+from ClimateGraph.plot.primitive import Primitive
 from ClimateGraph.reader import Reader
 from ClimateGraph.utils.general_utils import CRSEnum, manage_path
 
@@ -248,6 +249,10 @@ class ControlFile(BaseModel):
                     continue  # vars omitted — defer to runtime
                 subplot_var = getattr(subplot, "var", None)
                 check_vars = {subplot_var} if subplot_var is not None else plot_vars
+                # Variables a primitive names by role (arrows' u/v) are read
+                # straight out of the dataset too, so a typo in one would
+                # otherwise surface as a KeyError mid-render.
+                check_vars = check_vars | _subplot_role_vars(subplot)
                 missing = sorted(v for v in check_vars if v not in declared)
                 if missing:
                     raise ValueError(
@@ -256,6 +261,20 @@ class ControlFile(BaseModel):
                         f"Declared vars: {sorted(declared) or '(none)'}."
                     )
         return self
+
+
+def _subplot_role_vars(subplot) -> set[str]:
+    """Variables a subplot's primitive names by role, if any.
+
+    Empty for the single-variable primitives, and for a ``type`` the registry
+    does not know — the discriminated union has already rejected that case, so
+    there is nothing useful to say here.
+    """
+    subplot_type = getattr(subplot, "type", None)
+    if not subplot_type or not Primitive.check_primitive_class(subplot_type):
+        return set()
+    roles = Primitive.get_primitive_class(subplot_type).required_vars(subplot)
+    return {name for name in roles.values() if name is not None}
 
 
 def _plot_var_names(vars: str | list[str] | dict[str, str] | None) -> set[str]:

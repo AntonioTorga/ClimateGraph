@@ -1,20 +1,24 @@
-"""Enums, path expansion and time parsing.
+"""Enums, path expansion, time parsing and config expansion.
 
 The leaf utilities: how the control file's string values become real objects,
-and how paths and dates are interpreted.
+how paths and dates are interpreted, and how a block naming several values fans
+out into one config per value.
 """
 
 import datetime
 import glob
+import itertools
 import logging
 import re
 from enum import Enum
 from pathlib import Path
+from typing import ClassVar
 
 import cartopy.crs as ccrs
 import numpy as np
 import pandas as pd
 from dateutil import parser
+from pydantic import BaseModel
 
 log = logging.getLogger(__name__)
 
@@ -62,6 +66,28 @@ class ReductionMethodEnum(str, Enum):
     mean = ("mean", np.nanmean)
     min = ("min", np.nanmin)
     max = ("max", np.nanmax)
+
+
+class ReferenceEnum(str, Enum):
+    """Statistics a reference line can be placed at, computed from the data.
+
+    ``argmax``/``argmin`` are the odd ones out: they resolve to the *coordinate*
+    at which the extreme occurs rather than the extreme itself, which is what a
+    vertical line wants.
+    """
+
+    mean = "mean"
+    median = "median"
+    min = "min"
+    max = "max"
+    p10 = "p10"
+    p25 = "p25"
+    p75 = "p75"
+    p90 = "p90"
+    p95 = "p95"
+    p99 = "p99"
+    argmax = "argmax"
+    argmin = "argmin"
 
 
 class CRSEnum(str, Enum):
@@ -257,3 +283,99 @@ def normalize_time(time: str | list[str] | None) -> list[str | None]:
     if isinstance(time, list):
         return time
     return [time]
+
+
+class ExpandableModel(BaseModel):
+    """A config whose expanding fields fan out into sibling copies.
+
+    Several blocks of a control file mean "do this once per value": a plot's
+    ``time``, ``domains`` and ``vars``, take the product of the
+    expanding fields and emit a copy per point — so they share this mechanism
+    rather than being hand-written per block.
+
+    An expanded copy stands for **exactly one** output, and its axis fields
+    hold a single value rather than a one-element container. That is
+    deliberate: a collection that happened to be length one would let the loops
+    downstream keep running unchanged, leaving the fan-out in two places at
+    once. Code consuming an expanded config should have no loop left to run.
+    Because an axis field ends up holding a single value.
+    """
+
+    expands: ClassVar[tuple[str, ...]] = ()
+
+    def expansion_values(self, field: str) -> list:
+        """The per-copy values for ``field``, one per sibling.
+
+        A list contributes its items. A mapping contributes one-entry slices
+        rather than bare keys — not to preserve its shape, but because a
+        ``vars: {PM25: "ug/m**3"}`` block is a name-to-unit map and the unit
+        has nowhere else to live; ``expansion_token`` recovers the name for
+        labelling. Anything else contributes itself.
+
+        An empty collection is not an axis and passes through whole, so
+        ``domains: []`` still renders once rather than zero times.
+
+        Parameters
+        ----------
+        field : str
+            Name of the expanding field.
+
+        Returns
+        -------
+        list
+            One value per sibling copy.
+        """
+        value = getattr(self, field, None)
+        if isinstance(value, list) and value:
+            return list(value)
+        if isinstance(value, dict) and value:
+            return [{key: item} for key, item in value.items()]
+        return [value]
+
+    @staticmethod
+    def expansion_token(value):
+        """The name of a slot value, for filenames and titles.
+
+        A one-entry mapping gives up its key, and an enum its value — a bare
+        ``format()`` of an enum renders ``ReferenceEnum.mean`` rather than
+        ``mean``. Every other axis value is already its own name.
+        """
+        if isinstance(value, dict) and len(value) == 1:
+            return next(iter(value))
+        if isinstance(value, Enum):
+            return value.value
+        return value
+
+    def expansion_gate(self, field: str) -> bool:
+        """Whether ``field`` fans out at all. True unless overridden."""
+        return True
+
+
+def expand(model: ExpandableModel) -> list[tuple[dict, ExpandableModel]]:
+    """Fan a config out into one copy per point of its expansion product.
+
+    Parameters
+    ----------
+    model : ExpandableModel
+        The config to expand.
+
+    Returns
+    -------
+    list[tuple[dict, ExpandableModel]]
+        ``(slots, copy)`` pairs. ``copy`` stands for one output, with every
+        axis pinned to a single value; ``slots`` maps each axis to that value's
+        name, which is what naming and templating read.
+
+        A config with no active axes yields exactly one pair, so callers never
+        have to special-case the un-expanded form.
+    """
+    axes = [field for field in model.expands if model.expansion_gate(field)]
+    if not axes:
+        return [({}, model)]
+
+    expanded = []
+    for combo in itertools.product(*(model.expansion_values(f) for f in axes)):
+        update = dict(zip(axes, combo, strict=True))
+        slots = {field: model.expansion_token(v) for field, v in update.items()}
+        expanded.append((slots, model.model_copy(update=update)))
+    return expanded
