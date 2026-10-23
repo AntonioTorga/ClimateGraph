@@ -129,6 +129,10 @@ class AppKernel:
     def _dask_client(self):
         """Yield a dask client, or ``None`` when no cluster was requested.
 
+        One thread per worker: libnetcdf is not thread-safe, so reads serialise
+        behind a global lock that is held per process. Threads therefore queue
+        on it while processes read in parallel.
+
         Yields
         ------
         dask.distributed.Client or None
@@ -138,9 +142,9 @@ class AppKernel:
             return
         from dask.distributed import Client, LocalCluster
 
-        cluster = LocalCluster(n_workers=1, threads_per_worker=self.workers)
+        cluster = LocalCluster(n_workers=self.workers, threads_per_worker=1)
         client = Client(cluster)
-        log.info(f"Dask Client started: 1 worker x {self.workers} threads.")
+        log.info(f"Dask Client started: {self.workers} workers x 1 thread.")
         try:
             yield client
         finally:

@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 import xarray as xr
+from pandas.tseries.frequencies import to_offset
 
 from ClimateGraph.utils.dataset_utils import (
     apply_operation,
@@ -8,7 +9,7 @@ from ClimateGraph.utils.dataset_utils import (
     dim_reduction,
     time_resampling,
 )
-from ClimateGraph.utils.general_utils import ReductionMethodEnum
+from ClimateGraph.utils.general_utils import ReductionMethodEnum, TimestepEnum
 
 
 class TestHistory:
@@ -100,6 +101,19 @@ class TestTimeResampling:
         # Default is mean; daily → 2-daily should halve the steps.
         result = time_resampling(regular_grid_dataset, timestep="2D")
         assert result.sizes["time"] == 3
+
+    def test_timestep_accepts_the_enum_not_just_a_string(self, regular_grid_dataset):
+        # What a parsed control file actually supplies. pandas resolves common
+        # aliases from a cache that tolerates a str subclass and type-checks
+        # strictly otherwise, so passing the member worked only by alias.
+        result = time_resampling(regular_grid_dataset, timestep=TimestepEnum.daily)
+        assert result.sizes["time"] == regular_grid_dataset.sizes["time"]
+
+    @pytest.mark.parametrize("unit", list(TimestepEnum))
+    def test_every_timestep_is_a_valid_pandas_frequency(self, unit):
+        # "Q" and "Y" were removed in pandas 3.0 in favour of "QE"/"YE", so a
+        # member can be accepted by the config and still fail at resample time.
+        assert to_offset(unit.value) is not None
 
     def test_timestep_with_min_reduction(self, regular_grid_dataset):
         result = time_resampling(

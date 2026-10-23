@@ -29,8 +29,9 @@ class TimestepEnum(str, Enum):
     daily = "D"
     weekly = "W"
     monthly = "ME"
-    quarterly = "Q"
-    yearly = "Y"
+    # Period-end spellings: pandas 2.2 deprecated "Q"/"Y" and 3.0 removed them.
+    quarterly = "QE"
+    yearly = "YE"
     hourly = "h"
     minutely = "min"
     secondly = "s"

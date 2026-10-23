@@ -102,3 +102,44 @@ class TestDebugOverride:
         kernel = AppKernel()
         kernel.run(tmp_path / "ignored.yaml", debug_override=False)
         assert kernel.debug is False
+
+
+class TestDaskClient:
+    """``workers`` must buy worker processes, not threads.
+
+    libnetcdf is not thread-safe, so xarray serialises reads behind a lock held
+    per process. Threads queue on it and measure slower than no cluster at all;
+    processes each hold their own and read in parallel.
+    """
+
+    @pytest.fixture
+    def captured_cluster(self, monkeypatch):
+        captured = {}
+
+        class _FakeCluster:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+            def close(self):
+                pass
+
+        import dask.distributed
+
+        monkeypatch.setattr(dask.distributed, "LocalCluster", _FakeCluster)
+        monkeypatch.setattr(dask.distributed, "Client", lambda cluster: MagicMock())
+        return captured
+
+    def test_workers_become_processes(self, captured_cluster):
+        kernel = AppKernel()
+        kernel.workers = 8
+        with kernel._dask_client() as client:
+            assert client is not None
+        assert captured_cluster["n_workers"] == 8
+        assert captured_cluster["threads_per_worker"] == 1
+
+    def test_no_workers_means_no_cluster(self, captured_cluster):
+        kernel = AppKernel()
+        kernel.workers = None
+        with kernel._dask_client() as client:
+            assert client is None
+        assert captured_cluster == {}
