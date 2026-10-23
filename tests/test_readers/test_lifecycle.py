@@ -130,8 +130,13 @@ def test_default_open_many_wires_per_file_pipeline(monkeypatch):
 
     assert captured["kwargs"]["engine"] == "netcdf4"
     assert captured["kwargs"]["parallel"] is False
-    assert captured["kwargs"]["chunks"] == {"time": "auto"}
+    # A scalar, because dim names are still file-native at this point.
+    assert captured["kwargs"]["chunks"] == -1
     assert callable(captured["kwargs"]["preprocess"])
+
+    spec = ReadSpec(paths=[Path("a.nc")], vars=None, extras={"chunks": {"Time": 48}})
+    DefaultRegularGridReader._open_many([Path("a.nc")], spec)
+    assert captured["kwargs"]["chunks"] == {"Time": 48}
 
 
 def test_resolve_paths_returning_empty_raises(tracked_reader):

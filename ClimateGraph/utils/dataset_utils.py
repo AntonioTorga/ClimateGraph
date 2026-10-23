@@ -243,7 +243,8 @@ def time_resampling(
         ds = ds.sel({"time": slice(start, end)})
         _record(ds, f"selected time interval {start} to {end}")
     if timestep is not None:
-        ds = getattr(ds.resample(time=timestep), reduction_method.value)()
+        freq = getattr(timestep, "value", timestep)
+        ds = getattr(ds.resample(time=freq), reduction_method.value)()
         _record(ds, f"resampled time to {timestep} ({reduction_method.value})")
     return ds
 

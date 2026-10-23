@@ -94,6 +94,18 @@ class TestResampleVars:
         # Result should live on the destination (point) geometry.
         assert "site" in result.dims
 
+    def test_resample_from_a_chunked_source(
+        self, regular_grid_data, point_surface_data
+    ):
+        # A NetCDF4 file's internal chunking splits the geometry dims across
+        # chunks, which apply_ufunc rejects for a core dim.
+        regular_grid_data.obj = regular_grid_data.obj.chunk({"time": 1, "y": 2, "x": 2})
+        result = point_surface_data.resample_vars(
+            regular_grid_data, "Temperatura", radius_of_influence=500_000
+        )
+        assert "site" in result.dims
+        assert f"Temperatura__{regular_grid_data.name}" in result
+
     def test_resample_caches_identical_calls(
         self, regular_grid_data, point_surface_data
     ):

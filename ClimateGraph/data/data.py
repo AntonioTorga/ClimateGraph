@@ -477,6 +477,11 @@ class Data(RegistryMixin, ABC):
             var_src = other.get_var(var)
             src_geom_dims = [d for d in var_src.dims if d in set(other.geom_dims)]
 
+            # apply_ufunc needs a core dim whole, and a NetCDF4 file's internal
+            # chunking splits the geometry dims when nothing names them.
+            if var_src.chunks:
+                var_src = var_src.chunk(dict.fromkeys(src_geom_dims, -1))
+
             resampled = xr.apply_ufunc(
                 _resample,
                 var_src,

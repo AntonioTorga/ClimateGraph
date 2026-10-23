@@ -277,6 +277,12 @@ class Reader(ABC):
         return manage_path(spec.paths, sort=spec.load_mode == "unsafe")
 
     open_engine: str = "netcdf4"
+    # One chunk per file, every dim. Chunking runs before `_preprocess`, so dim
+    # names are still file-native here and a dim-keyed spec silently misses;
+    # a scalar sidesteps that. The alternative, deferring to a NetCDF4 file's
+    # internal layout, is often one timestep per chunk. Override per dataset
+    # with `chunks:` in the data block, keyed on the file's own dim names.
+    default_chunks: int | dict = -1
 
     @classmethod
     def _open_many(cls, paths: list[Path], spec: ReadSpec) -> xr.Dataset:
@@ -301,7 +307,7 @@ class Reader(ABC):
         engine = spec.engine or cls.open_engine
         return xr.open_mfdataset(
             paths,
-            chunks={"time": "auto"},
+            chunks=spec.extras.get("chunks", cls.default_chunks),
             engine=engine,
             parallel=engine != "netcdf4",
             preprocess=per_file,
@@ -311,7 +317,11 @@ class Reader(ABC):
     def _open_one(cls, path: Path, spec: ReadSpec) -> Any:
         """Open a single file (unsafe path)."""
         engine = spec.engine or cls.open_engine
-        return xr.open_dataset(path, chunks={"time": "auto"}, engine=engine)
+        return xr.open_dataset(
+            path,
+            chunks=spec.extras.get("chunks", cls.default_chunks),
+            engine=engine,
+        )
 
     @classmethod
     def _to_xarray(cls, raw: Any, spec: ReadSpec) -> xr.Dataset:
