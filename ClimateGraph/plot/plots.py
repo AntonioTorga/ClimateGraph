@@ -721,17 +721,31 @@ class TimeCycleConfig(BasePlotConfig):
             return self
         # map both to hours for comparison
         bucket_hours = {
+            "minute": 1 / 60,
             "hour": 1,
             "day": 24,
+            "week": 168,
             "month": 720,
             "dayofyear": 24,
             "season": 2160,
+            "quarter": 2160,
         }
         timestep_hours = {
+            TimestepEnum.nanoseconds: 1 / 3.6e12,
+            TimestepEnum.microseconds: 1 / 3.6e9,
+            TimestepEnum.milliseconds: 1 / 3.6e6,
+            TimestepEnum.secondly: 1 / 3600,
+            TimestepEnum.minutely: 1 / 60,
             TimestepEnum.hourly: 1,
             TimestepEnum.daily: 24,
+            TimestepEnum.business_day: 24,
+            TimestepEnum.weekly: 168,
             TimestepEnum.monthly: 720,
-            # extend as needed
+            TimestepEnum.monthly_start: 720,
+            TimestepEnum.quarterly: 2160,
+            TimestepEnum.quarterly_start: 2160,
+            TimestepEnum.yearly: 8760,
+            TimestepEnum.yearly_start: 8760,
         }
         if timestep_hours[self.timestep] > bucket_hours[self.time_buckets.value]:
             raise ValueError(
