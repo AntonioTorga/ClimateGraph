@@ -19,7 +19,7 @@ _PERCENTILES = {"p10": 10, "p25": 25, "p75": 75, "p90": 90, "p95": 95, "p99": 99
 def _reference_value(data, at, coord: str | None = None):
     """Resolve a reference position to a single value.
 
-    ``at`` is either a literal or a statistic in 
+    ``at`` is either a literal or a statistic in
     :class:`~ClimateGraph.utils.general_utils.ReferenceEnum`  computed
     from ``data``. Dates go through ``manage_time_interval`` so they are read
     dayfirst like every other date in a control file.
@@ -137,9 +137,7 @@ class LineConfig(DecorationConfig):
         if self.dataset is not None:
             return self
         positions = self.at if isinstance(self.at, list) else [self.at]
-        computed = sorted(
-            {a.value for a in positions if isinstance(a, ReferenceEnum)}
-        )
+        computed = sorted({a.value for a in positions if isinstance(a, ReferenceEnum)})
         if computed:
             raise ValueError(
                 f"{self.type!r} decoration: {computed} are statistics of the data, "

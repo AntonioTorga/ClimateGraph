@@ -22,11 +22,15 @@ from pydantic import (
 from ClimateGraph.data import Data
 from ClimateGraph.domain import Domain
 from ClimateGraph.plot import Plot
-from ClimateGraph.plot.primitive import Primitive
 from ClimateGraph.reader import Reader
+from ClimateGraph.utils.config_utils import (
+    DATASET_REF_FIELDS,
+    declared_var_names,
+    plot_var_names,
+    referenced_datasets,
+    subplot_role_vars,
+)
 from ClimateGraph.utils.general_utils import CRSEnum, manage_path
-
-_DATASET_REF_FIELDS = ("base", "superposed", "data")
 
 
 class AnalysisModel(BaseModel):
@@ -205,14 +209,14 @@ class ControlFile(BaseModel):
         if not self.plots:
             return self
         for plot_name, plot_model in self.plots.items():
-            plot_vars = _plot_var_names(getattr(plot_model, "vars", None))
+            plot_vars = plot_var_names(getattr(plot_model, "vars", None))
             if not plot_vars:
                 continue
-            for ds_name in _referenced_datasets(plot_model, _DATASET_REF_FIELDS):
+            for ds_name in referenced_datasets(plot_model, DATASET_REF_FIELDS):
                 data_model = self.data.get(ds_name)
                 if data_model is None:
                     continue
-                declared = _declared_var_names(data_model.vars)
+                declared = declared_var_names(data_model.vars)
                 if declared is None:
                     continue  # vars omitted — defer to runtime
                 missing = sorted(plot_vars - declared)
@@ -238,13 +242,13 @@ class ControlFile(BaseModel):
             subplots = getattr(plot_model, "subplots", None)
             if not subplots:
                 continue
-            plot_vars = _plot_var_names(getattr(plot_model, "vars", None))
+            plot_vars = plot_var_names(getattr(plot_model, "vars", None))
             for subplot in subplots:
                 ds_name = getattr(subplot, "dataset", None)
                 data_model = self.data.get(ds_name) if ds_name else None
                 if data_model is None:
                     continue
-                declared = _declared_var_names(data_model.vars)
+                declared = declared_var_names(data_model.vars)
                 if declared is None:
                     continue  # vars omitted — defer to runtime
                 subplot_var = getattr(subplot, "var", None)
@@ -252,7 +256,7 @@ class ControlFile(BaseModel):
                 # Variables a primitive names by role (arrows' u/v) are read
                 # straight out of the dataset too, so a typo in one would
                 # otherwise surface as a KeyError mid-render.
-                check_vars = check_vars | _subplot_role_vars(subplot)
+                check_vars = check_vars | subplot_role_vars(subplot)
                 missing = sorted(v for v in check_vars if v not in declared)
                 if missing:
                     raise ValueError(
@@ -261,51 +265,3 @@ class ControlFile(BaseModel):
                         f"Declared vars: {sorted(declared) or '(none)'}."
                     )
         return self
-
-
-def _subplot_role_vars(subplot) -> set[str]:
-    """Variables a subplot's primitive names by role, if any.
-
-    Empty for the single-variable primitives, and for a ``type`` the registry
-    does not know — the discriminated union has already rejected that case, so
-    there is nothing useful to say here.
-    """
-    subplot_type = getattr(subplot, "type", None)
-    if not subplot_type or not Primitive.check_primitive_class(subplot_type):
-        return set()
-    roles = Primitive.get_primitive_class(subplot_type).required_vars(subplot)
-    return {name for name in roles.values() if name is not None}
-
-
-def _plot_var_names(vars: str | list[str] | dict[str, str] | None) -> set[str]:
-    """Variable names a plot references, regardless of the form ``vars`` took."""
-    if vars is None:
-        return set()
-    if isinstance(vars, str):
-        return {vars}
-    if isinstance(vars, dict):
-        return set(vars.keys())
-    return set(vars)
-
-
-def _declared_var_names(
-    vars: dict[str, VarModel] | list[str] | None,
-) -> set[str] | None:
-    """Names a dataset exposes, or ``None`` when vars was omitted (unknowable)."""
-    if isinstance(vars, dict):
-        return set(vars.keys())
-    if isinstance(vars, list):
-        return set(vars)
-    return None
-
-
-def _referenced_datasets(plot_model, fields: tuple[str, ...]) -> set[str]:
-    """Collect data-block names a plot points at across its reference fields."""
-    names: set[str] = set()
-    for field in fields:
-        value = getattr(plot_model, field, None)
-        if isinstance(value, str):
-            names.add(value)
-        elif isinstance(value, list):
-            names.update(v for v in value if isinstance(v, str))
-    return names

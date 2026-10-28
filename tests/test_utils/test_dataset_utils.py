@@ -7,6 +7,7 @@ from ClimateGraph.utils.dataset_utils import (
     apply_operation,
     change_unit,
     dim_reduction,
+    drop_nan_points,
     time_resampling,
 )
 from ClimateGraph.utils.general_utils import ReductionMethodEnum, TimestepEnum
@@ -214,3 +215,28 @@ class TestApplyOperation:
     def test_rejects_non_arithmetic(self, bad):
         with pytest.raises(ValueError):
             apply_operation(bad, self._vars())
+
+
+class TestDropNanPoints:
+    def test_drops_only_nan_valued_entries(self):
+        lons = np.array([1.0, 2.0, 3.0])
+        lats = np.array([10.0, 20.0, 30.0])
+        vals = np.array([5.0, np.nan, 7.0])
+
+        out_lons, out_lats, out_vals = drop_nan_points(lons, lats, vals)
+
+        assert out_lons.tolist() == [1.0, 3.0]
+        assert out_lats.tolist() == [10.0, 30.0]
+        assert out_vals.tolist() == [5.0, 7.0]
+
+    def test_no_nans_returns_everything(self):
+        lons, lats, vals = (np.array([1.0, 2.0]),) * 3
+        out_lons, _, _ = drop_nan_points(lons, lats, vals)
+        assert out_lons.tolist() == [1.0, 2.0]
+
+    def test_all_nan_returns_empty(self):
+        lons = np.array([1.0, 2.0])
+        lats = np.array([3.0, 4.0])
+        vals = np.array([np.nan, np.nan])
+        out_lons, out_lats, out_vals = drop_nan_points(lons, lats, vals)
+        assert out_lons.size == out_lats.size == out_vals.size == 0

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 from pydantic import ValidationError
 
@@ -22,7 +21,6 @@ from ClimateGraph.plot.primitives import (
     RasterConfig,
     Series,
     SeriesConfig,
-    _step_metres,
 )
 
 
@@ -137,7 +135,9 @@ class TestNewPrimitiveRegistration:
 
 class TestArrowsConfig:
     def test_components_pair_accepted(self):
-        cfg = ArrowsConfig(type="arrows", dataset="d", x="lon", y="lat", u="u10", v="v10")
+        cfg = ArrowsConfig(
+            type="arrows", dataset="d", x="lon", y="lat", u="u10", v="v10"
+        )
         assert Arrows.required_vars(cfg) == {"u": "u10", "v": "v10"}
 
     def test_polar_pair_accepted(self):
@@ -183,28 +183,3 @@ class TestGradientConfig:
         # The field is the one already being drawn.
         cfg = GradientConfig(type="gradient", dataset="d", x="lon", y="lat")
         assert Gradient.required_vars(cfg) == {}
-
-
-class TestStepMetres:
-    def test_degree_of_latitude_is_about_111_km(self):
-        lon, lat = np.meshgrid(np.arange(4.0), np.arange(0.0, 4.0))
-        _, ey = _step_metres(lon, lat)
-        assert ey.mean() == pytest.approx(111_195, rel=1e-3)
-
-    def test_longitude_spacing_shrinks_with_latitude(self):
-        # The reason index space is not good enough: a degree of longitude is
-        # ~111 km at the equator and ~79 km at 45 degrees.
-        lon, lat = np.meshgrid(np.arange(4.0), np.array([0.0, 45.0, 60.0, 80.0]))
-        ex, _ = _step_metres(lon, lat)
-        equator, mid, high = ex[0].mean(), ex[1].mean(), ex[3].mean()
-        assert equator > mid > high
-        assert mid / equator == pytest.approx(np.cos(np.deg2rad(45)), rel=1e-3)
-
-    def test_handles_a_curvilinear_grid(self):
-        # Latitude varying along x as well — the WRF/CHIMERE case.
-        yy, xx = np.meshgrid(np.arange(5.0), np.arange(6.0), indexing="ij")
-        lon = -71 + 0.1 * xx + 0.02 * yy
-        lat = -33 + 0.1 * yy + 0.02 * xx
-        ex, ey = _step_metres(lon, lat)
-        assert ex.shape == ey.shape == lon.shape
-        assert np.all(ex > 0) and np.all(ey > 0)

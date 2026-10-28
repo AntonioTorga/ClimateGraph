@@ -9,12 +9,51 @@ import logging
 import operator as _op
 from datetime import UTC, datetime
 
+import numpy as np
 import pint_xarray  # noqa: F401
 import xarray as xr
 
 from .general_utils import ReductionMethodEnum, manage_time_interval
 
 log = logging.getLogger(__name__)
+
+
+def drop_nan_points(
+    x: np.ndarray, y: np.ndarray, vals: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Drop entries whose value is NaN, keeping x/y/value aligned."""
+    keep = ~np.isnan(vals)
+    return x[keep], y[keep], vals[keep]
+
+
+def axis_arrays(data, x, y):
+    """The data and its x/y coordinates as aligned 2-D numpy arrays.
+
+    Transposed to the coordinates' own dim order, so axis 0 and axis 1 line up
+    with y and x; 1-D coordinates are meshed out to match.
+
+    Parameters
+    ----------
+    data : xr.DataArray | xr.Dataset
+        The object to align.
+    x, y : str
+        Coordinate names bound to each axis.
+
+    Returns
+    -------
+    tuple
+        The transposed object and its x/y coordinates as 2-D arrays.
+    """
+    ydims = data[y].dims if y in data.coords else (y,)
+    xdims = data[x].dims if x in data.coords else (x,)
+    order = list(dict.fromkeys(ydims + xdims))
+    data = data.transpose(*order)
+
+    xv = np.asarray(data[x].values, dtype=float)
+    yv = np.asarray(data[y].values, dtype=float)
+    if xv.ndim == 1 and yv.ndim == 1:
+        xv, yv = np.meshgrid(xv, yv)
+    return data, xv, yv
 
 
 def _record(obj: xr.Dataset | xr.DataArray, entry: str) -> None:

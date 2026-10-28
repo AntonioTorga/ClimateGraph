@@ -165,9 +165,7 @@ class TestDecorationVarScope:
         with pytest.raises(ValidationError, match="no 'var'"):
             CustomPlotConfig(
                 type="custom",
-                subplots=[
-                    {"type": "series", "dataset": "g", "x": "time", "var": "CO"}
-                ],
+                subplots=[{"type": "series", "dataset": "g", "x": "time", "var": "CO"}],
                 decorations=[{"type": "hline", "dataset": "g", "at": "mean"}],
             )
 
@@ -199,9 +197,7 @@ class TestDecorationRuns:
             decorations=decorations,
         )
 
-    def test_literal_and_derived_lines_render(
-        self, point_surface_data, tmp_output_dir
-    ):
+    def test_literal_and_derived_lines_render(self, point_surface_data, tmp_output_dir):
         cfg = self._config(
             [
                 {"type": "hline", "at": 50, "label": "Norma", "color": "red"},

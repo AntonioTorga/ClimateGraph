@@ -14,7 +14,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 mpl.use("Agg")
 
 from ClimateGraph.data import PointSurface, RegularGrid
-from ClimateGraph.utils.dataset_utils import change_unit, dim_reduction, time_resampling
+from ClimateGraph.utils.dataset_utils import (
+    change_unit,
+    dim_reduction,
+    drop_nan_points,
+    time_resampling,
+)
 from ClimateGraph.utils.general_utils import (
     CRSEnum,
     ReductionMethodEnum,
@@ -24,44 +29,18 @@ from ClimateGraph.utils.general_utils import (
     manage_time_interval,
     normalize_time,
 )
+from ClimateGraph.utils.geo_utils import pad_extent
 
 from . import decorators as _decorators  # noqa: F401  registers decoration configs
 from . import primitives as _primitives  # noqa: F401  registers primitive configs
 from .decorator import Decorator
 from .plot import Plot
 from .primitive import Primitive
-from .primitives import _drop_nan_points
 
-# Discriminated unions over the registered primitive and decoration configs.
-# Built here — after the two imports above — so every config is registered
-# before CustomPlotConfig references it; the pkgutil loop in __init__ gives no
-# ordering guarantee.
+# Built after the two imports above: every config must be registered before
+# CustomPlotConfig references it, and __init__'s pkgutil loop has no ordering.
 PrimitiveModel = Primitive.build_config_union()
 DecorationModel = Decorator.build_config_union()
-
-
-def _pad_extent(
-    lon_min: float,
-    lon_max: float,
-    lat_min: float,
-    lat_max: float,
-    padding: float,
-) -> tuple[float, float, float, float]:
-    """Grow a (lon_min, lon_max, lat_min, lat_max) extent outward by
-    ``padding`` (a fraction of each axis span) so auto-computed map bounds don't
-    clip markers sitting on the edge. A zero-width span (e.g. a single point)
-    falls back to a fixed 0.5-degree pad so ``set_extent`` stays valid.
-    """
-    lon_span = lon_max - lon_min
-    lat_span = lat_max - lat_min
-    lon_pad = lon_span * padding if lon_span else 0.5
-    lat_pad = lat_span * padding if lat_span else 0.5
-    return (
-        lon_min - lon_pad,
-        lon_max + lon_pad,
-        lat_min - lat_pad,
-        lat_max + lat_pad,
-    )
 
 
 def _unit_label(name: str, unit: str | None) -> str:
@@ -490,7 +469,7 @@ class SpatialOverlay(Plot):
                 sup_lats = superposed_var["latitude"].values
                 sup_vals = superposed_var.values
                 if self.plot_config.drop_nans:
-                    sup_lons, sup_lats, sup_vals = _drop_nan_points(
+                    sup_lons, sup_lats, sup_vals = drop_nan_points(
                         sup_lons, sup_lats, sup_vals
                     )
 
@@ -509,7 +488,7 @@ class SpatialOverlay(Plot):
                     lat_max = np.nanmin(
                         [np.nanmax(base_var["latitude"]), np.nanmax(sup_lats)]
                     )
-                    lon_min, lon_max, lat_min, lat_max = _pad_extent(
+                    lon_min, lon_max, lat_min, lat_max = pad_extent(
                         lon_min, lon_max, lat_min, lat_max, self.plot_config.padding
                     )
 
@@ -677,7 +656,7 @@ class SpatialMap(Plot):
                     # Drop stations whose reduced observation is NaN so empty
                     # sites neither draw nor stretch the auto extent.
                     if self.plot_config.drop_nans:
-                        lons, lats, vals = _drop_nan_points(lons, lats, vals)
+                        lons, lats, vals = drop_nan_points(lons, lats, vals)
                     ax.scatter(
                         lons,
                         lats,
@@ -694,7 +673,7 @@ class SpatialMap(Plot):
                 else:
                     lon_min, lon_max = np.nanmin(lons), np.nanmax(lons)
                     lat_min, lat_max = np.nanmin(lats), np.nanmax(lats)
-                    lon_min, lon_max, lat_min, lat_max = _pad_extent(
+                    lon_min, lon_max, lat_min, lat_max = pad_extent(
                         lon_min, lon_max, lat_min, lat_max, self.plot_config.padding
                     )
 
@@ -874,8 +853,7 @@ class TimeCycle(Plot):
 
 
 class CustomPlotConfig(BasePlotConfig):
-    """Free-form composition of primitives on shared axes.
-    """
+    """Free-form composition of primitives on shared axes."""
 
     type: Literal["custom"]
     # vars are opt here because they might be provided by every subplot. Not being provided at the leaf nor here errors out
@@ -895,8 +873,7 @@ class CustomPlotConfig(BasePlotConfig):
         # A subplot whose primitive names its variables by role — arrows' u/v —
         # is already scoped and has no use for a `var`.
         all_subplot_vars = all(
-            v is not None
-            or Primitive.get_primitive_class(sp.type).required_vars(sp)
+            v is not None or Primitive.get_primitive_class(sp.type).required_vars(sp)
             for sp, v in zip(self.subplots, subplot_vars, strict=True)
         )
         if plot_vars_set and any_subplot_var:

@@ -5,50 +5,11 @@ from typing import ClassVar, Literal
 import numpy as np
 from pydantic import BaseModel, ConfigDict, model_validator
 
+from ClimateGraph.utils.dataset_utils import axis_arrays, drop_nan_points
 from ClimateGraph.utils.general_utils import ReductionMethodEnum
+from ClimateGraph.utils.geo_utils import step_metres
 
 from .primitive import Primitive
-
-_EARTH_RADIUS_M = 6_371_000.0
-
-
-def _drop_nan_points(
-    x: np.ndarray, y: np.ndarray, vals: np.ndarray
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Drop entries whose value is NaN, keeping x/y/value aligned."""
-    keep = ~np.isnan(vals)
-    return x[keep], y[keep], vals[keep]
-
-
-def _step_metres(lon: np.ndarray, lat: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Metres per index step along each array axis of a 2-D lon/lat grid.
-
-    A curvilinear grid has no single spacing along an axis: a degree of
-    longitude shrinks with latitude, and on a Lambert or rotated projection
-    both coordinates vary along both axes. So the spacing is read off the
-    coordinates themselves, cell by cell, using the equirectangular
-    approximation — accurate at grid scale, where the cells are small.
-
-    The result is *along-grid* rather than true east/north. On a rotated grid
-    the array axes are tilted relative to the meridians and this does not
-    correct for it, which is a few degrees over a regional domain.
-
-    Parameters
-    ----------
-    lon, lat : np.ndarray
-        Two-dimensional longitude and latitude, in degrees.
-
-    Returns
-    -------
-    tuple[np.ndarray, np.ndarray]
-        Metres per index step along the x and y array axes.
-    """
-    dlon_dy, dlon_dx = np.gradient(lon)
-    dlat_dy, dlat_dx = np.gradient(lat)
-    coslat = np.cos(np.deg2rad(lat))
-    ex = _EARTH_RADIUS_M * np.deg2rad(np.hypot(dlon_dx * coslat, dlat_dx))
-    ey = _EARTH_RADIUS_M * np.deg2rad(np.hypot(dlon_dy * coslat, dlat_dy))
-    return ex, ey
 
 
 def _quiver(ax, xv, yv, u, v, cfg, style):
@@ -76,24 +37,6 @@ def _quiver(ax, xv, yv, u, v, cfg, style):
     )
 
 
-def _axis_arrays(data, x, y):
-    """The data and its x/y coordinates as aligned 2-D numpy arrays.
-
-    Transposes to the coordinates' own dim order so ``np.gradient``'s axis 0
-    and axis 1 line up with y and x, and meshes 1-D coordinates out to match.
-    """
-    ydims = data[y].dims if y in data.coords else (y,)
-    xdims = data[x].dims if x in data.coords else (x,)
-    order = list(dict.fromkeys(ydims + xdims))
-    data = data.transpose(*order)
-
-    xv = np.asarray(data[x].values, dtype=float)
-    yv = np.asarray(data[y].values, dtype=float)
-    if xv.ndim == 1 and yv.ndim == 1:
-        xv, yv = np.meshgrid(xv, yv)
-    return data, xv, yv
-
-
 class SubplotConfig(BaseModel):
     """Shared config for every primitive subplot.
 
@@ -112,10 +55,8 @@ class SubplotConfig(BaseModel):
     var: str | None = None
     x: str | None = None
     y: str | None = None
-    # Optional per-subplot time override. When set it wins over the plot-level
-    # `time` for this subplot only, so heterogeneous times can overlay on one
-    # figure (e.g. the same date across two years). When None the subplot follows
-    # the plot's time iteration.
+    # Wins over the plot-level `time` for this subplot alone, so two windows can
+    # overlay on one figure. None follows the plot's time iteration.
     time: str | None = None
     dim_reduce: dict[str, str | dict] | None = None
     reduction_method: ReductionMethodEnum = ReductionMethodEnum.mean
@@ -172,9 +113,8 @@ class ContourFillConfig(SubplotConfig):
 class ContourFill(Primitive):
     """Primitive: a filled contour of the variable on x/y.
 
-    No CRS / projection awareness (unlike ``SpatialOverlay``) — plain axes,
-    generic by design. Projection kwargs, if ever needed, flow through
-    ``model_extra``.
+    Draws on plain axes with no CRS awareness, unlike ``SpatialOverlay``.
+    Projection kwargs flow through ``model_extra``.
     """
 
     config = ContourFillConfig
@@ -211,9 +151,9 @@ class ContourConfig(SubplotConfig):
 class Contour(Primitive):
     """Primitive: single-coloured contour lines of the variable on x/y.
 
-    Deliberately one colour. The lines carry their values on inline labels, so
-    the figure's one colour scale stays free for whatever is drawn underneath —
-    a ``contourf`` or a ``raster``.
+    The lines carry their values on inline labels, leaving the figure's one
+    colour scale to whatever is drawn underneath — a ``contourf`` or a
+    ``raster``.
     """
 
     config = ContourConfig
@@ -249,17 +189,13 @@ class RasterConfig(SubplotConfig):
     vmax: float | None = None
 
 
-
 class Raster(Primitive):
     """Primitive: the data drawn cell-for-cell on a 2-D plane.
 
     No contouring and no interpolation — one quadrilateral per grid cell, at
-    the position and size its coordinates actually give it. Backed by
-    ``pcolormesh`` rather than ``imshow`` because a ``RegularGrid`` carries
-    two-dimensional ``latitude``/``longitude`` (a WRF or CHIMERE grid on a
-    Lambert projection has latitude varying with ``x``), which ``imshow``
-    cannot draw at all; and on the grids it can draw, it ignores the
-    coordinate values and so renders uneven spacing as if it were even.
+    the position and size its coordinates give it.
+
+    Backed by ``pcolormesh``.
     """
 
     config = RasterConfig
@@ -300,15 +236,12 @@ class GradientConfig(SubplotConfig):
 class Gradient(Primitive):
     """Primitive: arrows along the gradient of the variable itself.
 
-    Needs no second variable — the field is the one already being drawn, and
-    the arrows show which way it climbs and how steeply.
+    Needs no second variable — the field is the one already being drawn.
 
     Spacing comes from the coordinates, so the result is physical rather than
-    per-index: two-dimensional ``latitude``/``longitude`` go through
-    ``_step_metres`` and give the gradient per metre; one-dimensional
-    coordinates are handed to ``np.gradient`` directly and give it per
-    coordinate unit. Setting ``normalize`` drops magnitude entirely and shows
-    direction alone, which sidesteps the distinction.
+    per-index: 2-D ``latitude``/``longitude`` go through ``step_metres`` for a
+    gradient per metre, 1-D coordinates give one per coordinate unit.
+    ``normalize`` drops magnitude and shows direction alone.
     """
 
     config = GradientConfig
@@ -318,11 +251,11 @@ class Gradient(Primitive):
     def render(self, ax, data, *, x, y, label):
         """Draw arrows along the field's gradient."""
         cfg = self.subplot_config
-        data, xv, yv = _axis_arrays(data, x, y)
+        data, xv, yv = axis_arrays(data, x, y)
         values = np.asarray(data.values, dtype=float)
 
         if np.ndim(data[x].values) == 2:
-            ex, ey = _step_metres(xv, yv)
+            ex, ey = step_metres(xv, yv)
             df_dy, df_dx = np.gradient(values)
             u, v = df_dx / ex, df_dy / ey
         else:
@@ -383,13 +316,11 @@ class ArrowsConfig(SubplotConfig):
 class Arrows(Primitive):
     """Primitive: a vector field drawn from two variables.
 
-    The usual figure is a concentration field underneath with wind over it, so
-    transport is visible. Models write the components (``u10``/``v10``);
-    station networks report speed and direction, which are converted here.
+    Models write the components (``u10``/``v10``); station networks report
+    speed and direction, which are converted here. Drawn over a concentration
+    field, it shows transport.
 
-    Single-coloured: an arrow already carries its magnitude in its length, so
-    colouring it too would spend the figure's one colour scale on information
-    that is already shown.
+    Single-coloured: an arrow carries its magnitude in its length already.
     """
 
     config = ArrowsConfig
@@ -409,7 +340,7 @@ class Arrows(Primitive):
     def render(self, ax, data, *, x, y, label):
         """Draw the vector field over two coordinates."""
         cfg = self.subplot_config
-        data, xv, yv = _axis_arrays(data, x, y)
+        data, xv, yv = axis_arrays(data, x, y)
 
         if "u" in data:
             u = np.asarray(data["u"].values, dtype=float)
@@ -450,7 +381,7 @@ class Points(Primitive):
         yv = np.asarray(data[y].values).ravel()
         cv = np.asarray(data.values).ravel()
         if cfg.drop_nans:
-            xv, yv, cv = _drop_nan_points(xv, yv, cv)
+            xv, yv, cv = drop_nan_points(xv, yv, cv)
         return ax.scatter(
             xv,
             yv,
