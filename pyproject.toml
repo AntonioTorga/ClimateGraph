@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name= "ClimateGraph"
-version = "0.4.2"
+version = "0.4.3"
 description = "A CLI tool for graphing Climate Data"
 readme = "README.md"
 license = "MIT"
@@ -29,7 +29,7 @@ dependencies = [
         "xarray",
         "pandas",
         "openpyxl",
-        "dask",
+        "dask[distributed]",
         "netcdf4",
         "numpy",
         "matplotlib",
@@ -43,7 +43,6 @@ dependencies = [
 		"regionmask",
 		"h5netcdf",
 		"h5py",
-		"dask"
 ]
 
 [project.optional-dependencies]
@@ -86,7 +85,6 @@ Homepage = "https://github.com/AntonioTorga/ClimateGraph"
 Documentation = "https://climategraph.readthedocs.io"
 Repository = "https://github.com/AntonioTorga/ClimateGraph"
 Issues = "https://github.com/AntonioTorga/ClimateGraph/issues"
-Changelog = "https://github.com/AntonioTorga/ClimateGraph/blob/main/CHANGELOG.md"
 
 [project.scripts]
 ClimateGraph= "ClimateGraph.cli:app"

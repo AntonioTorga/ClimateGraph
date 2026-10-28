@@ -10,3 +10,5 @@ test_data/results/
 docs/_build/
 docs/source/api/generated/
 ROADMAP.md
+CHANGELOG.md
+dist/
