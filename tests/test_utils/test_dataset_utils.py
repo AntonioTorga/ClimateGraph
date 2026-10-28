@@ -115,6 +115,13 @@ class TestTimeResampling:
         # member can be accepted by the config and still fail at resample time.
         assert to_offset(unit.value) is not None
 
+    def test_period_start_timestep_labels_bucket_start(self, regular_grid_dataset):
+        result = time_resampling(
+            regular_grid_dataset, timestep=TimestepEnum.monthly_start
+        )
+        first = regular_grid_dataset["time"].values[0]
+        assert result["time"].values[0] == first.astype("datetime64[M]")
+
     def test_timestep_with_min_reduction(self, regular_grid_dataset):
         result = time_resampling(
             regular_grid_dataset,

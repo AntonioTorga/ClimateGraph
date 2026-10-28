@@ -149,7 +149,7 @@ plots:
     type: timeseries               # aliases: ts, time-series
     data: [STATIONS, MODEL]        # str or [list]
     time: "1/1/2019 - 1/2/2019"
-    timestep: D                    # optional pre-resample: h, D, ME, Y, ...
+    timestep: D                    # optional pre-resample: h, D, ME, YE, MS, YS, ...
     reduction_method: mean         # mean | min | max
     vars: {Temperatura: degC}
 

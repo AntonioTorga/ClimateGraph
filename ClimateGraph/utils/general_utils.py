@@ -32,6 +32,10 @@ class TimestepEnum(str, Enum):
     # Period-end spellings: pandas 2.2 deprecated "Q"/"Y" and 3.0 removed them.
     quarterly = "QE"
     yearly = "YE"
+    # Period-start spellings: label each bucket with its first instant.
+    monthly_start = "MS"
+    quarterly_start = "QS"
+    yearly_start = "YS"
     hourly = "h"
     minutely = "min"
     secondly = "s"

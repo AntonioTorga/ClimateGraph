@@ -7,6 +7,22 @@ the project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 While the major version is `0`, the configuration surface and the Python API may
 still change between releases.
 
+## [0.4.2] — 2026-10-28
+
+### Added
+
+- `timestep: MS`, `QS` and `YS`, which label each averaged point with the
+  start of its period instead of the end. With `YE`, the mean of 2015 is
+  plotted at 2015-12-31, next to the 2016 tick, so a 2015–2019 series reads
+  as 2016–2020 on the axis; `YS` plots it at 2015-01-01.
+
+### Fixed
+
+- A `timecycle` plot raised `KeyError` instead of validating when given any
+  `timestep` other than `h`, `D` or `ME`, or `time_buckets` of `minute`,
+  `week` or `quarter`. The timestep-versus-bucket check now covers every
+  accepted value.
+
 ## [0.4.1] — 2026-10-23
 
 Both fixes below were found on the same run: a year of hourly WRF output
