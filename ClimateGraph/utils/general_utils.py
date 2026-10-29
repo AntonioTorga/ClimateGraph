@@ -12,13 +12,13 @@ import logging
 import re
 from enum import Enum
 from pathlib import Path
-from typing import ClassVar
+from typing import Annotated, ClassVar
 
 import cartopy.crs as ccrs
 import numpy as np
 import pandas as pd
 from dateutil import parser
-from pydantic import BaseModel
+from pydantic import AfterValidator, BaseModel
 
 log = logging.getLogger(__name__)
 
@@ -26,63 +26,104 @@ CRS_TYPES = {"platecarree": ccrs.PlateCarree}
 TIME_INTERVAL_FORMAT = r"^(.+?)\s*(?:-|to)\s*(.+)$"  # Accepts "date - date" or "date to date" and a date should be in dayfirst format.
 
 
-class TimestepEnum(str, Enum):
-    """Resample frequencies, as pandas offset aliases.
+class TimeUnitEnum(str, Enum):
+    """A unit of time, with what each stage of the pipeline needs of it.
 
-    ``hours`` is the span one step covers, so a timestep can be compared
-    against the bucket it would be grouped into.
+    ``freq`` is the pandas frequency a resample takes, ``accessor`` the xarray
+    ``.dt`` name behind ``groupby("time.<x>")``, ``hours`` the span one unit
+    covers, and ``period`` how many units complete the enclosing cycle — what
+    an angular axis divides by. A unit carries None where it does not support
+    that use, and the field annotations below reject those cases by name.
+
+    A resampled month, quarter or year is labelled with its first instant.
+    The ``_end`` members label it with its last instead.
     """
 
-    def __new__(cls, value, hours):
+    def __new__(cls, value, freq, accessor, hours, period):
         obj = str.__new__(cls, value)
         obj._value_ = value
-        obj.hours = hours
-        return obj
-
-    business_day = ("B", 24)
-    daily = ("D", 24)
-    weekly = ("W", 168)
-    monthly = ("ME", 720)
-    # Period-end spellings: pandas 2.2 deprecated "Q"/"Y" and 3.0 removed them.
-    quarterly = ("QE", 2160)
-    yearly = ("YE", 8760)
-    # Period-start spellings: label each bucket with its first instant.
-    monthly_start = ("MS", 720)
-    quarterly_start = ("QS", 2160)
-    yearly_start = ("YS", 8760)
-    hourly = ("h", 1)
-    minutely = ("min", 1 / 60)
-    secondly = ("s", 1 / 3600)
-    milliseconds = ("ms", 1 / 3.6e6)
-    microseconds = ("us", 1 / 3.6e9)
-    nanoseconds = ("ns", 1 / 3.6e12)
-
-
-class TimeBucketEnum(str, Enum):
-    """Calendar buckets a time cycle groups by.
-
-    The value is the xarray ``.dt`` accessor behind ``groupby("time.<x>")``,
-    ``hours`` is the span one bucket covers, and ``period`` is how many
-    buckets complete the enclosing cycle — what an angular axis divides by.
-    """
-
-    def __new__(cls, value, hours, period):
-        obj = str.__new__(cls, value)
-        obj._value_ = value
+        obj.freq = freq
+        obj.accessor = accessor
         obj.hours = hours
         obj.period = period
         return obj
 
-    #            value         hours  period
-    minute = ("minute", 1 / 60, 60)
-    hour = ("hour", 1, 24)
-    day = ("day", 24, 31)
-    dayofyear = ("dayofyear", 24, 366)
-    weekday = ("weekday", 24, 7)
-    week = ("week", 168, 53)
-    month = ("month", 720, 12)
-    quarter = ("quarter", 2160, 4)
-    season = ("season", 2160, 4)
+    @classmethod
+    def _missing_(cls, value):
+        """Resolve a pandas frequency or an ``-ly`` spelling to a member."""
+        if not isinstance(value, str):
+            return None
+        for member in cls:
+            if member.freq == value:
+                return member
+        return cls.__members__.get(TIME_UNIT_ALIASES.get(value, ""))
+
+    #                  value           freq  accessor     hours      period
+    nanosecond = ("nanosecond", "ns", None, 1 / 3.6e12, None)
+    microsecond = ("microsecond", "us", None, 1 / 3.6e9, None)
+    millisecond = ("millisecond", "ms", None, 1 / 3.6e6, None)
+    second = ("second", "s", None, 1 / 3600, None)
+    minute = ("minute", "min", "minute", 1 / 60, 60)
+    hour = ("hour", "h", "hour", 1, 24)
+    day = ("day", "D", "day", 24, 31)
+    business_day = ("business_day", "B", None, 24, None)
+    weekday = ("weekday", None, "weekday", 24, 7)
+    dayofyear = ("dayofyear", None, "dayofyear", 24, 366)
+    week = ("week", "W", "week", 168, 53)
+    month = ("month", "MS", "month", 720, 12)
+    month_end = ("month_end", "ME", "month", 720, 12)
+    quarter = ("quarter", "QS", "quarter", 2160, 4)
+    quarter_end = ("quarter_end", "QE", "quarter", 2160, 4)
+    season = ("season", None, "season", 2160, 4)
+    year = ("year", "YS", None, 8760, None)
+    year_end = ("year_end", "YE", None, 8760, None)
+
+
+# Spellings a control file may use for a unit, beyond its value and its
+# pandas frequency.
+TIME_UNIT_ALIASES = {
+    "secondly": "second",
+    "minutely": "minute",
+    "hourly": "hour",
+    "daily": "day",
+    "weekly": "week",
+    "monthly": "month",
+    "monthly_end": "month_end",
+    "quarterly": "quarter",
+    "quarterly_end": "quarter_end",
+    "yearly": "year",
+    "yearly_end": "year_end",
+    "annual": "year",
+}
+
+
+def _spellings(predicate) -> str:
+    """The units satisfying ``predicate``, as a quoted list for an error."""
+    return ", ".join(repr(u.value) for u in TimeUnitEnum if predicate(u))
+
+
+def resampleable(unit: TimeUnitEnum) -> TimeUnitEnum:
+    """Reject a unit pandas has no resample frequency for."""
+    if unit.freq is None:
+        raise ValueError(
+            f"{unit.value!r} is a calendar bucket, not a resample frequency. "
+            f"Use one of {_spellings(lambda u: u.freq is not None)}."
+        )
+    return unit
+
+
+def groupable(unit: TimeUnitEnum) -> TimeUnitEnum:
+    """Reject a unit xarray has no ``.dt`` accessor for."""
+    if unit.accessor is None:
+        raise ValueError(
+            f"{unit.value!r} is a resample frequency, not a calendar bucket. "
+            f"Use one of {_spellings(lambda u: u.accessor is not None)}."
+        )
+    return unit
+
+
+Timestep = Annotated[TimeUnitEnum, AfterValidator(resampleable)]
+TimeBucket = Annotated[TimeUnitEnum, AfterValidator(groupable)]
 
 
 class ReductionMethodEnum(str, Enum):
@@ -352,7 +393,7 @@ def to_angular(da, coord, period, cycle=None):
         returns the array untouched.
     period : float
         How many of the coordinate's own units complete one turn.
-    cycle : TimeBucketEnum | None
+    cycle : TimeUnitEnum | None
         Reads the cycle off a datetime coordinate first, so a timestamp
         becomes its day-of-year, hour or weekday.
 
@@ -365,7 +406,7 @@ def to_angular(da, coord, period, cycle=None):
         return da
     values = da[coord]
     if cycle is not None:
-        values = getattr(values.dt, cycle.value)
+        values = getattr(values.dt, cycle.accessor)
         if values.dtype.kind not in "iuf":
             raise ValueError(
                 f"cycle {cycle.value!r} is categorical, so it has no position "

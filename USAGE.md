@@ -149,7 +149,12 @@ plots:
     type: timeseries               # aliases: ts, time-series
     data: [STATIONS, MODEL]        # str or [list]
     time: "1/1/2019 - 1/2/2019"
-    timestep: D                    # optional pre-resample: h, D, ME, YE, MS, YS, ...
+    timestep: daily                # optional pre-resample: hour(h) | day(D) |
+                                   # week(W) | month(MS) | quarter(QS) |
+                                   # year(YS) | business_day(B) | second(s)...
+                                   # month/quarter/year label the bucket start;
+                                   # month_end(ME), quarter_end(QE), year_end(YE)
+                                   # label its end.
     reduction_method: mean         # mean | min | max
     vars: {Temperatura: degC}
 
@@ -159,7 +164,7 @@ plots:
     data: STATIONS
     time_buckets: hour             # minute | hour | day | dayofyear | weekday
                                    # | week | month | quarter | season
-    timestep: h
+    timestep: hourly
     vars: {PM25: "ug/m**3"}
 
   # value-vs-value scatter of exactly two datasets: data[0] = x, data[1] = y

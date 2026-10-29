@@ -10,15 +10,18 @@ from ClimateGraph.utils.general_utils import (
     ExpandableModel,
     ProjectionEnum,
     ReductionMethodEnum,
-    TimeBucketEnum,
-    TimestepEnum,
+    TimeUnitEnum,
     angular_ticks,
     expand,
+    groupable,
     manage_path,
     manage_time_interval,
     normalize_time,
+    resampleable,
     to_angular,
 )
+
+BUCKETS = [u for u in TimeUnitEnum if u.accessor is not None]
 
 
 class TestManageTimeInterval:
@@ -150,9 +153,45 @@ class TestManagePath:
 
 
 class TestEnums:
-    def test_timestep_enum_values(self):
-        assert TimestepEnum.daily.value == "D"
-        assert TimestepEnum.hourly.value == "h"
+    def test_a_unit_carries_both_vocabularies(self):
+        # One member answers the resampler and the groupby; the pandas alias
+        # is no longer the value.
+        assert (TimeUnitEnum.day.value, TimeUnitEnum.day.freq) == ("day", "D")
+        assert (TimeUnitEnum.hour.value, TimeUnitEnum.hour.freq) == ("hour", "h")
+
+    @pytest.mark.parametrize(
+        ("spelling", "expected"),
+        [
+            ("D", TimeUnitEnum.day),
+            ("h", TimeUnitEnum.hour),
+            ("ME", TimeUnitEnum.month_end),
+            ("MS", TimeUnitEnum.month),
+            ("YE", TimeUnitEnum.year_end),
+            ("day", TimeUnitEnum.day),
+            ("dayofyear", TimeUnitEnum.dayofyear),
+            ("daily", TimeUnitEnum.day),
+            ("monthly", TimeUnitEnum.month),
+            ("annual", TimeUnitEnum.year),
+        ],
+    )
+    def test_every_spelling_resolves(self, spelling, expected):
+        # The pandas aliases and the .dt names were two disjoint vocabularies
+        # before the merge; both still reach a member, as do the -ly words.
+        assert TimeUnitEnum(spelling) is expected
+
+    @pytest.mark.parametrize(
+        "unit", [TimeUnitEnum.month, TimeUnitEnum.quarter, TimeUnitEnum.year]
+    )
+    def test_a_calendar_period_defaults_to_its_start(self, unit):
+        assert unit.freq.endswith("S")
+
+    def test_a_resample_only_unit_is_rejected_as_a_bucket(self):
+        with pytest.raises(ValueError, match="not a calendar bucket"):
+            groupable(TimeUnitEnum.year)
+
+    def test_a_bucket_only_unit_is_rejected_as_a_timestep(self):
+        with pytest.raises(ValueError, match="not a resample frequency"):
+            resampleable(TimeUnitEnum.season)
 
     def test_reduction_method_callable_attached(self):
         arr = np.array([1.0, 2.0, np.nan, 4.0])
@@ -171,39 +210,41 @@ class TestEnums:
 
     def test_time_bucket_enum_keys(self):
         # These keys back the groupby in TimeCycle; protect them.
-        assert TimeBucketEnum.day.value == "day"
-        assert TimeBucketEnum.hour.value == "hour"
+        assert TimeUnitEnum.day.value == "day"
+        assert TimeUnitEnum.hour.value == "hour"
 
-    @pytest.mark.parametrize("bucket", list(TimeBucketEnum))
+    @pytest.mark.parametrize("bucket", BUCKETS)
     def test_bucket_name_matches_its_accessor(self, bucket):
         # `monthly` used to carry the value "quarter", so reaching for the
         # member by name grouped by the wrong period.
         assert bucket.name == bucket.value
 
-    @pytest.mark.parametrize("bucket", list(TimeBucketEnum))
+    @pytest.mark.parametrize("bucket", BUCKETS)
     def test_every_bucket_is_a_real_dt_accessor(self, bucket):
         times = pd.date_range("2019-01-01", periods=60, freq="D")
         da = xr.DataArray(np.arange(60.0), dims="time", coords={"time": times})
-        assert len(da.groupby(f"time.{bucket.value}").mean()) > 0
+        assert len(da.groupby(f"time.{bucket.accessor}").mean()) > 0
 
-    @pytest.mark.parametrize("unit", list(TimeBucketEnum))
+    @pytest.mark.parametrize("unit", list(TimeUnitEnum))
     def test_every_bucket_carries_hours(self, unit):
         # check_timestep_vs_bucket reads this off the member; a missing one
         # used to mean a bare KeyError out of config validation.
         assert unit.hours > 0
 
-    @pytest.mark.parametrize("unit", list(TimestepEnum))
-    def test_every_timestep_carries_hours(self, unit):
-        assert unit.hours > 0
+    @pytest.mark.parametrize("bucket", BUCKETS)
+    def test_every_bucket_carries_a_period(self, bucket):
+        # An angular axis divides by it, so a bucket without one would
+        # make `cycle:` unusable.
+        assert bucket.period > 0
 
     def test_hours_order_matches_calendar_order(self):
         assert (
-            TimeBucketEnum.minute.hours
-            < TimeBucketEnum.hour.hours
-            < TimeBucketEnum.day.hours
-            < TimeBucketEnum.week.hours
-            < TimeBucketEnum.month.hours
-            < TimeBucketEnum.quarter.hours
+            TimeUnitEnum.minute.hours
+            < TimeUnitEnum.hour.hours
+            < TimeUnitEnum.day.hours
+            < TimeUnitEnum.week.hours
+            < TimeUnitEnum.month.hours
+            < TimeUnitEnum.quarter.hours
         )
 
 
@@ -347,9 +388,9 @@ class TestToAngular:
     @pytest.mark.parametrize(
         ("cycle", "freq", "expected_first"),
         [
-            (TimeBucketEnum.dayofyear, "D", 1),
-            (TimeBucketEnum.hour, "h", 0),
-            (TimeBucketEnum.month, "D", 1),
+            (TimeUnitEnum.dayofyear, "D", 1),
+            (TimeUnitEnum.hour, "h", 0),
+            (TimeUnitEnum.month, "D", 1),
         ],
     )
     def test_cycle_reads_off_a_datetime_coord(self, cycle, freq, expected_first):
@@ -358,7 +399,7 @@ class TestToAngular:
         assert first == pytest.approx(2 * np.pi * expected_first / cycle.period)
 
     @pytest.mark.parametrize(
-        "bucket", [b for b in TimeBucketEnum if b is not TimeBucketEnum.season]
+        "bucket", [b for b in BUCKETS if b is not TimeUnitEnum.season]
     )
     def test_every_numeric_bucket_is_usable_as_a_cycle(self, bucket):
         theta = to_angular(_timed(n=40), "time", bucket.period, cycle=bucket)
@@ -369,7 +410,7 @@ class TestToAngular:
     def test_a_categorical_cycle_is_rejected(self):
         # .dt.season gives "DJF"/"MAM"/..., which has no angular position.
         with pytest.raises(ValueError, match="categorical"):
-            to_angular(_timed(n=40), "time", 4, cycle=TimeBucketEnum.season)
+            to_angular(_timed(n=40), "time", 4, cycle=TimeUnitEnum.season)
 
     def test_missing_or_none_coord_is_a_no_op(self):
         # How `rose` opts out: it declares no x, so the transform skips it.
@@ -408,7 +449,7 @@ class TestAngularTicks:
         positions, _ = angular_ticks(366)
         assert max(positions) < 2 * np.pi
 
-    @pytest.mark.parametrize("bucket", list(TimeBucketEnum))
+    @pytest.mark.parametrize("bucket", BUCKETS)
     def test_common_cycles_label_in_whole_units(self, bucket):
         # Eight ticks over a period of seven would label weekdays 0.875.
         _, labels = angular_ticks(bucket.period)

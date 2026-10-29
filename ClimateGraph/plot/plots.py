@@ -25,8 +25,9 @@ from ClimateGraph.utils.general_utils import (
     CRSEnum,
     ProjectionEnum,
     ReductionMethodEnum,
-    TimeBucketEnum,
-    TimestepEnum,
+    TimeBucket,
+    Timestep,
+    TimeUnitEnum,
     angular_ticks,
     expand,
     manage_time_interval,
@@ -121,7 +122,7 @@ class TimeSeriesConfig(BasePlotConfig):
     type: Literal["timeseries", "ts", "time-series"]
     data: str | list[str]
     time: str | list[str] | None = Field(default=None)
-    timestep: TimestepEnum | None = Field(default=None)
+    timestep: Timestep | None = Field(default=None)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
 
     @field_validator("data", mode="before")
@@ -236,7 +237,7 @@ class ScatterConfig(BasePlotConfig):
     data: list[str]
     time: str | list[str] | None = Field(default=None)
     dimension: str = Field(default="time")
-    timestep: TimestepEnum | None = Field(default=None)
+    timestep: Timestep | None = Field(default=None)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
 
     @field_validator("data")
@@ -708,8 +709,8 @@ class TimeCycleConfig(BasePlotConfig):
     # One or more datasets; the first is the reference and gets the ± std band.
     data: str | list[str]
     time: str | list[str] | None = Field(default=None)
-    timestep: TimestepEnum | None = Field(default=None)
-    time_buckets: TimeBucketEnum = Field(default=TimeBucketEnum.day)
+    timestep: Timestep | None = Field(default=None)
+    time_buckets: TimeBucket = Field(default=TimeUnitEnum.day)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
 
     @field_validator("data", mode="before")
@@ -753,9 +754,9 @@ class TimeCycle(Plot):
         vars = self.plot_config.vars
         domains = self.resolve_domains()
         timestep = self.plot_config.timestep
-        time_bucket = (
-            self.plot_config.time_buckets.value
-        )  # e.g. "hour", "month", "dayofyear"
+        # The xarray .dt name, which a period-start unit spells differently
+        # from its own value.
+        time_bucket = self.plot_config.time_buckets.accessor
         data_names = self.plot_config.data
         first = self.data[data_names[0]]
         reference = data_names[0]  # gets the ± std band
@@ -852,7 +853,7 @@ class AngularSpec(BaseModel):
     direction turns at 360, an azimuth at 2pi.
     """
 
-    cycle: TimeBucketEnum | None = Field(default=None)
+    cycle: TimeBucket | None = Field(default=None)
     period: float | None = Field(default=None, gt=0)
 
     zero: Literal[
@@ -902,7 +903,7 @@ class CustomPlotConfig(BasePlotConfig):
     # vars are opt here because they might be provided by every subplot. Not being provided at the leaf nor here errors out
     vars: list[str] | dict[str, str] | None = Field(default=None)
     time: str | list[str] | None = Field(default=None)
-    timestep: TimestepEnum | None = Field(default=None)
+    timestep: Timestep | None = Field(default=None)
     subplots: list[PrimitiveModel] = Field(min_length=1)
     # Annotations drawn over the composition once every primitive is down.
     decorations: list[DecorationModel] = Field(default_factory=list)
