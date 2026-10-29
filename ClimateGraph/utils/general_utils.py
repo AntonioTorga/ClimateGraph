@@ -27,36 +27,62 @@ TIME_INTERVAL_FORMAT = r"^(.+?)\s*(?:-|to)\s*(.+)$"  # Accepts "date - date" or 
 
 
 class TimestepEnum(str, Enum):
-    """Enum used for timestep handling. Keeps consistent timestep values."""
+    """Resample frequencies, as pandas offset aliases.
 
-    business_day = "B"
-    daily = "D"
-    weekly = "W"
-    monthly = "ME"
+    ``hours`` is the span one step covers, so a timestep can be compared
+    against the bucket it would be grouped into.
+    """
+
+    def __new__(cls, value, hours):
+        obj = str.__new__(cls, value)
+        obj._value_ = value
+        obj.hours = hours
+        return obj
+
+    business_day = ("B", 24)
+    daily = ("D", 24)
+    weekly = ("W", 168)
+    monthly = ("ME", 720)
     # Period-end spellings: pandas 2.2 deprecated "Q"/"Y" and 3.0 removed them.
-    quarterly = "QE"
-    yearly = "YE"
+    quarterly = ("QE", 2160)
+    yearly = ("YE", 8760)
     # Period-start spellings: label each bucket with its first instant.
-    monthly_start = "MS"
-    quarterly_start = "QS"
-    yearly_start = "YS"
-    hourly = "h"
-    minutely = "min"
-    secondly = "s"
-    milliseconds = "ms"
-    microseconds = "us"
-    nanoseconds = "ns"
+    monthly_start = ("MS", 720)
+    quarterly_start = ("QS", 2160)
+    yearly_start = ("YS", 8760)
+    hourly = ("h", 1)
+    minutely = ("min", 1 / 60)
+    secondly = ("s", 1 / 3600)
+    milliseconds = ("ms", 1 / 3.6e6)
+    microseconds = ("us", 1 / 3.6e9)
+    nanoseconds = ("ns", 1 / 3.6e12)
 
 
 class TimeBucketEnum(str, Enum):
-    """Enum used for timestep handling. Keeps consistent timestep values."""
+    """Calendar buckets a time cycle groups by.
 
-    minute = "minute"
-    hour = "hour"
-    day = "day"
-    season = "season"
-    weekly = "week"
-    monthly = "quarter"
+    The value is the xarray ``.dt`` accessor behind ``groupby("time.<x>")``,
+    ``hours`` is the span one bucket covers, and ``period`` is how many
+    buckets complete the enclosing cycle — what an angular axis divides by.
+    """
+
+    def __new__(cls, value, hours, period):
+        obj = str.__new__(cls, value)
+        obj._value_ = value
+        obj.hours = hours
+        obj.period = period
+        return obj
+
+    #            value         hours  period
+    minute = ("minute", 1 / 60, 60)
+    hour = ("hour", 1, 24)
+    day = ("day", 24, 31)
+    dayofyear = ("dayofyear", 24, 366)
+    weekday = ("weekday", 24, 7)
+    week = ("week", 168, 53)
+    month = ("month", 720, 12)
+    quarter = ("quarter", 2160, 4)
+    season = ("season", 2160, 4)
 
 
 class ReductionMethodEnum(str, Enum):
@@ -93,6 +119,23 @@ class ReferenceEnum(str, Enum):
     p99 = "p99"
     argmax = "argmax"
     argmin = "argmin"
+
+
+class ProjectionEnum(str, Enum):
+    """Axes types a composition can be drawn on.
+
+    ``mpl`` is what ``add_subplot(projection=...)`` takes; None is matplotlib's
+    default rectilinear axes.
+    """
+
+    def __new__(cls, value, mpl):
+        obj = str.__new__(cls, value)
+        obj._value_ = value
+        obj.mpl = mpl
+        return obj
+
+    rectilinear = ("rectilinear", None)
+    polar = ("polar", "polar")
 
 
 class CRSEnum(str, Enum):
@@ -290,20 +333,121 @@ def normalize_time(time: str | list[str] | None) -> list[str | None]:
     return [time]
 
 
+COMPASS_POINTS = ("N", "NE", "E", "SE", "S", "SW", "W", "NW")
+
+# Where theta zero sits on screen. matplotlib names the eight positions after
+# compass points, which only reads correctly when the angle is a bearing.
+THETA_POSITIONS = {"top": "N", "right": "E", "bottom": "S", "left": "W"}
+
+
+def to_angular(da, coord, period, cycle=None):
+    """Put a coordinate's values on an angular axis, in radians.
+
+    Parameters
+    ----------
+    da : xr.DataArray
+        Array to transform.
+    coord : str | None
+        Coordinate to convert. None, or a name the array does not carry,
+        returns the array untouched.
+    period : float
+        How many of the coordinate's own units complete one turn.
+    cycle : TimeBucketEnum | None
+        Reads the cycle off a datetime coordinate first, so a timestamp
+        becomes its day-of-year, hour or weekday.
+
+    Returns
+    -------
+    xr.DataArray
+        The array with ``coord`` replaced by radians.
+    """
+    if coord is None or coord not in da.coords:
+        return da
+    values = da[coord]
+    if cycle is not None:
+        values = getattr(values.dt, cycle.value)
+        if values.dtype.kind not in "iuf":
+            raise ValueError(
+                f"cycle {cycle.value!r} is categorical, so it has no position "
+                "on an angular axis. Use a numeric cycle such as 'month'."
+            )
+    return da.assign_coords({coord: 2 * np.pi * (values / period)})
+
+
+def _tick_count(period, preferred: int = 8) -> int:
+    """A tick count dividing the period, so labels land on whole units.
+
+    Eight ticks over a period of seven would label weekdays 0, 0.875, 1.75.
+    """
+    if float(period).is_integer():
+        divisors = [n for n in range(3, 13) if int(period) % n == 0]
+        if divisors:
+            return min(divisors, key=lambda n: (abs(n - preferred), -n))
+    return preferred
+
+
+def angular_ticks(
+    period,
+    count: int | None = None,
+    zero: str = "E",
+    direction: str = "counterclockwise",
+):
+    """Tick positions in radians, labelled in the coordinate's own units.
+
+    Without this a polar axis labels itself in radians, so a wind rose reads
+    ``0.785`` where it should read ``NE``.
+
+    Compass labels need the axis to be a meteorological bearing — degrees,
+    north at zero, winding clockwise. Under any other origin or winding the
+    same positions fall on different bearings, so the labels stay numeric.
+
+    Parameters
+    ----------
+    period : float
+        Units completing one turn.
+    count : int | None
+        How many ticks to place. None picks a count that divides the period.
+    zero : str
+        Where the axes puts theta zero: ``N``, ``E``, ``S`` or ``W``.
+    direction : str
+        ``clockwise`` or ``counterclockwise``.
+
+    Returns
+    -------
+    tuple[list[float], list[str]]
+        Positions in radians, and their labels.
+    """
+    if count is None:
+        count = _tick_count(period)
+    positions = [2 * np.pi * i / count for i in range(count)]
+    is_bearing = (
+        period == 360
+        and zero == "N"
+        and direction == "clockwise"
+        and count == len(COMPASS_POINTS)
+    )
+    if is_bearing:
+        return positions, list(COMPASS_POINTS)
+    step = period / count
+    return positions, [f"{i * step:g}" for i in range(count)]
+
+
 class ExpandableModel(BaseModel):
     """A config whose expanding fields fan out into sibling copies.
 
-    Several blocks of a control file mean "do this once per value": a plot's
-    ``time``, ``domains`` and ``vars``, take the product of the
-    expanding fields and emit a copy per point — so they share this mechanism
-    rather than being hand-written per block.
+    Several control-file blocks mean "do this once per value" — a plot's
+    ``time``, ``domains``, ``vars`` ... :func:`expand` takes the product of the fields named
+    in ``expands`` and emits one copy per point.
 
-    An expanded copy stands for **exactly one** output, and its axis fields
-    hold a single value rather than a one-element container. That is
-    deliberate: a collection that happened to be length one would let the loops
-    downstream keep running unchanged, leaving the fan-out in two places at
-    once. Code consuming an expanded config should have no loop left to run.
-    Because an axis field ends up holding a single value.
+    An expanded copy holds a **single value** per axis, not a one-element
+    container, so code consuming one has no loop left to run. Its annotation
+    has to admit that value, which is why the plot configs declare ``time``
+    and ``domains`` as ``str | list[str]``.
+
+    ``expansion_values`` and ``expansion_gate`` cover the axes that are not
+    simply "the list in that field": a Points domain fans over names that are
+    not a declared list, and an Attribute domain fans only when
+    ``one_for_each`` is set.
     """
 
     expands: ClassVar[tuple[str, ...]] = ()
@@ -311,11 +455,10 @@ class ExpandableModel(BaseModel):
     def expansion_values(self, field: str) -> list:
         """The per-copy values for ``field``, one per sibling.
 
-        A list contributes its items. A mapping contributes one-entry slices
-        rather than bare keys — not to preserve its shape, but because a
-        ``vars: {PM25: "ug/m**3"}`` block is a name-to-unit map and the unit
-        has nowhere else to live; ``expansion_token`` recovers the name for
-        labelling. Anything else contributes itself.
+        A list contributes its items; anything else contributes itself. A
+        mapping contributes one-entry slices, because a
+        ``vars: {PM25: "ug/m**3"}`` block carries the unit alongside the name
+        and ``expansion_token`` recovers the name for labelling.
 
         An empty collection is not an axis and passes through whole, so
         ``domains: []`` still renders once rather than zero times.

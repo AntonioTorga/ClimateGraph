@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 mpl.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.projections.polar import PolarAxes
 
 from ClimateGraph.data import Data
 from ClimateGraph.domain import Domain
@@ -22,6 +23,16 @@ from ClimateGraph.utils.general_utils import normalize_time
 from ClimateGraph.utils.registry import RegistryMixin
 
 log = logging.getLogger(__name__)
+
+
+def _grid_style(grid) -> dict:
+    """Matplotlib line kwargs for the reference lines."""
+    return {
+        "color": grid.color,
+        "alpha": grid.alpha,
+        "linestyle": grid.linestyle,
+        "linewidth": grid.linewidth,
+    }
 
 
 def _grid_positions(
@@ -315,12 +326,18 @@ class Plot(RegistryMixin, ABC):
             if ax.get_label() == "<colorbar>":
                 continue
             is_geo = hasattr(ax, "projection")
+            # On polar axes a vline is a radial spoke and an hline a circle,
+            # so the computed Cartesian positions mean nothing.
+            is_polar = isinstance(ax, PolarAxes)
 
             if grid is not None:
-                self._apply_grid(ax, grid, is_geo)
+                if is_polar:
+                    ax.grid(True, **_grid_style(grid))
+                else:
+                    self._apply_grid(ax, grid, is_geo)
 
             if xticks or yticks:
-                if is_geo:
+                if is_geo or is_polar:
                     log.debug(
                         "Named ticks are not applied to map axes (they need an "
                         "explicit CRS transform); skipping for %r.",
@@ -336,12 +353,7 @@ class Plot(RegistryMixin, ABC):
 
     def _apply_grid(self, ax, grid, is_geo: bool):
         """Draw the dashed reference lines on one axes."""
-        style = {
-            "color": grid.color,
-            "alpha": grid.alpha,
-            "linestyle": grid.linestyle,
-            "linewidth": grid.linewidth,
-        }
+        style = _grid_style(grid)
         positions = {}
         for axis, spec in (("x", grid.x), ("y", grid.y)):
             if spec is None:

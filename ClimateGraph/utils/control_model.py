@@ -96,9 +96,8 @@ class DataModel(BaseModel):
     against the topology it can read. Variable names declared here are the
     handles used everywhere else in the control file.
 
-    Allows extra keys on purpose: anything unrecognised is forwarded to the
-    reader as a keyword argument, so reader-specific options need no schema
-    change here.
+    Extra keys are allowed: anything unrecognised is forwarded to the reader as
+    a keyword argument, so reader-specific options need no schema change here.
     """
 
     model_config = ConfigDict(extra="allow")
@@ -106,18 +105,15 @@ class DataModel(BaseModel):
     topology: str
     reader: str
     path: Path | list[Path]
-    # Optional. A dict maps user-facing names to {name, unit, operation} (units
-    # optional); a plain list[str] selects file-native names with no units; None
-    # (omitted) keeps every variable in the file under its file-native name.
+    # A dict maps user-facing names to {name, unit, operation}; a list[str]
+    # selects file-native names; None keeps every variable under its own name.
     vars: dict[str, VarModel] | list[str] | None = Field(default=None)
     crs: CRSEnum = Field(default=CRSEnum.platecarree)
     load_mode: Literal["safe", "unsafe"] = Field(default="safe")
-    # Per-data download cache override. If unset, Parser falls back to
-    # analysis.output_path/.cache/. Reader._resolve_paths is the only
-    # site that consumes this; local-only readers ignore it.
+    # Falls back to analysis.output_path/.cache/ when unset. Only
+    # Reader._resolve_paths consumes it; local-only readers ignore it.
     cache_dir: Path | None = Field(default=None)
-    # Optional destination for the fully-processed dataset. When set,
-
+    # Where Reader._save writes the processed dataset, as a NetCDF file path.
     save_to: Path | None = Field(default=None)
 
     @field_validator("topology")
@@ -182,9 +178,6 @@ class ControlFile(BaseModel):
         Without this a typo fell through to the "no domain" branch and the plot
         silently rendered against the full dataset.
         """
-        # Pre-M3 a typo in a plot's `domains:` list silently fell through
-        # to the "no domain" branch and the plot rendered against full
-        # data — a confusing failure mode. Catch unknown names early.
         if not self.plots:
             return self
         known = set(self.domains or {})
@@ -253,9 +246,8 @@ class ControlFile(BaseModel):
                     continue  # vars omitted — defer to runtime
                 subplot_var = getattr(subplot, "var", None)
                 check_vars = {subplot_var} if subplot_var is not None else plot_vars
-                # Variables a primitive names by role (arrows' u/v) are read
-                # straight out of the dataset too, so a typo in one would
-                # otherwise surface as a KeyError mid-render.
+                # Role variables (arrows' u/v) come out of the dataset too, so
+                # a typo in one would surface as a KeyError mid-render.
                 check_vars = check_vars | subplot_role_vars(subplot)
                 missing = sorted(v for v in check_vars if v not in declared)
                 if missing:

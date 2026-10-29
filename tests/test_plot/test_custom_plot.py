@@ -67,6 +67,36 @@ class TestCustomConfigVarScope:
             CustomPlotConfig(type="custom", vars=["T"], subplots=[])
 
 
+class TestCustomProjectionRules:
+    ROSE = {"type": "rose", "dataset": "s", "angle": "WD", "radius": "WS"}
+
+    def test_rose_accepted_on_polar(self):
+        cfg = CustomPlotConfig(
+            type="custom", projection="polar", vars=["PM25"], subplots=[self.ROSE]
+        )
+        assert cfg.projection.mpl == "polar"
+
+    def test_rose_rejected_on_rectilinear(self):
+        with pytest.raises(ValidationError, match="projection: polar"):
+            CustomPlotConfig(type="custom", vars=["PM25"], subplots=[self.ROSE])
+
+    def test_other_primitives_accept_any_projection(self):
+        series = {"type": "series", "dataset": "s", "x": "time"}
+        CustomPlotConfig(type="custom", vars=["PM25"], subplots=[series])
+        CustomPlotConfig(
+            type="custom", projection="polar", vars=["PM25"], subplots=[series]
+        )
+
+    def test_angular_rejected_without_polar(self):
+        with pytest.raises(ValidationError, match="projection: polar"):
+            CustomPlotConfig(
+                type="custom",
+                angular={"period": 360},
+                vars=["PM25"],
+                subplots=[{"type": "series", "dataset": "s", "x": "time"}],
+            )
+
+
 class TestResolveKeepDims:
     def test_two_d_coordinate_resolves_to_underlying_dims(self):
         # The crux of the x/y design: naming 2-D coordinates longitude/latitude
@@ -88,6 +118,92 @@ class TestResolveKeepDims:
     def test_literal_dim_fallback(self):
         da = xr.DataArray(np.zeros(6), dims=("time",), coords={"time": range(6)})
         assert Custom._resolve_keep_dims(da, "time", None) == {"time"}
+
+
+class TestRoseRuns:
+    INTERVAL = "1/1/2019 - 6/1/2019"
+
+    def _config(self, **subplot):
+        return CustomPlotConfig(
+            type="custom",
+            projection="polar",
+            angular={"period": 360},
+            vars={"PM25": "ug/m**3"},
+            time=self.INTERVAL,
+            subplots=[
+                {"type": "rose", "dataset": "wind", "angle": "WD", "radius": "WS"}
+                | subplot
+            ],
+        )
+
+    def _run(self, cfg, data, out, monkeypatch):
+        """Draw, and hand back the figure on its way to disk."""
+        plot = Custom(
+            name="rose",
+            plot_config=cfg,
+            data_registry={"wind": data},
+            domain_registry={},
+            output_path=out,
+        )
+        captured = {}
+        write = plot.savefig
+
+        def spy(figure, filename):
+            captured["figure"] = figure
+            write(figure, filename)
+
+        monkeypatch.setattr(plot, "savefig", spy)
+        plot.plot()
+        return captured["figure"]
+
+    def test_rose_renders(self, wind_station_data, tmp_output_dir, monkeypatch):
+        self._run(self._config(), wind_station_data, tmp_output_dir, monkeypatch)
+        assert len(_outputs(tmp_output_dir, "rose")) == 1
+
+    def test_rose_draws_a_legend_and_no_colorbar(
+        self, wind_station_data, tmp_output_dir, monkeypatch
+    ):
+        figure = self._run(
+            self._config(), wind_station_data, tmp_output_dir, monkeypatch
+        )
+        assert [a.get_label() for a in figure.axes] == [""]
+        legends = [
+            a for a in figure.axes[0].artists if isinstance(a, mpl.legend.Legend)
+        ]
+        assert legends and legends[0].get_title().get_text() == "PM25 [ug/m**3]"
+
+    def test_rose_labels_the_radial_axis_with_its_radius(
+        self, wind_station_data, tmp_output_dir, monkeypatch
+    ):
+        # Not the plot variable, which is the colour rather than the radius.
+        figure = self._run(
+            self._config(), wind_station_data, tmp_output_dir, monkeypatch
+        )
+        assert figure.axes[0].get_ylabel() == "WS"
+
+    def test_explicit_radius_edges_render(
+        self, wind_station_data, tmp_output_dir, monkeypatch
+    ):
+        cfg = self._config(radius_bins=[0, 2, 4, 8])
+        self._run(cfg, wind_station_data, tmp_output_dir, monkeypatch)
+        assert len(_outputs(tmp_output_dir, "rose")) == 1
+
+    def test_count_rose_renders_without_a_variable(
+        self, wind_station_data, tmp_output_dir, monkeypatch
+    ):
+        cfg = CustomPlotConfig(
+            type="custom",
+            projection="polar",
+            time=self.INTERVAL,
+            subplots=[
+                {"type": "rose", "dataset": "wind", "angle": "WD", "radius": "WS"}
+            ],
+        )
+        figure = self._run(cfg, wind_station_data, tmp_output_dir, monkeypatch)
+        legends = [
+            a for a in figure.axes[0].artists if isinstance(a, mpl.legend.Legend)
+        ]
+        assert legends[0].get_title().get_text() == "samples"
 
 
 class TestCustomRuns:

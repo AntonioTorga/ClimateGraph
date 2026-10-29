@@ -19,9 +19,12 @@ from ClimateGraph.plot.primitives import (
     PointsConfig,
     Raster,
     RasterConfig,
+    Rose,
+    RoseConfig,
     Series,
     SeriesConfig,
 )
+from ClimateGraph.utils.general_utils import ReductionMethodEnum
 
 
 class TestPrimitiveRegistry:
@@ -183,3 +186,55 @@ class TestGradientConfig:
         # The field is the one already being drawn.
         cfg = GradientConfig(type="gradient", dataset="d", x="lon", y="lat")
         assert Gradient.required_vars(cfg) == {}
+
+
+class TestRoseConfig:
+    def test_binning_variables_and_the_plot_var_become_roles(self):
+        cfg = RoseConfig(type="rose", dataset="d", angle="WD", radius="WS")
+        assert Rose.required_vars(cfg, "PM25") == {
+            "angle": "WD",
+            "radius": "WS",
+            "value": "PM25",
+        }
+
+    def test_colour_role_absent_without_a_variable(self):
+        # No variable means the cells are coloured by sample count.
+        cfg = RoseConfig(type="rose", dataset="d", angle="WD", radius="WS")
+        assert Rose.required_vars(cfg) == {"angle": "WD", "radius": "WS"}
+
+    def test_needs_no_coordinates(self):
+        # Both axes come from variables, so there is nothing to bind x/y to.
+        cfg = RoseConfig(type="rose", dataset="d", angle="WD", radius="WS")
+        assert cfg.x is None and cfg.y is None
+        assert Rose.required_coords == frozenset()
+
+    def test_keeps_every_sample(self):
+        assert Rose.reduces_to_axes is False
+
+    def test_declares_polar_axes(self):
+        assert Rose.requires_projection == "polar"
+        assert RoseConfig.requires_projection == "polar"
+
+    def test_defaults(self):
+        cfg = RoseConfig(type="rose", dataset="d", angle="WD", radius="WS")
+        assert cfg.angle_period == 360.0
+        assert cfg.angle_bins == 16
+        assert cfg.radius_bins == 6
+        assert cfg.levels == 5
+        assert cfg.statistic is ReductionMethodEnum.mean
+        assert cfg.min_count == 1
+
+    def test_explicit_radius_edges_accepted(self):
+        cfg = RoseConfig(
+            type="rose", dataset="d", angle="WD", radius="WS", radius_bins=[0, 2, 5]
+        )
+        assert cfg.radius_bins == [0, 2, 5]
+
+    def test_colour_classes_go_in_a_legend(self):
+        # The cells hold a handful of classes, which a legend names outright.
+        assert Rose.wants_colorbar is False
+
+    def test_aliases_registered(self):
+        assert Primitive.get_primitive_class("rose") is Rose
+        assert Primitive.get_primitive_class("windrose") is Rose
+        assert Primitive.get_primitive_class("polar_bin") is Rose

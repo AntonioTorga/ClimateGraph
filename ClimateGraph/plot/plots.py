@@ -21,13 +21,17 @@ from ClimateGraph.utils.dataset_utils import (
     time_resampling,
 )
 from ClimateGraph.utils.general_utils import (
+    THETA_POSITIONS,
     CRSEnum,
+    ProjectionEnum,
     ReductionMethodEnum,
     TimeBucketEnum,
     TimestepEnum,
+    angular_ticks,
     expand,
     manage_time_interval,
     normalize_time,
+    to_angular,
 )
 from ClimateGraph.utils.geo_utils import pad_extent
 
@@ -719,38 +723,11 @@ class TimeCycleConfig(BasePlotConfig):
         """Reject a timestep coarser than the bucket it is grouped into."""
         if self.timestep is None:
             return self
-        # map both to hours for comparison
-        bucket_hours = {
-            "minute": 1 / 60,
-            "hour": 1,
-            "day": 24,
-            "week": 168,
-            "month": 720,
-            "dayofyear": 24,
-            "season": 2160,
-            "quarter": 2160,
-        }
-        timestep_hours = {
-            TimestepEnum.nanoseconds: 1 / 3.6e12,
-            TimestepEnum.microseconds: 1 / 3.6e9,
-            TimestepEnum.milliseconds: 1 / 3.6e6,
-            TimestepEnum.secondly: 1 / 3600,
-            TimestepEnum.minutely: 1 / 60,
-            TimestepEnum.hourly: 1,
-            TimestepEnum.daily: 24,
-            TimestepEnum.business_day: 24,
-            TimestepEnum.weekly: 168,
-            TimestepEnum.monthly: 720,
-            TimestepEnum.monthly_start: 720,
-            TimestepEnum.quarterly: 2160,
-            TimestepEnum.quarterly_start: 2160,
-            TimestepEnum.yearly: 8760,
-            TimestepEnum.yearly_start: 8760,
-        }
-        if timestep_hours[self.timestep] > bucket_hours[self.time_buckets.value]:
+        if self.timestep.hours > self.time_buckets.hours:
             raise ValueError(
-                f"timestep '{self.timestep}' is coarser than "
-                f"time_bucket '{self.time_buckets.value}' — std bands will be meaningless"
+                f"timestep '{self.timestep.value}' is coarser than "
+                f"time_bucket '{self.time_buckets.value}' — std bands will be "
+                "meaningless"
             )
         return self
 
@@ -866,10 +843,62 @@ class TimeCycle(Plot):
                 self._finalize(figure, filename)
 
 
+class AngularSpec(BaseModel):
+    """How a coordinate maps onto a polar plot's angular axis.
+
+    Either ``cycle`` or ``period``. ``cycle`` names a calendar bucket and
+    supplies both the transform and the turn, so a datetime coordinate becomes
+    its day-of-year or hour; ``period`` covers everything else — a wind
+    direction turns at 360, an azimuth at 2pi.
+    """
+
+    cycle: TimeBucketEnum | None = Field(default=None)
+    period: float | None = Field(default=None, gt=0)
+
+    zero: Literal[
+        "top",
+        "right",
+        "bottom",
+        "left",
+        "N",
+        "NE",
+        "E",
+        "SE",
+        "S",
+        "SW",
+        "W",
+        "NW",
+    ] = Field(default="top")
+    direction: Literal["clockwise", "counterclockwise"] = Field(default="clockwise")
+    rlabel_position: float | None = Field(default=None)
+
+    @property
+    def theta_zero(self) -> str:
+        """Where theta zero sits, in matplotlib's compass vocabulary."""
+        return THETA_POSITIONS.get(self.zero, self.zero)
+
+    @model_validator(mode="after")
+    def _check_one_turn_source(self) -> "AngularSpec":
+        """A turn comes from a cycle or a period, never both or neither."""
+        if (self.cycle is None) == (self.period is None):
+            raise ValueError(
+                "angular: give either 'cycle' (a calendar bucket) or 'period' "
+                "(units per turn), not both and not neither."
+            )
+        return self
+
+    @property
+    def turn(self) -> float:
+        """Units completing one full turn."""
+        return self.cycle.period if self.cycle is not None else self.period
+
+
 class CustomPlotConfig(BasePlotConfig):
     """Free-form composition of primitives on shared axes."""
 
     type: Literal["custom"]
+    projection: ProjectionEnum = Field(default=ProjectionEnum.rectilinear)
+    angular: AngularSpec | None = Field(default=None)
     # vars are opt here because they might be provided by every subplot. Not being provided at the leaf nor here errors out
     vars: list[str] | dict[str, str] | None = Field(default=None)
     time: str | list[str] | None = Field(default=None)
@@ -877,6 +906,29 @@ class CustomPlotConfig(BasePlotConfig):
     subplots: list[PrimitiveModel] = Field(min_length=1)
     # Annotations drawn over the composition once every primitive is down.
     decorations: list[DecorationModel] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def check_angular_needs_polar(self) -> "CustomPlotConfig":
+        """An angular axis only exists on a polar projection."""
+        if self.angular is not None and self.projection is not ProjectionEnum.polar:
+            raise ValueError(
+                "custom plot: 'angular' describes a polar plot's angle, so it "
+                f"needs 'projection: polar' (got {self.projection.value!r})."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def check_subplot_projections(self) -> "CustomPlotConfig":
+        """A primitive drawing on special axes needs the matching projection."""
+        for subplot in self.subplots:
+            needs = subplot.requires_projection
+            if needs is not None and self.projection.value != needs:
+                raise ValueError(
+                    f"{subplot.type!r} subplot draws on {needs} axes, so the "
+                    f"plot needs 'projection: {needs}' (got "
+                    f"{self.projection.value!r})."
+                )
+        return self
 
     @model_validator(mode="after")
     def check_var_scope(self) -> "CustomPlotConfig":
@@ -971,6 +1023,7 @@ class Custom(Plot):
             var,
             cfg.time,
             cfg.unit,
+            cfg.x,
             repr(sorted((cfg.dim_reduce or {}).items())),
         )
 
@@ -1019,6 +1072,12 @@ class Custom(Plot):
         if dst_unit is None and isinstance(plot_vars, dict):
             dst_unit = plot_vars.get(var)
 
+        # Applied here rather than per-subplot so decorations inherit it: on
+        # polar axes an hline is a circle at a radius, a vline a radial spoke.
+        angular = self.plot_config.angular
+        if angular is not None:
+            da = to_angular(da, cfg.x, angular.turn, cycle=angular.cycle)
+
         cache[key] = (da, data.var_unit(var), dst_unit)
         return cache[key]
 
@@ -1039,20 +1098,29 @@ class Custom(Plot):
         A primitive declaring ``required_vars`` gets a Dataset keyed by those
         roles, every other primitive gets the plot's variable as a darray
         """
-        roles = Primitive.get_primitive_class(subplot.type).required_vars(subplot)
+        primitive = Primitive.get_primitive_class(subplot.type)
+        roles = primitive.required_vars(subplot, var)
         if roles:
-            fields = {
-                role: self._reduce_to_axes(
-                    subplot,
-                    *self._prepare_variable(
-                        subplot, dom, role_var, time_interval, cache
-                    ),
+            fields, units = {}, {}
+            for role, role_var in roles.items():
+                da, src_unit, dst_unit = self._prepare_variable(
+                    subplot, dom, role_var, time_interval, cache
                 )
-                for role, role_var in roles.items()
-            }
-            # No single destination unit: the roles are different quantities,
-            # and a role primitive owns no colorbar to label.
-            return xr.Dataset(fields), None
+                fields[role] = (
+                    self._reduce_to_axes(subplot, da, src_unit, dst_unit)
+                    if primitive.reduces_to_axes
+                    else change_unit(da, src_unit, dst_unit)
+                )
+                units[role] = dst_unit
+            # The roles are different quantities, so only the colour role
+            # names a unit, carried along for a primitive that labels it
+            # itself rather than through the figure's colorbar.
+            attrs = (
+                {"value_label": _unit_label(var, units["value"])}
+                if "value" in units
+                else {}
+            )
+            return xr.Dataset(fields, attrs=attrs), units.get("value")
 
         da, src_unit, dst_unit = self._prepare_variable(
             subplot, dom, var, time_interval, cache
@@ -1099,10 +1167,26 @@ class Custom(Plot):
                 wants_legend = wants_legend or decorator.wants_legend
         return wants_legend
 
+    def _setup_angular_axis(self, ax):
+        """Orient a polar axes and label its angle in the source units."""
+        spec = self.plot_config.angular
+        if spec is None:
+            return
+        ax.set_theta_zero_location(spec.theta_zero)
+        ax.set_theta_direction(-1 if spec.direction == "clockwise" else 1)
+        positions, labels = angular_ticks(
+            spec.turn, zero=spec.theta_zero, direction=spec.direction
+        )
+        ax.set_xticks(positions)
+        ax.set_xticklabels(labels)
+        if spec.rlabel_position is not None:
+            ax.set_rlabel_position(spec.rlabel_position)
+
     def _render_composition(self, time_interval, dom_name, dom, plot_var):
         """Draw every primitive of the composition onto the shared axes."""
         figure = plt.figure(**self.figure_kwargs())
-        ax = figure.add_subplot(1, 1, 1)
+        ax = figure.add_subplot(1, 1, 1, projection=self.plot_config.projection.mpl)
+        self._setup_angular_axis(ax)
 
         colorbar = None  # (mappable, label) for the first colour primitive
         has_legend = False
@@ -1140,8 +1224,9 @@ class Custom(Plot):
             ax.legend()
 
         # Label the y axis with the variable, as every other plot type does.
-        # Only when nothing drew a colorbar
-        if colorbar is None:
+        # Only when nothing drew a colorbar, and not over a primitive that
+        # labelled the axis with a quantity of its own.
+        if colorbar is None and not ax.get_ylabel():
             ylabel = self.plot_kwargs.get("ylabel")
             if ylabel is None:
                 names = "+".join(dict.fromkeys(str(v) for v in used_vars))

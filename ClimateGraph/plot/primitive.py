@@ -40,6 +40,9 @@ class Primitive(RegistryMixin, ABC):
     required_coords: ClassVar[frozenset[str]] = frozenset()
     wants_colorbar: ClassVar[bool] = False
     wants_legend: ClassVar[bool] = False
+    # False when the primitive draws from samples rather than an axis-shaped
+    # grid, so the dims the x/y coordinates do not name must survive.
+    reduces_to_axes: ClassVar[bool] = True
 
     def __init__(self, name: str, subplot_config: BaseModel, **kwargs):
         """Primitive initialization.
@@ -67,13 +70,16 @@ class Primitive(RegistryMixin, ABC):
         return cls.check_class(name)
 
     @classmethod
-    def required_vars(cls, subplot_config: BaseModel) -> dict[str, str]:
+    def required_vars(
+        cls, subplot_config: BaseModel, var: str | None = None
+    ) -> dict[str, str]:
         """Variables this primitive needs beyond the plot's own, by role.
 
         Empty for the single-variable primitives, which read the plot's or the
         subplot's ``var``. When it is non-empty the orchestrator prepares each
         named variable through the same pipeline and hands ``render`` an
-        ``xr.Dataset`` keyed by role rather than a lone array.
+        ``xr.Dataset`` keyed by role rather than a lone array. The ``value``
+        role is reserved for the quantity a colorbar labels.
 
         A classmethod taking the config, not a class attribute, because a
         primitive may accept alternative spellings of the same requirement —
@@ -84,6 +90,10 @@ class Primitive(RegistryMixin, ABC):
         ----------
         subplot_config : BaseModel
             The subplot config to read the variable names off.
+        var : str | None
+            The variable in effect for the subplot, for a primitive that takes
+            roles *and* colours by it. None where no variable is resolved yet,
+            as in config validation.
 
         Returns
         -------

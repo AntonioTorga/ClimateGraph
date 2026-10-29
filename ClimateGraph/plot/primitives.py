@@ -1,13 +1,18 @@
 """The concrete primitives and their subplot config models."""
 
+from itertools import pairwise
 from typing import ClassVar, Literal
 
+import matplotlib as mpl
 import numpy as np
-from pydantic import BaseModel, ConfigDict, model_validator
+from matplotlib.colors import BoundaryNorm
+from matplotlib.patches import Patch
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ClimateGraph.utils.dataset_utils import axis_arrays, drop_nan_points
 from ClimateGraph.utils.general_utils import ReductionMethodEnum
 from ClimateGraph.utils.geo_utils import step_metres
+from ClimateGraph.utils.plot_utils import bin_statistic, nice_edges
 
 from .primitive import Primitive
 
@@ -50,6 +55,8 @@ class SubplotConfig(BaseModel):
 
     # Coordinate roles the concrete primitive requires (overridden per subclass).
     required_coords: ClassVar[frozenset[str]] = frozenset()
+    # The matplotlib projection the primitive draws on, None for any.
+    requires_projection: ClassVar[str | None] = None
 
     dataset: str
     var: str | None = None
@@ -328,7 +335,7 @@ class Arrows(Primitive):
     required_coords = frozenset({"x", "y"})
 
     @classmethod
-    def required_vars(cls, subplot_config):
+    def required_vars(cls, subplot_config, var=None):
         """Whichever of the two spellings the subplot used."""
         if subplot_config.u is not None:
             return {"u": subplot_config.u, "v": subplot_config.v}
@@ -353,6 +360,140 @@ class Arrows(Primitive):
             u, v = -speed * np.sin(theta), -speed * np.cos(theta)
 
         return _quiver(ax, xv, yv, u, v, cfg, self.style)
+
+
+# Widest arc a rose cell is drawn with, in degrees.
+_ARC_STEP_DEGREES = 2.0
+
+
+class RoseConfig(SubplotConfig):
+    """A polar histogram of two variables, coloured by a third.
+
+    ``angle`` and ``radius`` name variables rather than coordinates, which is
+    what separates a rose from the other polar compositions: wind direction is
+    a measurement, not an axis. The colour is the plot's variable, or the
+    sample count when there is none.
+    """
+
+    required_coords: ClassVar[frozenset[str]] = frozenset()
+    requires_projection: ClassVar[str] = "polar"
+    type: Literal["rose", "windrose", "polar_bin"]
+    angle: str
+    radius: str
+    # Units of `angle` completing a turn; 360 reads it as a compass bearing.
+    angle_period: float = Field(default=360.0, gt=0)
+    angle_bins: int = Field(default=16, gt=0)
+    # An int is an upper bound, rounded to readable edges; a list gives the
+    # edges outright.
+    radius_bins: int | list[float] = 6
+    # Colour classes the legend lists; an upper bound, rounded to readable
+    # boundaries the same way the radius is.
+    levels: int = Field(default=5, gt=0)
+    statistic: ReductionMethodEnum = ReductionMethodEnum.mean
+    min_count: int = 1
+    cmap: str = "viridis"
+
+
+class Rose(Primitive):
+    """Primitive: samples binned by angle and radius on polar axes.
+
+    The windrose of the air-quality literature — direction around, wind speed
+    outwards, concentration as colour — without fixing those three roles to
+    wind.
+    """
+
+    config = RoseConfig
+    aliases = ["rose", "windrose", "polar_bin"]
+    requires_projection = "polar"
+    # The cells hold a handful of colour classes, which a legend names and
+    # places beside the circle better than a continuous bar.
+    reduces_to_axes = False
+
+    @classmethod
+    def required_vars(cls, subplot_config, var=None):
+        """The two binning variables, plus the plot's as the colour."""
+        roles = {"angle": subplot_config.angle, "radius": subplot_config.radius}
+        if var is not None:
+            roles["value"] = var
+        return roles
+
+    def render(self, ax, data, *, x, y, label):
+        """Bin the samples and draw the cells as polar patches."""
+        cfg = self.subplot_config
+        angle = np.asarray(data["angle"].values, dtype=float).ravel()
+        radius = np.asarray(data["radius"].values, dtype=float).ravel()
+        values = (
+            np.asarray(data["value"].values, dtype=float).ravel()
+            if "value" in data
+            else None
+        )
+
+        # Bins are centred on zero, so with a 360 period the first one is the
+        # N sector rather than the one clockwise of it.
+        half = np.pi / cfg.angle_bins
+        turn = 2 * np.pi
+        theta = (turn * (angle % cfg.angle_period) / cfg.angle_period + half) % turn
+        theta -= half
+        theta_edges = np.linspace(-half, turn - half, cfg.angle_bins + 1)
+
+        if isinstance(cfg.radius_bins, int):
+            # A radius is a magnitude, so the innermost edge is zero unless the
+            # data goes below it.
+            r_edges = nice_edges(
+                min(0.0, float(np.nanmin(radius))),
+                float(np.nanmax(radius)),
+                cfg.radius_bins,
+            )
+        else:
+            r_edges = np.asarray(cfg.radius_bins, dtype=float)
+
+        grid = bin_statistic(
+            theta,
+            radius,
+            values,
+            theta_edges,
+            r_edges,
+            cfg.statistic,
+            cfg.min_count,
+        )
+        # pcolormesh joins cell corners with straight lines, so one quad per
+        # bin draws the arc as a chord; sub-bins keep the edge on the circle.
+        steps = int(np.ceil(360 / cfg.angle_bins / _ARC_STEP_DEGREES))
+        arc_edges = np.linspace(-half, turn - half, cfg.angle_bins * steps + 1)
+
+        cells = grid[np.isfinite(grid)]
+        bounds = nice_edges(
+            cells.min() if cells.size else np.nan,
+            cells.max() if cells.size else np.nan,
+            cfg.levels,
+        )
+        cmap = mpl.colormaps[cfg.cmap].resampled(len(bounds) - 1)
+        mesh = ax.pcolormesh(
+            arc_edges,
+            r_edges,
+            np.repeat(grid, steps, axis=0).T,
+            cmap=cmap,
+            norm=BoundaryNorm(bounds, cmap.N),
+            **self.style,
+        )
+
+        # The radial axis is the radius variable, not the plot's. The pad
+        # clears the compass label sitting outside the circle.
+        ax.set_ylabel(cfg.radius, labelpad=28)
+        title = (
+            "samples" if values is None else (data.attrs.get("value_label") or label)
+        )
+        handles = [
+            Patch(facecolor=cmap(i), label=f"{lo:g} - {hi:g}")
+            for i, (lo, hi) in enumerate(pairwise(bounds))
+        ]
+        # The circle leaves the axes corners free, and staying inside them
+        # keeps the legend on the canvas without a tight bounding box.
+        # add_artist keeps it when a decoration later calls ax.legend().
+        ax.add_artist(
+            ax.legend(handles=handles, title=title, loc="upper right", fontsize="small")
+        )
+        return mesh
 
 
 class PointsConfig(SubplotConfig):

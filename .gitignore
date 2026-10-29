@@ -13,3 +13,4 @@ ROADMAP.md
 .pypirc
 /dist
 CHANGELOG.md
+docs/examples/output/

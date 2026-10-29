@@ -35,15 +35,13 @@ class RegistryMixin:
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
 
-        # Reliable here even though ABCMeta has not set ``__abstractmethods__``
-        # yet: ``inspect.isabstract`` falls back to scanning the class dict and
-        # its bases precisely for the mid-class-creation case.
+        # ``inspect.isabstract`` works mid-class-creation: it scans the class
+        # dict and bases when ABCMeta has not set __abstractmethods__ yet.
         if inspect.isabstract(cls):
             return
 
-        # Walk the MRO (skipping cls itself and RegistryMixin) to find the first
-        # ancestor that declares its own ``registry`` dict.  That ancestor is the
-        # root ABC for this family and owns the shared registry.
+        # The first ancestor declaring its own ``registry`` dict is this
+        # family's root ABC, and owns the shared registry.
         owner = None
         for ancestor in cls.__mro__[1:]:
             if ancestor is RegistryMixin:

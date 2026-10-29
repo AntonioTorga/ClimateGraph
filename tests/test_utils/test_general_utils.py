@@ -3,17 +3,21 @@ import logging
 import numpy as np
 import pandas as pd
 import pytest
+import xarray as xr
 
 from ClimateGraph.utils.general_utils import (
     CRSEnum,
     ExpandableModel,
+    ProjectionEnum,
     ReductionMethodEnum,
     TimeBucketEnum,
     TimestepEnum,
+    angular_ticks,
     expand,
     manage_path,
     manage_time_interval,
     normalize_time,
+    to_angular,
 )
 
 
@@ -170,6 +174,38 @@ class TestEnums:
         assert TimeBucketEnum.day.value == "day"
         assert TimeBucketEnum.hour.value == "hour"
 
+    @pytest.mark.parametrize("bucket", list(TimeBucketEnum))
+    def test_bucket_name_matches_its_accessor(self, bucket):
+        # `monthly` used to carry the value "quarter", so reaching for the
+        # member by name grouped by the wrong period.
+        assert bucket.name == bucket.value
+
+    @pytest.mark.parametrize("bucket", list(TimeBucketEnum))
+    def test_every_bucket_is_a_real_dt_accessor(self, bucket):
+        times = pd.date_range("2019-01-01", periods=60, freq="D")
+        da = xr.DataArray(np.arange(60.0), dims="time", coords={"time": times})
+        assert len(da.groupby(f"time.{bucket.value}").mean()) > 0
+
+    @pytest.mark.parametrize("unit", list(TimeBucketEnum))
+    def test_every_bucket_carries_hours(self, unit):
+        # check_timestep_vs_bucket reads this off the member; a missing one
+        # used to mean a bare KeyError out of config validation.
+        assert unit.hours > 0
+
+    @pytest.mark.parametrize("unit", list(TimestepEnum))
+    def test_every_timestep_carries_hours(self, unit):
+        assert unit.hours > 0
+
+    def test_hours_order_matches_calendar_order(self):
+        assert (
+            TimeBucketEnum.minute.hours
+            < TimeBucketEnum.hour.hours
+            < TimeBucketEnum.day.hours
+            < TimeBucketEnum.week.hours
+            < TimeBucketEnum.month.hours
+            < TimeBucketEnum.quarter.hours
+        )
+
 
 class _Fan(ExpandableModel):
     """Two independent axes plus a field that must survive untouched."""
@@ -278,3 +314,111 @@ class TestExpand:
         original = _Fan(alpha=["a", "b"])
         expand(original)
         assert original.alpha == ["a", "b"]
+
+
+def _timed(n=10, freq="D", start="2019-01-01"):
+    times = pd.date_range(start, periods=n, freq=freq)
+    return xr.DataArray(np.arange(float(n)), dims="time", coords={"time": times})
+
+
+class TestProjectionEnum:
+    def test_carries_the_matplotlib_name(self):
+        assert ProjectionEnum.polar.mpl == "polar"
+        assert ProjectionEnum.rectilinear.mpl is None
+
+    def test_value_is_what_yaml_writes(self):
+        assert ProjectionEnum("polar") is ProjectionEnum.polar
+
+
+class TestToAngular:
+    def test_bare_period_maps_a_full_turn(self):
+        da = xr.DataArray(
+            [0.0, 90.0, 180.0, 270.0], dims="wd", coords={"wd": [0, 90, 180, 270]}
+        )
+        out = to_angular(da, "wd", period=360)
+        assert out["wd"].values == pytest.approx([0, np.pi / 2, np.pi, 3 * np.pi / 2])
+
+    def test_a_full_period_wraps_back_to_zero(self):
+        # 360 degrees and 0 degrees are the same direction, one turn apart.
+        da = xr.DataArray([1.0, 2.0], dims="wd", coords={"wd": [0, 360]})
+        out = to_angular(da, "wd", period=360)
+        assert out["wd"].values[1] == pytest.approx(2 * np.pi)
+
+    @pytest.mark.parametrize(
+        ("cycle", "freq", "expected_first"),
+        [
+            (TimeBucketEnum.dayofyear, "D", 1),
+            (TimeBucketEnum.hour, "h", 0),
+            (TimeBucketEnum.month, "D", 1),
+        ],
+    )
+    def test_cycle_reads_off_a_datetime_coord(self, cycle, freq, expected_first):
+        out = to_angular(_timed(freq=freq), "time", cycle.period, cycle=cycle)
+        first = out["time"].values[0]
+        assert first == pytest.approx(2 * np.pi * expected_first / cycle.period)
+
+    @pytest.mark.parametrize(
+        "bucket", [b for b in TimeBucketEnum if b is not TimeBucketEnum.season]
+    )
+    def test_every_numeric_bucket_is_usable_as_a_cycle(self, bucket):
+        theta = to_angular(_timed(n=40), "time", bucket.period, cycle=bucket)
+        values = theta["time"].values
+        assert np.all(np.isfinite(values))
+        assert np.all(values >= 0)
+
+    def test_a_categorical_cycle_is_rejected(self):
+        # .dt.season gives "DJF"/"MAM"/..., which has no angular position.
+        with pytest.raises(ValueError, match="categorical"):
+            to_angular(_timed(n=40), "time", 4, cycle=TimeBucketEnum.season)
+
+    def test_missing_or_none_coord_is_a_no_op(self):
+        # How `rose` opts out: it declares no x, so the transform skips it.
+        da = _timed()
+        assert to_angular(da, None, period=360) is da
+        assert to_angular(da, "nope", period=360) is da
+
+
+class TestAngularTicks:
+    def test_a_bearing_axis_gets_compass_points(self):
+        positions, labels = angular_ticks(360, zero="N", direction="clockwise")
+        assert labels == ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+        assert positions[0] == 0
+        assert positions[2] == pytest.approx(np.pi / 2)
+
+    @pytest.mark.parametrize(
+        ("zero", "direction"),
+        [
+            ("E", "counterclockwise"),
+            ("N", "counterclockwise"),
+            ("E", "clockwise"),
+            ("S", "clockwise"),
+        ],
+    )
+    def test_degrees_alone_do_not_make_a_compass(self, zero, direction):
+        # Under any other origin or winding these positions land on different
+        # bearings, so labelling them N/NE/E would be wrong.
+        _, labels = angular_ticks(360, zero=zero, direction=direction)
+        assert labels[0] == "0" and labels[1] == "45"
+
+    def test_other_periods_label_in_source_units(self):
+        _, labels = angular_ticks(24)
+        assert labels == ["0", "3", "6", "9", "12", "15", "18", "21"]
+
+    def test_positions_span_one_turn_without_repeating_it(self):
+        positions, _ = angular_ticks(366)
+        assert max(positions) < 2 * np.pi
+
+    @pytest.mark.parametrize("bucket", list(TimeBucketEnum))
+    def test_common_cycles_label_in_whole_units(self, bucket):
+        # Eight ticks over a period of seven would label weekdays 0.875.
+        _, labels = angular_ticks(bucket.period)
+        if bucket.period % 8 and bucket.period in (4, 7, 12, 24, 60, 366):
+            assert all("." not in label for label in labels)
+
+    def test_tick_count_divides_the_period_when_it_can(self):
+        assert angular_ticks(7)[1] == ["0", "1", "2", "3", "4", "5", "6"]
+        assert angular_ticks(12)[1] == ["0", "2", "4", "6", "8", "10"]
+
+    def test_an_explicit_count_still_wins(self):
+        positions, _ = angular_ticks(7, count=4)
+        assert len(positions) == 4

@@ -1,0 +1,83 @@
+# Polar compositions: the same primitives, on a polar axes.
+#
+# `projection: polar` changes the axes, not the primitives — `series` and
+# `points` draw exactly as they do on rectilinear axes. `angular` says how the
+# coordinate bound to `x` maps onto the angle: `cycle` for a calendar bucket,
+# `period` for anything else.
+#
+# Zero sits at the top and the angle winds clockwise unless `zero:` and
+# `direction:` say otherwise. `zero` takes top/right/bottom/left or a
+# compass point, whichever reads better for the axis.
+analysis:
+  output_path: "./docs/examples/output"
+
+data:
+  STATIONS:
+    path: "./docs/examples/data/stations.nc"
+    topology: PointSurface
+    reader: defaultpointsurface
+    vars:
+      PM25: {name: pm25, unit: "ug/m**3"}
+      WS:   {name: ws, unit: "m/s"}
+      WD:   {name: wd, unit: "degree"}
+
+plots:
+  # The daily cycle wrapped into a clock: midnight at the top, hours clockwise.
+  daily-clock:
+    type: custom
+    projection: polar
+    angular: {cycle: hour}
+    time: "1/6/2021 - 14/6/2021"
+    vars: {PM25: "ug/m**3"}
+    title: "PM2.5 by hour of day"
+    figsize: [6, 6]
+    dpi: 110
+    format: png
+    subplots:
+      - type: series
+        dataset: STATIONS
+        x: time
+        label: Observations
+        color: "tab:red"
+
+  # The weekly cycle. `x` names a coordinate, so any angle has to come from
+  # one; an angle taken from a *variable* (wind direction) needs `rose`.
+  weekly-clock:
+
+    type: custom
+    projection: polar
+    angular: {cycle: weekday}
+    time: "1/6/2021 - 14/6/2021"
+    vars: {PM25: "ug/m**3"}
+    title: "PM2.5 by day of week"
+    figsize: [6, 6]
+    grid: true
+    dpi: 110
+    format: png
+    subplots:
+      - type: series
+        dataset: STATIONS
+        x: time
+        label: Observations
+        color: "tab:blue"
+
+  # A pollution rose. `angle` and `radius` name variables, not coordinates, so
+  # the samples are binned rather than drawn against an axis. `period: 360`
+  # labels the angle with compass points.
+  pollution-rose:
+    type: custom
+    projection: polar
+    angular: {period: 360}
+    time: "1/6/2021 - 14/6/2021"
+    vars: {PM25: "ug/m**3"}
+    title: "PM2.5 by wind direction and speed"
+    figsize: [6, 6]
+    dpi: 110
+    format: png
+    subplots:
+      - type: rose
+        dataset: STATIONS
+        angle: WD
+        radius: WS
+        angle_bins: 16
+        radius_bins: 5

@@ -157,7 +157,8 @@ plots:
   cycle:
     type: timecycle                # aliases: cycle, time cycle
     data: STATIONS
-    time_buckets: hour             # minute | hour | day | week | season | quarter
+    time_buckets: hour             # minute | hour | day | dayofyear | weekday
+                                   # | week | month | quarter | season
     timestep: h
     vars: {PM25: "ug/m**3"}
 
