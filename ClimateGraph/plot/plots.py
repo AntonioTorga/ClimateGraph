@@ -1,8 +1,9 @@
 """The concrete plot types and their config models."""
 
 import contextlib
+import logging
 import math
-from typing import Literal
+from typing import ClassVar, Literal
 
 import cartopy.feature as cfeature
 import matplotlib as mpl
@@ -23,6 +24,7 @@ from ClimateGraph.utils.dataset_utils import (
 from ClimateGraph.utils.general_utils import (
     THETA_POSITIONS,
     CRSEnum,
+    ExpandableModel,
     ProjectionEnum,
     ReductionMethodEnum,
     TimeBucket,
@@ -41,6 +43,8 @@ from . import primitives as _primitives  # noqa: F401  registers primitive confi
 from .decorator import Decorator
 from .plot import Plot
 from .primitive import Primitive
+
+log = logging.getLogger(__name__)
 
 # Built after the two imports above: every config must be registered before
 # CustomPlotConfig references it, and __init__'s pkgutil loop has no ordering.
@@ -894,8 +898,11 @@ class AngularSpec(BaseModel):
         return self.cycle.period if self.cycle is not None else self.period
 
 
-class CustomPlotConfig(BasePlotConfig):
+class CustomPlotConfig(BasePlotConfig, ExpandableModel):
     """Free-form composition of primitives on shared axes."""
+
+    # One figure per point of time x domains x vars.
+    expands: ClassVar[tuple[str, ...]] = ("time", "domains", "vars")
 
     type: Literal["custom"]
     projection: ProjectionEnum = Field(default=ProjectionEnum.rectilinear)
@@ -903,10 +910,24 @@ class CustomPlotConfig(BasePlotConfig):
     # vars are opt here because they might be provided by every subplot. Not being provided at the leaf nor here errors out
     vars: list[str] | dict[str, str] | None = Field(default=None)
     time: str | list[str] | None = Field(default=None)
+
+    domains: str | list[str] = Field(default_factory=list)
     timestep: Timestep | None = Field(default=None)
     subplots: list[PrimitiveModel] = Field(min_length=1)
     # Annotations drawn over the composition once every primitive is down.
     decorations: list[DecorationModel] = Field(default_factory=list)
+
+    @field_validator("domains", mode="before")
+    @classmethod
+    def _wrap_single_domain(cls, v):
+        """Coerce ``domains: centro`` into ``["centro"]``."""
+        return [v] if isinstance(v, str) else v
+
+    def expansion_values(self, field: str) -> list:
+        """One unnamed slot for an empty ``domains``, not a slot named ``[]``."""
+        if field == "domains" and not self.domains:
+            return [""]
+        return super().expansion_values(field)
 
     @model_validator(mode="after")
     def check_angular_needs_polar(self) -> "CustomPlotConfig":
@@ -981,16 +1002,22 @@ class Custom(Plot):
     config = CustomPlotConfig
     aliases = ["custom"]
 
+    def expected_figures(self) -> int:
+        """One figure per point of the expansion product."""
+        return len(expand(self.plot_config))
+
     def plot(self):
-        """Render one figure per (time, domain, var) context."""
-        domains = self.resolve_domains()
-        plot_vars = self.plot_config.vars
-        # dict form ({var: unit}) fans out over its keys; None → single None slot.
-        var_list = list(plot_vars) if plot_vars is not None else None
-        for time_interval, dom_name, dom, var in self.iterate_contexts(
-            self.plot_config.time, domains, var_list
-        ):
-            self._render_composition(time_interval, dom_name, dom, var)
+        """Render one figure per point of the plot's expansion product."""
+        for slots, cfg in expand(self.plot_config):
+            dom_name = slots["domains"]
+            log.info(
+                "Rendering '%s' (%s).",
+                self.name,
+                ", ".join(f"{axis}={value}" for axis, value in slots.items() if value),
+            )
+            self._render_composition(
+                cfg.time, dom_name, self.domains.get(dom_name), slots["vars"]
+            )
 
     @staticmethod
     def _resolve_keep_dims(data, x: str | None, y: str | None) -> set[str]:

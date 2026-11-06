@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import matplotlib as mpl
 import numpy as np
 import pytest
@@ -204,6 +206,43 @@ class TestRoseRuns:
             a for a in figure.axes[0].artists if isinstance(a, mpl.legend.Legend)
         ]
         assert legends[0].get_title().get_text() == "samples"
+
+
+class TestExpectedFigures:
+    def test_matches_what_is_written(self, regular_grid_data, tmp_output_dir):
+        # The run summary promises this number before opening a file.
+        cfg = CustomPlotConfig(
+            type="custom",
+            vars=["Temperatura", "Presion"],
+            time=["1/1/2019 - 3/1/2019", "4/1/2019 - 6/1/2019"],
+            subplots=[{"type": "series", "dataset": "grid", "x": "time"}],
+        )
+        plot = Custom(
+            name="counted",
+            plot_config=cfg,
+            data_registry={"grid": regular_grid_data},
+            domain_registry={},
+            output_path=tmp_output_dir,
+        )
+        promised = plot.expected_figures()
+        plot.plot()
+        assert promised == 4
+        assert len(_outputs(tmp_output_dir, "counted")) == promised
+
+    def test_a_plot_with_no_fan_out_is_one_figure(self, regular_grid_data):
+        cfg = CustomPlotConfig(
+            type="custom",
+            vars=["Temperatura"],
+            subplots=[{"type": "series", "dataset": "grid", "x": "time"}],
+        )
+        plot = Custom(
+            name="single",
+            plot_config=cfg,
+            data_registry={"grid": regular_grid_data},
+            domain_registry={},
+            output_path=Path("."),
+        )
+        assert plot.expected_figures() == 1
 
 
 class TestCustomRuns:

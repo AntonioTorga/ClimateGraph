@@ -43,6 +43,9 @@ class AnalysisModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     output_path: Path
     debug: bool = Field(default=False)
+    # Per-stage detail on stdout. ``debug`` implies it and also stops splitting
+    # the streams, so a trace reads in order.
+    verbose: bool = Field(default=False)
     workers: int | None = Field(default=None, ge=1)
 
     @field_validator("output_path")

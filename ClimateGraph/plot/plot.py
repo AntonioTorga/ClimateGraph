@@ -226,41 +226,23 @@ class Plot(RegistryMixin, ABC):
         }
         return domains or {"": None}
 
-    def iterate_contexts(
-        self,
-        times,
-        domains: dict[str, Domain | None],
-        vars: list[str] | None,
-    ):
-        """Yield the (time, domain, var) render contexts.
+    def expected_figures(self) -> int:
+        """How many figures this plot will write, read off the config alone.
 
-        Centralizes the time x domain x var nesting duplicated across the plot
-        classes. Time is normalized here (a single date, an interval, or a list
-        fanning out into N entries). When ``vars`` is ``None`` a single ``None``
-        var slot is yielded per (time, domain) pair — the per-subplot-var-scope
-        case where the var is decided downstream.
+        Every plot type nests time x domains x vars, so the product is exact.
+        It opens no file, which is what lets a run report its size up front.
 
-        Parameters
-        ----------
-        times : str | list[str] | None
-            The plot's ``time`` field (raw), normalized internally.
-        domains : dict[str, Domain | None]
-            Resolved domains (see ``resolve_domains``).
-        vars : list[str] | None
-            Variable names to fan out over, or ``None`` for a single ``None`` slot.
-
-        Yields
-        ------
-        tuple[str | None, str, Domain | None, str | None]
-            ``(time_interval, domain_name, domain, var)`` tuples.
+        Returns
+        -------
+        int
+            Number of figures, at least one.
         """
-        for time_interval in normalize_time(times):
-            for dom_name, dom in domains.items():
-                if vars is None:
-                    yield time_interval, dom_name, dom, None
-                else:
-                    for var in vars:
-                        yield time_interval, dom_name, dom, var
+        plot_vars = self.plot_config.vars
+        return (
+            len(normalize_time(getattr(self.plot_config, "time", None)))
+            * len(self.resolve_domains())
+            * (len(plot_vars) if plot_vars else 1)
+        )
 
     def figure_kwargs(self, **defaults) -> dict:
         """Build the kwargs for ``plt.figure`` from ``plot_kwargs``.
