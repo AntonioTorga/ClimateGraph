@@ -984,21 +984,19 @@ class CustomPlotConfig(BasePlotConfig, ExpandableModel):
 
     @model_validator(mode="after")
     def check_var_scope(self) -> "CustomPlotConfig":
-        """Require plot-level ``vars`` or per-subplot ``var``, never both."""
+        """Every subplot must resolve a variable, from itself or the plot.
+
+        A subplot's own ``var`` wins over the plot's ``vars``, so a layer can
+        be pinned to one variable inside a plot that fans out over several.
+        """
         plot_vars_set = self.vars is not None
         subplot_vars = [getattr(sp, "var", None) for sp in self.subplots]
-        any_subplot_var = any(v is not None for v in subplot_vars)
-        # A subplot whose primitive names its variables by role — arrows' u/v —
-        # is already scoped and has no use for a `var`.
+        # A subplot whose primitive names its variables by role — arrows' u/v,
+        # a band's two edges — is already scoped and has no use for a `var`.
         all_subplot_vars = all(
             v is not None or Primitive.get_primitive_class(sp.type).required_vars(sp)
             for sp, v in zip(self.subplots, subplot_vars, strict=True)
         )
-        if plot_vars_set and any_subplot_var:
-            raise ValueError(
-                "custom plot: set 'vars' at the plot level OR a 'var' on every "
-                "subplot, not both."
-            )
         if not plot_vars_set and not all_subplot_vars:
             raise ValueError(
                 "custom plot: when plot-level 'vars' is omitted, every subplot "
@@ -1079,7 +1077,7 @@ class Custom(Plot):
         return keep
 
     @staticmethod
-    def _prep_key(cfg, var):
+    def _prep_key(cfg, var, dataset):
         """What distinguishes two prepared variables within one figure.
 
         Domain, timestep and the plot-level ``dim_reduce`` are fixed for the
@@ -1088,7 +1086,7 @@ class Custom(Plot):
         sort never has to compare two values.
         """
         return (
-            cfg.dataset,
+            dataset,
             var,
             cfg.time,
             cfg.unit,
@@ -1096,7 +1094,7 @@ class Custom(Plot):
             repr(sorted((cfg.dim_reduce or {}).items())),
         )
 
-    def _prepare_variable(self, cfg, dom, var, time_interval, cache=None):
+    def _prepare_variable(self, cfg, dom, var, time_interval, cache=None, dataset=None):
         """Domain, time and per-dim reduction for one variable.
 
         The part of the pipeline both families Subplots and Decorators share, then subp
@@ -1112,11 +1110,12 @@ class Custom(Plot):
             The array, its source unit, and the unit it should be shown in.
         """
         cache = {} if cache is None else cache
-        key = self._prep_key(cfg, var)
+        dataset = dataset if dataset is not None else cfg.dataset
+        key = self._prep_key(cfg, var, dataset)
         if key in cache:
             return cache[key]
 
-        data = self.data[cfg.dataset]
+        data = self.data[dataset]
         data = dom.apply(data) if dom is not None else data
         da = data.obj[var]
 
@@ -1162,6 +1161,51 @@ class Custom(Plot):
             da = da.reduce(subplot.reduction_method.func, reduction_dims)
         return change_unit(da, src_unit, dst_unit)
 
+    def _align_roles(self, fields, subplot):
+        """Put roles drawn from different datasets on one axis.
+
+        Building a Dataset would reconcile them too, but with an *outer* join:
+        the axis silently widens to the union and the gaps fill with NaN. An
+        inner join says the honest thing instead — the figure covers where
+        every role has data — and a dropped point is reported rather than
+        quietly drawn as a hole.
+
+        Auxiliary coords are dropped because they cannot be reconciled at all:
+        ``latitude`` over ``site`` and ``latitude`` over ``(y, x)`` are
+        different quantities under one name. Index coords, which define the
+        axis, survive.
+
+        Parameters
+        ----------
+        fields : dict
+            Role name to prepared ``xr.DataArray``.
+        subplot : BaseModel
+            The subplot config, for the log message.
+
+        Returns
+        -------
+        dict
+            The same roles, aligned and stripped of auxiliary coords.
+        """
+        bare = {role: da.reset_coords(drop=True) for role, da in fields.items()}
+        before = {role: da.sizes for role, da in bare.items()}
+        aligned = dict(zip(bare, xr.align(*bare.values(), join="inner"), strict=True))
+        for role, da in aligned.items():
+            dropped = {
+                dim: size - da.sizes[dim]
+                for dim, size in before[role].items()
+                if size != da.sizes[dim]
+            }
+            if dropped:
+                log.warning(
+                    "%r subplot: role %r lost %s to the overlap between "
+                    "datasets; the figure covers where every role has data.",
+                    subplot.type,
+                    role,
+                    ", ".join(f"{n} of {dim}" for dim, n in dropped.items()),
+                )
+        return aligned
+
     def _prepare_subplot_data(self, subplot, dom, var, time_interval, cache=None):
         """Full data-prep pipeline for one subplot; returns the drawable data.
         A primitive declaring ``required_vars`` gets a Dataset keyed by those
@@ -1170,10 +1214,13 @@ class Custom(Plot):
         primitive = Primitive.get_primitive_class(subplot.type)
         roles = primitive.required_vars(subplot, var)
         if roles:
+            # Roles from one dataset already share an axis and keep every
+            # coord, since a role may be bound to a 2-D one.
+            across_datasets = len({ds for ds, _ in roles.values()}) > 1
             fields, units = {}, {}
-            for role, role_var in roles.items():
+            for role, (role_dataset, role_var) in roles.items():
                 da, src_unit, dst_unit = self._prepare_variable(
-                    subplot, dom, role_var, time_interval, cache
+                    subplot, dom, role_var, time_interval, cache, role_dataset
                 )
                 fields[role] = (
                     self._reduce_to_axes(subplot, da, src_unit, dst_unit)
@@ -1181,6 +1228,9 @@ class Custom(Plot):
                     else change_unit(da, src_unit, dst_unit)
                 )
                 units[role] = dst_unit
+
+            if across_datasets:
+                fields = self._align_roles(fields, subplot)
             # The roles are different quantities, so only the colour role
             # names a unit, carried along for a primitive that labels it
             # itself rather than through the figure's colorbar.
@@ -1272,7 +1322,9 @@ class Custom(Plot):
         prepared: dict = {}
 
         for subplot in self.plot_config.subplots:
-            var = plot_var if plot_var is not None else subplot.var
+            # The subplot's own var wins: it pins one layer inside a plot that
+            # fans out over several.
+            var = subplot.var if subplot.var is not None else plot_var
             # A role primitive names its own variables and may carry no `var`;
             # it contributes nothing to the figure's variable token.
             if var is not None:

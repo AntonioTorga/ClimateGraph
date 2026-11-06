@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import matplotlib as mpl
@@ -17,6 +18,23 @@ from ClimateGraph.plot.plots import Custom, CustomPlotConfig
 from ClimateGraph.utils.control_model import PlotModel  # noqa: F401 (union built)
 
 TIME_INTERVAL = "1/1/2019 - 6/1/2019"
+
+
+def _stub_grid(dataset, name):
+    """A RegularGrid wearing an in-memory dataset, like the conftest fixture."""
+    import cartopy.crs as ccrs
+
+    from ClimateGraph.data import RegularGrid
+
+    instance = RegularGrid(
+        name=name,
+        path=Path(f"memory://{name}"),
+        vars={"Temperatura": {"name": "Temperatura", "unit": "kelvin"}},
+        reader=type("_StubReader", (), {"read": staticmethod(lambda spec: dataset)}),
+        crs=ccrs.PlateCarree(),
+    )
+    instance.obj = dataset
+    return instance
 
 
 def _outputs(out_dir, name):
@@ -45,13 +63,18 @@ class TestCustomConfigVarScope:
         )
         assert cfg.vars is None
 
-    def test_both_scopes_rejected(self):
-        with pytest.raises(ValidationError):
-            CustomPlotConfig(
-                type="custom",
-                vars=["Temperatura"],
-                subplots=[{"type": "series", "dataset": "g", "x": "time", "var": "CO"}],
-            )
+    def test_a_subplot_var_overrides_the_plot_level_vars(self):
+        # Pins one layer while the plot fans out over several variables.
+        cfg = CustomPlotConfig(
+            type="custom",
+            vars=["Temperatura", "Presion"],
+            subplots=[
+                {"type": "series", "dataset": "g", "x": "time", "var": "CO"},
+                {"type": "series", "dataset": "g", "x": "time"},
+            ],
+        )
+        assert cfg.subplots[0].var == "CO"
+        assert cfg.subplots[1].var is None
 
     def test_partial_subplot_vars_rejected(self):
         # Some subplots with var, some without, and no plot-level vars → ambiguous.
@@ -359,6 +382,106 @@ class TestCustomNaming:
             title="{var} on {time}",
         )
         assert captured["title"] == "Temperatura on 01-01-2019"
+
+
+class TestBandRuns:
+    def _run(self, data, out, projection="rectilinear", **subplot):
+        cfg = CustomPlotConfig(
+            type="custom",
+            projection=projection,
+            angular={"cycle": "hour"} if projection == "polar" else None,
+            vars=["Temperatura"],
+            time=TIME_INTERVAL,
+            subplots=[{"type": "band", "dataset": "grid", "x": "time"} | subplot],
+        )
+        Custom(
+            name="band",
+            plot_config=cfg,
+            data_registry={"grid": data},
+            domain_registry={},
+            output_path=out,
+        ).plot()
+        return _outputs(out, "band")
+
+    def test_spread_renders(self, regular_grid_data, tmp_output_dir):
+        assert len(self._run(regular_grid_data, tmp_output_dir, spread="std")) == 1
+
+    def test_minmax_renders(self, regular_grid_data, tmp_output_dir):
+        assert len(self._run(regular_grid_data, tmp_output_dir, spread="minmax")) == 1
+
+    def test_explicit_edges_render(self, regular_grid_data, tmp_output_dir):
+        outputs = self._run(
+            regular_grid_data,
+            tmp_output_dir,
+            lower="Temperatura",
+            upper="Presion",
+        )
+        assert len(outputs) == 1
+
+    def test_edges_from_two_datasets_render(
+        self, regular_grid_data, point_surface_data, tmp_output_dir
+    ):
+        # The case a single `dataset:` cannot express.
+        cfg = CustomPlotConfig(
+            type="custom",
+            time=TIME_INTERVAL,
+            subplots=[
+                {
+                    "type": "band",
+                    "x": "time",
+                    "lower": "pts::Temperatura",
+                    "upper": "grid::Temperatura",
+                }
+            ],
+        )
+        Custom(
+            name="band",
+            plot_config=cfg,
+            data_registry={"grid": regular_grid_data, "pts": point_surface_data},
+            domain_registry={},
+            output_path=tmp_output_dir,
+        ).plot()
+        assert len(_outputs(tmp_output_dir, "band")) == 1
+
+    def test_mismatched_axes_intersect_rather_than_widen(
+        self, make_regular_grid, tmp_output_dir, caplog
+    ):
+        """Building a Dataset would outer-join: the axis widens and the gaps
+        fill with NaN, silently. An inner join covers only where both have
+        data, and says so."""
+        early = _stub_grid(make_regular_grid(n_time=6, start="2019-01-01"), "early")
+        late = _stub_grid(make_regular_grid(n_time=6, start="2019-01-04"), "late")
+        cfg = CustomPlotConfig(
+            type="custom",
+            subplots=[
+                {
+                    "type": "band",
+                    "x": "time",
+                    "lower": "early::Temperatura",
+                    "upper": "late::Temperatura",
+                }
+            ],
+        )
+        plot = Custom(
+            name="band",
+            plot_config=cfg,
+            data_registry={"early": early, "late": late},
+            domain_registry={},
+            output_path=tmp_output_dir,
+        )
+        with caplog.at_level(logging.WARNING, logger="ClimateGraph.plot.plots"):
+            prepared, _ = plot._prepare_subplot_data(cfg.subplots[0], None, None, None)
+        # 6 days each, overlapping on 3.
+        assert prepared.sizes["time"] == 3
+        assert not prepared["lower"].isnull().any()
+        assert not prepared["upper"].isnull().any()
+        assert "lost" in caplog.text
+
+    def test_renders_on_polar_axes(self, regular_grid_data, tmp_output_dir):
+        outputs = self._run(
+            regular_grid_data, tmp_output_dir, projection="polar", spread="std"
+        )
+        assert len(outputs) == 1
 
 
 class TestCustomRuns:

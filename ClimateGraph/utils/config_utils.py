@@ -17,9 +17,37 @@ if TYPE_CHECKING:
 # types, so every reference check sweeps all of them.
 DATASET_REF_FIELDS = ("base", "superposed", "data")
 
+# Qualifies a variable with the dataset it comes from, so one layer can draw
+# from several: ``lower: MODEL::PM25``.
+REF_SEPARATOR = "::"
 
-def subplot_role_vars(subplot) -> set[str]:
-    """Variables a subplot's primitive names by role, if any.
+
+def split_ref(ref: str, default_dataset: str | None = None) -> tuple[str | None, str]:
+    """Resolve a variable reference into its dataset and its variable.
+
+    Shorthand, read at config time, so nothing downstream handles the
+    separator — a layer naming one dataset folds straight into ``dataset:``
+    and ``var:``.
+
+    Parameters
+    ----------
+    ref : str
+        ``"VAR"`` or ``"DATASET::VAR"``.
+    default_dataset : str | None
+        Used when the reference names no dataset — the layer's own.
+
+    Returns
+    -------
+    tuple[str | None, str]
+        Dataset name, None when neither the reference nor the default gives
+        one, and the bare variable name.
+    """
+    dataset, separator, var = ref.partition(REF_SEPARATOR)
+    return (dataset, var) if separator else (default_dataset, ref)
+
+
+def subplot_role_refs(subplot) -> set[tuple[str | None, str]]:
+    """``(dataset, variable)`` pairs a subplot's primitive names by role.
 
     Empty for the single-variable primitives, and for a ``type`` the registry
     does not know — the discriminated union has already rejected that.
@@ -28,7 +56,7 @@ def subplot_role_vars(subplot) -> set[str]:
     if not subplot_type or not Primitive.check_primitive_class(subplot_type):
         return set()
     roles = Primitive.get_primitive_class(subplot_type).required_vars(subplot)
-    return {name for name in roles.values() if name is not None}
+    return {ref for ref in roles.values() if ref[1] is not None}
 
 
 def plot_var_names(vars: str | list[str] | dict[str, str] | None) -> set[str]:

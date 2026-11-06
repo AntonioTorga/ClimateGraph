@@ -28,7 +28,7 @@ from ClimateGraph.utils.config_utils import (
     declared_var_names,
     plot_var_names,
     referenced_datasets,
-    subplot_role_vars,
+    subplot_role_refs,
 )
 from ClimateGraph.utils.general_utils import CRSEnum, manage_path
 
@@ -241,22 +241,23 @@ class ControlFile(BaseModel):
             plot_vars = plot_var_names(getattr(plot_model, "vars", None))
             for subplot in subplots:
                 ds_name = getattr(subplot, "dataset", None)
-                data_model = self.data.get(ds_name) if ds_name else None
-                if data_model is None:
-                    continue
-                declared = declared_var_names(data_model.vars)
-                if declared is None:
-                    continue  # vars omitted — defer to runtime
                 subplot_var = getattr(subplot, "var", None)
-                check_vars = {subplot_var} if subplot_var is not None else plot_vars
-                # Role variables (arrows' u/v) come out of the dataset too, so
-                # a typo in one would surface as a KeyError mid-render.
-                check_vars = check_vars | subplot_role_vars(subplot)
-                missing = sorted(v for v in check_vars if v not in declared)
-                if missing:
-                    raise ValueError(
-                        f"Plot {plot_name!r} subplot references variable(s) "
-                        f"{missing} not declared in dataset {ds_name!r}. "
-                        f"Declared vars: {sorted(declared) or '(none)'}."
-                    )
+                own = {subplot_var} if subplot_var is not None else plot_vars
+                # A role may name its own dataset, so each reference is
+                # checked against the one it actually resolved to.
+                refs = {(ds_name, v) for v in own} | subplot_role_refs(subplot)
+
+                for dataset, var in sorted(refs, key=lambda r: (r[0] or "", r[1])):
+                    data_model = self.data.get(dataset) if dataset else None
+                    if data_model is None:
+                        continue
+                    declared = declared_var_names(data_model.vars)
+                    if declared is None:
+                        continue  # vars omitted — defer to runtime
+                    if var not in declared:
+                        raise ValueError(
+                            f"Plot {plot_name!r} subplot references variable "
+                            f"{var!r} not declared in dataset {dataset!r}. "
+                            f"Declared vars: {sorted(declared) or '(none)'}."
+                        )
         return self

@@ -9,6 +9,8 @@ from ClimateGraph.plot.primitive import Primitive
 from ClimateGraph.plot.primitives import (
     Arrows,
     ArrowsConfig,
+    Band,
+    BandConfig,
     Contour,
     ContourConfig,
     ContourFill,
@@ -141,13 +143,16 @@ class TestArrowsConfig:
         cfg = ArrowsConfig(
             type="arrows", dataset="d", x="lon", y="lat", u="u10", v="v10"
         )
-        assert Arrows.required_vars(cfg) == {"u": "u10", "v": "v10"}
+        assert Arrows.required_vars(cfg) == {"u": ("d", "u10"), "v": ("d", "v10")}
 
     def test_polar_pair_accepted(self):
         cfg = ArrowsConfig(
             type="arrows", dataset="d", x="lon", y="lat", speed="ws", direction="wd"
         )
-        assert Arrows.required_vars(cfg) == {"speed": "ws", "direction": "wd"}
+        assert Arrows.required_vars(cfg) == {
+            "speed": ("d", "ws"),
+            "direction": ("d", "wd"),
+        }
 
     def test_both_spellings_rejected(self):
         with pytest.raises(ValidationError, match="not both"):
@@ -192,15 +197,15 @@ class TestRoseConfig:
     def test_binning_variables_and_the_plot_var_become_roles(self):
         cfg = RoseConfig(type="rose", dataset="d", angle="WD", radius="WS")
         assert Rose.required_vars(cfg, "PM25") == {
-            "angle": "WD",
-            "radius": "WS",
-            "value": "PM25",
+            "angle": ("d", "WD"),
+            "radius": ("d", "WS"),
+            "value": ("d", "PM25"),
         }
 
     def test_colour_role_absent_without_a_variable(self):
         # No variable means the cells are coloured by sample count.
         cfg = RoseConfig(type="rose", dataset="d", angle="WD", radius="WS")
-        assert Rose.required_vars(cfg) == {"angle": "WD", "radius": "WS"}
+        assert Rose.required_vars(cfg) == {"angle": ("d", "WD"), "radius": ("d", "WS")}
 
     def test_needs_no_coordinates(self):
         # Both axes come from variables, so there is nothing to bind x/y to.
@@ -238,3 +243,73 @@ class TestRoseConfig:
         assert Primitive.get_primitive_class("rose") is Rose
         assert Primitive.get_primitive_class("windrose") is Rose
         assert Primitive.get_primitive_class("polar_bin") is Rose
+
+
+class TestBandConfig:
+    def test_explicit_edges(self):
+        cfg = BandConfig(type="band", dataset="d", x="time", lower="lo", upper="hi")
+        assert Band.required_vars(cfg) == {
+            "lower": ("d", "lo"),
+            "upper": ("d", "hi"),
+        }
+
+    def test_edges_may_each_name_their_own_dataset(self):
+        # The case a single `dataset:` cannot express.
+        cfg = BandConfig(type="band", x="time", lower="OBS::PM25", upper="MODEL::PM25")
+        assert Band.required_vars(cfg) == {
+            "lower": ("OBS", "PM25"),
+            "upper": ("MODEL", "PM25"),
+        }
+
+    def test_spread_takes_the_plot_variable(self):
+        cfg = BandConfig(type="band", dataset="d", x="time", spread="std")
+        assert Band.required_vars(cfg, "PM25") == {"value": ("d", "PM25")}
+
+    def test_both_spellings_rejected(self):
+        with pytest.raises(ValidationError, match="not both"):
+            BandConfig(
+                type="band", dataset="d", x="time", lower="lo", upper="hi", spread="std"
+            )
+
+    def test_half_a_pair_rejected(self):
+        with pytest.raises(ValidationError, match="both 'lower' and 'upper'"):
+            BandConfig(type="band", dataset="d", x="time", lower="lo")
+
+    def test_neither_spelling_rejected(self):
+        with pytest.raises(ValidationError, match="or 'spread'"):
+            BandConfig(type="band", dataset="d", x="time")
+
+    def test_defaults(self):
+        cfg = BandConfig(type="band", dataset="d", x="time", spread="minmax")
+        assert (cfg.k, cfg.alpha) == (1.0, 0.3)
+
+    def test_keeps_every_sample(self):
+        # The spread lives in the dims a reduction would have collapsed.
+        assert Band.reduces_to_axes is False
+
+    def test_aliases_registered(self):
+        assert Primitive.get_primitive_class("band") is Band
+        assert Primitive.get_primitive_class("fill_between") is Band
+        assert Primitive.get_primitive_class("envelope") is Band
+
+
+class TestQualifiedVarRefs:
+    def test_a_qualified_var_folds_into_the_two_fields(self):
+        cfg = SeriesConfig(type="series", x="time", var="MODEL::PM25")
+        assert (cfg.dataset, cfg.var) == ("MODEL", "PM25")
+
+    def test_it_overrides_the_subplot_dataset(self):
+        cfg = SeriesConfig(type="series", dataset="OBS", x="time", var="MODEL::PM25")
+        assert (cfg.dataset, cfg.var) == ("MODEL", "PM25")
+
+    def test_a_bare_var_keeps_the_subplot_dataset(self):
+        cfg = SeriesConfig(type="series", dataset="OBS", x="time", var="PM25")
+        assert (cfg.dataset, cfg.var) == ("OBS", "PM25")
+
+    def test_a_layer_naming_no_dataset_at_all_is_rejected(self):
+        with pytest.raises(ValidationError, match="DATASET::VAR"):
+            SeriesConfig(type="series", x="time", var="PM25")
+
+    def test_a_role_naming_no_dataset_is_rejected(self):
+        with pytest.raises(ValidationError, match="name no dataset"):
+            BandConfig(type="band", x="time", lower="lo", upper="MODEL::hi")

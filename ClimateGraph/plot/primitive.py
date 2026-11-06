@@ -97,8 +97,10 @@ class Primitive(RegistryMixin, ABC):
 
         Returns
         -------
-        dict[str, str]
-            Role name to variable name.
+        dict[str, tuple[str | None, str]]
+            Role name to ``(dataset, variable)``. The dataset is resolved
+            here, so a role may name its own and the rest of the pipeline
+            never sees the ``DATASET::VAR`` shorthand.
         """
         return {}
 

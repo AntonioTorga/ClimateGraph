@@ -1,5 +1,6 @@
 """The concrete primitives and their subplot config models."""
 
+from enum import Enum
 from itertools import pairwise
 from typing import ClassVar, Literal
 
@@ -9,6 +10,7 @@ from matplotlib.colors import BoundaryNorm
 from matplotlib.patches import Patch
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from ClimateGraph.utils.config_utils import split_ref
 from ClimateGraph.utils.dataset_utils import axis_arrays, drop_nan_points
 from ClimateGraph.utils.general_utils import ReductionMethodEnum
 from ClimateGraph.utils.geo_utils import step_metres
@@ -58,7 +60,9 @@ class SubplotConfig(BaseModel):
     # The matplotlib projection the primitive draws on, None for any.
     requires_projection: ClassVar[str | None] = None
 
-    dataset: str
+    # Optional because `var: MODEL::PM25` names one, and because a role
+    # primitive may qualify every variable it draws.
+    dataset: str | None = None
     var: str | None = None
     x: str | None = None
     y: str | None = None
@@ -69,6 +73,32 @@ class SubplotConfig(BaseModel):
     reduction_method: ReductionMethodEnum = ReductionMethodEnum.mean
     unit: str | None = None
     label: str | None = None
+
+    @model_validator(mode="after")
+    def _absorb_qualified_var(self):
+        """Fold ``var: DATASET::VAR`` into the two fields it is short for."""
+        if self.var is not None:
+            dataset, var = split_ref(self.var, self.dataset)
+            self.__dict__.update(dataset=dataset, var=var)
+        return self
+
+    @model_validator(mode="after")
+    def _check_dataset_is_resolvable(self):
+        """Every variable this layer draws must come from a named dataset."""
+        roles = Primitive.get_primitive_class(self.type).required_vars(self)
+        unresolved = sorted(role for role, ref in roles.items() if ref[0] is None)
+        if unresolved:
+            raise ValueError(
+                f"{self.type!r} subplot: role(s) {unresolved} name no dataset. "
+                "Set 'dataset:' on the subplot or qualify them as "
+                "'DATASET::VAR'."
+            )
+        if not roles and self.dataset is None:
+            raise ValueError(
+                f"{self.type!r} subplot needs a 'dataset:', or a var written "
+                "as 'DATASET::VAR'."
+            )
+        return self
 
     @model_validator(mode="after")
     def _check_required_coords(self):
@@ -106,6 +136,119 @@ class Series(Primitive):
         )
         (line,) = ax.plot(xvals, data.values, label=label, **self.style)
         return line
+
+
+class SpreadEnum(str, Enum):
+    """How a band's two edges are computed from one variable."""
+
+    std = "std"
+    minmax = "minmax"
+
+
+class BandConfig(SubplotConfig):
+    """The filled area between two edges along one dimension (``x``).
+
+    Two spellings. ``lower``/``upper`` name the edges outright, each free to
+    qualify its own dataset, which is how a band spans two of them.
+    ``spread`` derives the edges from the dims the layer does not plot
+    against — the samples a single line would have averaged away.
+
+    A centre line is a ``series`` layer over the top, not a field here.
+    """
+
+    required_coords: ClassVar[frozenset[str]] = frozenset({"x"})
+    type: Literal["band", "fill_between", "envelope"]
+    lower: str | None = None
+    upper: str | None = None
+    spread: SpreadEnum | None = None
+    # Half-widths of a `std` band. Ignored by `minmax`.
+    k: float = Field(default=1.0, gt=0)
+    # Translucent, since a band is normally drawn under something.
+    alpha: float = Field(default=0.3, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _check_one_spelling(self):
+        """Exactly one of the two spellings, with both halves of the pair."""
+        edges = {"lower": self.lower, "upper": self.upper}
+        has_edges = all(v is not None for v in edges.values())
+        partial = any(v is not None for v in edges.values()) and not has_edges
+
+        if has_edges and self.spread is not None:
+            raise ValueError(
+                f"{self.type!r} subplot: give either 'lower'/'upper' or "
+                "'spread', not both."
+            )
+        if partial:
+            raise ValueError(
+                f"{self.type!r} subplot needs both 'lower' and 'upper'. Got "
+                f"{sorted(k for k, v in edges.items() if v is not None)}."
+            )
+        if not has_edges and self.spread is None:
+            raise ValueError(
+                f"{self.type!r} subplot needs 'lower' and 'upper', or "
+                "'spread' to derive them from one variable."
+            )
+        return self
+
+
+class Band(Primitive):
+    """Primitive: the filled area between two edges along ``x``."""
+
+    config = BandConfig
+    aliases = ["band", "fill_between", "envelope"]
+    required_coords = frozenset({"x"})
+    wants_legend = True
+    # The edges of a `spread` band come from the dims a reduction would have
+    # collapsed, so they have to still be there.
+    reduces_to_axes = False
+
+    @classmethod
+    def required_vars(cls, subplot_config, var=None):
+        """The two edges, or the one variable a spread is taken over."""
+        dataset = subplot_config.dataset
+        if subplot_config.spread is not None:
+            return {"value": split_ref(var, dataset)} if var is not None else {}
+        # An unset edge is left out so _check_one_spelling reports it, rather
+        # than this tripping over a None first.
+        return {
+            role: split_ref(ref, dataset)
+            for role in ("lower", "upper")
+            if (ref := getattr(subplot_config, role)) is not None
+        }
+
+    def render(self, ax, data, *, x, y, label):
+        """Fill between the two edges along one dimension."""
+        cfg = self.subplot_config
+        axis_dims = data[x].dims
+
+        def off_axis(da):
+            """Dims this array has beyond the one being plotted against.
+
+            Per array, because roles from two datasets carry different ones —
+            a station series has ``site`` where a grid has ``(y, x)``.
+            """
+            return [d for d in da.dims if d not in axis_dims]
+
+        if cfg.spread is None:
+            lower, upper = data["lower"], data["upper"]
+            lower, upper = lower.mean(off_axis(lower)), upper.mean(off_axis(upper))
+        else:
+            values = data["value"]
+            collapse = off_axis(values)
+            if cfg.spread is SpreadEnum.minmax:
+                lower, upper = values.min(collapse), values.max(collapse)
+            else:
+                centre, deviation = values.mean(collapse), values.std(collapse)
+                lower, upper = centre - cfg.k * deviation, centre + cfg.k * deviation
+
+        return ax.fill_between(
+            np.asarray(data[x].values),
+            np.asarray(lower.values, dtype=float),
+            np.asarray(upper.values, dtype=float),
+            alpha=cfg.alpha,
+            label=label,
+            **self.style,
+        )
 
 
 class ContourFillConfig(SubplotConfig):
@@ -337,11 +480,13 @@ class Arrows(Primitive):
     @classmethod
     def required_vars(cls, subplot_config, var=None):
         """Whichever of the two spellings the subplot used."""
-        if subplot_config.u is not None:
-            return {"u": subplot_config.u, "v": subplot_config.v}
+        pair = ("u", "v") if subplot_config.u is not None else ("speed", "direction")
+        # An unset half is left out so _check_one_complete_pair reports it,
+        # rather than this tripping over a None first.
         return {
-            "speed": subplot_config.speed,
-            "direction": subplot_config.direction,
+            role: split_ref(ref, subplot_config.dataset)
+            for role in pair
+            if (ref := getattr(subplot_config, role)) is not None
         }
 
     def render(self, ax, data, *, x, y, label):
@@ -412,9 +557,13 @@ class Rose(Primitive):
     @classmethod
     def required_vars(cls, subplot_config, var=None):
         """The two binning variables, plus the plot's as the colour."""
-        roles = {"angle": subplot_config.angle, "radius": subplot_config.radius}
+        dataset = subplot_config.dataset
+        roles = {
+            role: split_ref(getattr(subplot_config, role), dataset)
+            for role in ("angle", "radius")
+        }
         if var is not None:
-            roles["value"] = var
+            roles["value"] = split_ref(var, dataset)
         return roles
 
     def render(self, ax, data, *, x, y, label):
