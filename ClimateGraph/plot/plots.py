@@ -32,11 +32,17 @@ from ClimateGraph.utils.general_utils import (
     TimeUnitEnum,
     angular_ticks,
     expand,
+    interval_stamp,
     manage_time_interval,
     normalize_time,
     to_angular,
 )
 from ClimateGraph.utils.geo_utils import pad_extent
+from ClimateGraph.utils.plot_utils import (
+    AXIS_TOKENS,
+    compose_filename,
+    unknown_tokens,
+)
 
 from . import decorators as _decorators  # noqa: F401  registers decoration configs
 from . import primitives as _primitives  # noqa: F401  registers primitive configs
@@ -930,6 +936,30 @@ class CustomPlotConfig(BasePlotConfig, ExpandableModel):
         return super().expansion_values(field)
 
     @model_validator(mode="after")
+    def check_name_templates(self) -> "CustomPlotConfig":
+        """Reject a filename or title naming a token no figure can supply."""
+        available = sorted(AXIS_TOKENS.values())
+        for field, template in (
+            ("filename", self.filename),
+            ("title", (self.model_extra or {}).get("title")),
+        ):
+            if not isinstance(template, str):
+                continue
+            try:
+                unknown = unknown_tokens(template)
+            except ValueError as err:
+                raise ValueError(
+                    f"custom plot: {field} {template!r} is not a usable "
+                    f"template ({err})."
+                ) from err
+            if unknown:
+                raise ValueError(
+                    f"custom plot: {field} references unknown token(s) "
+                    f"{unknown}. Available: {available}."
+                )
+        return self
+
+    @model_validator(mode="after")
     def check_angular_needs_polar(self) -> "CustomPlotConfig":
         """An angular axis only exists on a polar projection."""
         if self.angular is not None and self.projection is not ProjectionEnum.polar:
@@ -1008,16 +1038,27 @@ class Custom(Plot):
 
     def plot(self):
         """Render one figure per point of the plot's expansion product."""
-        for slots, cfg in expand(self.plot_config):
-            dom_name = slots["domains"]
+        # The expanded copy goes unused: every field the render path reads is
+        # invariant across copies, so only the slots differ figure to figure.
+        for slots, _ in expand(self.plot_config):
             log.info(
                 "Rendering '%s' (%s).",
                 self.name,
                 ", ".join(f"{axis}={value}" for axis, value in slots.items() if value),
             )
-            self._render_composition(
-                cfg.time, dom_name, self.domains.get(dom_name), slots["vars"]
-            )
+            self._render_composition(slots)
+
+    def _active_axes(self) -> list[str]:
+        """Token names of the axes that fan this plot out.
+
+        An axis contributing one value distinguishes nothing, so a plot that
+        renders once is named exactly as it was written.
+        """
+        return [
+            token
+            for field, token in AXIS_TOKENS.items()
+            if len(self.plot_config.expansion_values(field)) > 1
+        ]
 
     @staticmethod
     def _resolve_keep_dims(data, x: str | None, y: str | None) -> set[str]:
@@ -1210,8 +1251,16 @@ class Custom(Plot):
         if spec.rlabel_position is not None:
             ax.set_rlabel_position(spec.rlabel_position)
 
-    def _render_composition(self, time_interval, dom_name, dom, plot_var):
-        """Draw every primitive of the composition onto the shared axes."""
+    def _render_composition(self, slots):
+        """Draw every primitive of the composition onto the shared axes.
+
+        ``slots`` is this figure's point of the plot's expansion product, keyed
+        by the expanding field. A decoration's own slots are a separate dict.
+        """
+        time_interval = slots["time"]
+        dom_name = slots["domains"]
+        plot_var = slots["vars"]
+        dom = self.domains.get(dom_name)
         figure = plt.figure(**self.figure_kwargs())
         ax = figure.add_subplot(1, 1, 1, projection=self.plot_config.projection.mpl)
         self._setup_angular_axis(ax)
@@ -1261,9 +1310,6 @@ class Custom(Plot):
                 ylabel = _unit_label(names, dst_unit)
             ax.set_ylabel(ylabel)
 
-        start, end = manage_time_interval(time_interval)
-        start = "start" if start is None else start.strftime("%d-%m-%Y")
-        end = "end" if end is None else end.strftime("%d-%m-%Y")
         fmt = self.plot_kwargs.get("format", "jpg")
         # var token: the single plot-level var, or the distinct subplot vars
         # (declaration order) joined with "+", e.g. "NO2+CO".
@@ -1272,16 +1318,22 @@ class Custom(Plot):
             if plot_var is not None
             else "+".join(dict.fromkeys(str(v) for v in used_vars))
         )
+        # One vocabulary for both a title and a filename, singular because
+        # each names one figure.
+        tokens = {
+            "time": interval_stamp(time_interval),
+            "domain": dom_name,
+            "var": var_token,
+        }
 
-        # A title may reference the fan-out context it is rendered for, e.g.
-        # "Temperatura en {domain}"
-        title = self.plot_kwargs.get("title", self.name)
-        with contextlib.suppress(KeyError, IndexError, ValueError):
-            title = title.format(domain=dom_name, var=var_token)
-        figure.suptitle(title)
+        # No suppression: check_name_templates already rejected a token this
+        # cannot supply, so a failure here is worth seeing.
+        figure.suptitle(self.plot_kwargs.get("title", self.name).format(**tokens))
+
+        template = self.plot_config.filename
         filename = (
-            f"custom-{dom_name}-{var_token}-{start}_{end}.{fmt}"
-            if self.plot_config.filename is None
-            else self.plot_config.filename
+            f"custom-{dom_name}-{var_token}-{tokens['time']}.{fmt}"
+            if template is None
+            else compose_filename(template, tokens, self._active_axes(), fmt)
         )
         self._finalize(figure, filename)

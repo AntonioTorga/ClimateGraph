@@ -245,6 +245,122 @@ class TestExpectedFigures:
         assert plot.expected_figures() == 1
 
 
+class TestNameTemplateValidation:
+    """A bad template is a config error, not a traceback mid-run."""
+
+    def _cfg(self, **overrides):
+        return CustomPlotConfig(
+            type="custom",
+            vars=["T"],
+            subplots=[{"type": "series", "dataset": "d", "x": "time"}],
+            **overrides,
+        )
+
+    def test_known_tokens_accepted(self):
+        cfg = self._cfg(filename="{var}/{domain}-{time}", title="{var} in {domain}")
+        assert cfg.filename == "{var}/{domain}-{time}"
+
+    def test_a_plain_name_is_not_a_template(self):
+        assert self._cfg(filename="mychart").filename == "mychart"
+
+    @pytest.mark.parametrize("field", ["filename", "title"])
+    def test_an_unknown_token_is_rejected(self, field):
+        with pytest.raises(ValidationError, match="unknown token"):
+            self._cfg(**{field: "{timestep}"})
+
+    def test_the_error_names_the_vocabulary(self):
+        with pytest.raises(ValidationError, match=r"domain.*time.*var"):
+            self._cfg(filename="{nope}")
+
+    def test_a_positional_field_is_rejected(self):
+        # "{0}" parses as a name, and no figure supplies one.
+        with pytest.raises(ValidationError, match="unknown token"):
+            self._cfg(filename="{0}")
+
+    def test_malformed_braces_are_rejected(self):
+        with pytest.raises(ValidationError, match="not a usable template"):
+            self._cfg(filename="{var")
+
+
+class TestCustomNaming:
+    """An explicit ``filename:`` used to write N figures to one path."""
+
+    def _plot(self, data, out, **overrides):
+        # title/format are extras, which the config carries and the plot reads
+        # back through plot_kwargs.
+        cfg = CustomPlotConfig(
+            type="custom",
+            vars=["Temperatura"],
+            subplots=[{"type": "series", "dataset": "grid", "x": "time"}],
+            format="png",
+            **overrides,
+        )
+        Custom(
+            name="named",
+            plot_config=cfg,
+            data_registry={"grid": data},
+            domain_registry={},
+            output_path=out,
+        ).plot()
+        return sorted(p.name for p in _outputs(out, "named"))
+
+    def test_a_fan_out_writes_one_file_per_figure(
+        self, regular_grid_data, tmp_output_dir
+    ):
+        names = self._plot(
+            regular_grid_data,
+            tmp_output_dir,
+            filename="mychart",
+            time=["1/1/2019 - 3/1/2019", "4/1/2019 - 6/1/2019"],
+        )
+        assert len(names) == 2
+        assert names == [
+            "mychart-01-01-2019_03-01-2019.png",
+            "mychart-04-01-2019_06-01-2019.png",
+        ]
+
+    def test_without_a_fan_out_the_name_is_exactly_what_was_written(
+        self, regular_grid_data, tmp_output_dir
+    ):
+        names = self._plot(
+            regular_grid_data, tmp_output_dir, filename="mychart", time="1/1/2019"
+        )
+        assert names == ["mychart.png"]
+
+    def test_a_template_may_name_subdirectories(
+        self, regular_grid_data, tmp_output_dir
+    ):
+        self._plot(
+            regular_grid_data,
+            tmp_output_dir,
+            filename="{var}/{time}",
+            time="1/1/2019",
+        )
+        written = list((tmp_output_dir / "named").rglob("*.png"))
+        assert [
+            p.relative_to(tmp_output_dir / "named").as_posix() for p in written
+        ] == ["Temperatura/01-01-2019.png"]
+
+    def test_the_title_reads_the_same_tokens(
+        self, regular_grid_data, tmp_output_dir, monkeypatch
+    ):
+        captured = {}
+        original = mpl.figure.Figure.suptitle
+
+        def spy(figure, text, *args, **kwargs):
+            captured["title"] = text
+            return original(figure, text, *args, **kwargs)
+
+        monkeypatch.setattr(mpl.figure.Figure, "suptitle", spy)
+        self._plot(
+            regular_grid_data,
+            tmp_output_dir,
+            time="1/1/2019",
+            title="{var} on {time}",
+        )
+        assert captured["title"] == "Temperatura on 01-01-2019"
+
+
 class TestCustomRuns:
     def _make(self, cfg, registry, out):
         return Custom(

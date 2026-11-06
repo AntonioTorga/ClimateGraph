@@ -300,10 +300,10 @@ def _bucket_end(value: pd.Timestamp, resolution: str) -> pd.Timestamp:
     return value + offset - pd.Timedelta(1, "ns")
 
 
-def manage_time_interval(
-    time_interval: str,
-) -> tuple[pd.Timestamp, pd.Timestamp]:
-    """Turn a time-interval string into (start, end).
+def _resolve_interval(
+    time_interval: str | None,
+) -> tuple[pd.Timestamp | None, pd.Timestamp | None, str | None]:
+    """Turn a time-interval string into (start, end, resolution).
 
     Accepts either a single date or a "start - (or to) end" range. Each endpoint is treated
     as an *interval covering its own resolution* when that resolution is coarser
@@ -319,9 +319,11 @@ def manage_time_interval(
 
     Returns
     -------
-    tuple[pd.Timestamp, pd.Timestamp]
-        Start (bucket start of the first endpoint) and end (bucket end of the
-        last endpoint).
+    tuple[pd.Timestamp | None, pd.Timestamp | None, str | None]
+        Start (bucket start of the first endpoint), end (bucket end of the
+        last endpoint), and the resolution the endpoints were written at.
+        A timestamp does not record how precise the string it came from was,
+        so naming code that wants it has to take it from here.
 
     Raises
     ------
@@ -329,7 +331,7 @@ def manage_time_interval(
         If an endpoint isn't a parseable date.
     """
     if time_interval is None:
-        return None, None
+        return None, None, None
     time_interval = time_interval.strip()
 
     # A separator splits a range; otherwise the whole string is a single date
@@ -351,7 +353,68 @@ def manage_time_interval(
             end_res,
         )
 
-    return start_val, _bucket_end(end_val, end_res)
+    return start_val, _bucket_end(end_val, end_res), end_res
+
+
+def manage_time_interval(
+    time_interval: str | None,
+) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
+    """Turn a time-interval string into (start, end).
+
+    Accepts either a single date or a ``"start [-|to] end"`` range. Each
+    endpoint is treated as an *interval covering its own resolution* when that
+    resolution is coarser than hourly.
+
+    Parameters
+    ----------
+    time_interval : str | None
+        A single date or a ``"start [-|to] end"`` range in dayfirst format.
+
+    Returns
+    -------
+    tuple[pd.Timestamp | None, pd.Timestamp | None]
+        Start and end, both None when no interval was given.
+    """
+    start, end, _ = _resolve_interval(time_interval)
+    return start, end
+
+
+# How a stamp is written at each resolution, so two windows a reader can tell
+# apart get filenames they can tell apart.
+_STAMP_FORMATS = {
+    "year": "%Y",
+    "month": "%m-%Y",
+    "day": "%d-%m-%Y",
+    "hour": "%d-%m-%Y_%Hh",
+    "minute": "%d-%m-%Y_%Hh%M",
+    "second": "%d-%m-%Y_%Hh%M%S",
+}
+
+
+def interval_stamp(time_interval: str | None) -> str:
+    """``start_end`` written at the resolution the interval was given in.
+
+    Two hourly windows on one day used to format identically at day
+    resolution, so the second figure overwrote the first.
+
+    Parameters
+    ----------
+    time_interval : str | None
+        A single date or a ``"start [-|to] end"`` range in dayfirst format.
+
+    Returns
+    -------
+    str
+        A filename-safe stamp, ``"start_end"`` when there is no interval.
+    """
+    start, end, resolution = _resolve_interval(time_interval)
+    if start is None or end is None:
+        return "start_end"
+    fmt = _STAMP_FORMATS[resolution]
+    first, last = start.strftime(fmt), end.strftime(fmt)
+    # A single date expands to a bucket whose ends stamp alike; one is enough,
+    # and no other interval stamps the same way.
+    return first if first == last else f"{first}_{last}"
 
 
 def normalize_time(time: str | list[str] | None) -> list[str | None]:

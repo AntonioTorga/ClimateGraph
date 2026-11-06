@@ -1,4 +1,4 @@
-"""Binning geometry and bin-boundary choice for the drawing code."""
+"""Binning geometry, bin-boundary choice and output naming."""
 
 from __future__ import annotations
 
@@ -6,7 +6,11 @@ import numpy as np
 import pytest
 
 from ClimateGraph.utils.general_utils import ReductionMethodEnum
-from ClimateGraph.utils.plot_utils import bin_statistic, nice_edges
+from ClimateGraph.utils.plot_utils import (
+    bin_statistic,
+    compose_filename,
+    nice_edges,
+)
 
 
 class TestNiceEdges:
@@ -86,3 +90,39 @@ class TestBinStatistic:
             1,
         )
         assert grid[0, 0] == 7.0
+
+
+class TestComposeFilename:
+    TOKENS = {"time": "01-06-2021", "domain": "centro", "var": "PM25"}
+
+    def test_a_plain_stem_with_no_fan_out_is_kept_as_written(self):
+        assert compose_filename("mychart", self.TOKENS, [], "png") == "mychart.png"
+
+    def test_a_plain_stem_gains_every_active_axis(self):
+        # Without this, N figures would write one path and only the last
+        # would survive.
+        out = compose_filename("mychart", self.TOKENS, ["time", "var"], "png")
+        assert out == "mychart-01-06-2021-PM25.png"
+
+    def test_a_template_is_formatted(self):
+        out = compose_filename("{var}_{domain}", self.TOKENS, [], "png")
+        assert out == "PM25_centro.png"
+
+    def test_a_template_only_gains_the_axes_it_omits(self):
+        out = compose_filename("{var}", self.TOKENS, ["time", "var"], "png")
+        assert out == "PM25-01-06-2021.png"
+
+    def test_a_template_naming_every_active_axis_gains_nothing(self):
+        out = compose_filename("{var}-{time}", self.TOKENS, ["time", "var"], "png")
+        assert out == "PM25-01-06-2021.png"
+
+    def test_subdirectories_survive(self):
+        out = compose_filename("{var}/{domain}", self.TOKENS, [], "png")
+        assert out == "PM25/centro.png"
+
+    def test_an_extension_is_not_doubled(self):
+        assert compose_filename("named.png", self.TOKENS, [], "png") == "named.png"
+
+    def test_a_different_extension_is_kept_and_the_format_appended(self):
+        # The stem is the user's; only a matching suffix is absorbed.
+        assert compose_filename("v1.2", self.TOKENS, [], "png") == "v1.2.png"

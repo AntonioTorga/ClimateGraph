@@ -137,8 +137,34 @@ Every plot supports these **common** fields (from `BasePlotConfig`):
 | `dim_reduce` | per-dim selection/reduction before the main reduce (see below). |
 | `grid` | axis reference lines — `true` / `12` / `{x: 12, y: ticks, offset: 0.5}`. |
 | `xticks` / `yticks` | named ticks: `{0: "Surface", 5: "850 hPa"}`. |
-| `filename` | override the auto-generated output name. |
+| `filename` | override the auto-generated output name — see **Naming** below. |
 | plus matplotlib passthroughs: `figsize`, `title`, `xlabel`, `ylabel`, `format`, `dpi`, `linewidth`, `color`, … |
+
+#### Naming (`type: custom`)
+
+`filename` and `title` may reference the axes a plot fans out over:
+`{var}`, `{domain}`, `{time}`.
+
+```yaml
+filename: "mychart"           # plain stem
+filename: "{var}/{domain}"    # template — subdirectories are created
+title:    "PM2.5 in {domain}"
+```
+
+A plain stem is kept as written, **plus** any fanning axis it does not already
+name — otherwise two figures would write to one path and only the last would
+survive. With no fan-out you get exactly what you wrote. An axis is only
+appended when it actually varies, and the extension is added for you.
+
+```yaml
+# time fans out into 2, so the stem alone would collide
+filename: "pm25"
+time: ["1/6/2021", "2/6/2021"]
+# -> pm25-01-06-2021.png, pm25-02-06-2021.png
+```
+
+`{time}` is written at the resolution you gave it, so two windows inside one
+day stay distinct (`08-06-2021_00h00_08-06-2021_06h00`).
 
 ### Plot types & their extra fields
 

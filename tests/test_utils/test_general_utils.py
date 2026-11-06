@@ -14,6 +14,7 @@ from ClimateGraph.utils.general_utils import (
     angular_ticks,
     expand,
     groupable,
+    interval_stamp,
     manage_path,
     manage_time_interval,
     normalize_time,
@@ -463,3 +464,29 @@ class TestAngularTicks:
     def test_an_explicit_count_still_wins(self):
         positions, _ = angular_ticks(7, count=4)
         assert len(positions) == 4
+
+
+class TestIntervalStamp:
+    @pytest.mark.parametrize(
+        ("interval", "expected"),
+        [
+            ("1/6/2021", "01-06-2021"),
+            ("1/6/2021 - 14/6/2021", "01-06-2021_14-06-2021"),
+            ("6/2021", "06-2021"),
+            ("2021", "2021"),
+            ("8/6/2021 14:00", "08-06-2021_14h00"),
+            (None, "start_end"),
+        ],
+    )
+    def test_stamps_at_the_resolution_given(self, interval, expected):
+        assert interval_stamp(interval) == expected
+
+    def test_two_windows_on_one_day_do_not_collide(self):
+        # At day resolution both used to render "08-06-2021_08-06-2021", so
+        # the second figure overwrote the first.
+        morning = interval_stamp("8/6/2021 00:00 - 8/6/2021 06:00")
+        evening = interval_stamp("8/6/2021 12:00 - 8/6/2021 18:00")
+        assert morning != evening
+
+    def test_a_single_date_is_not_repeated(self):
+        assert "_" not in interval_stamp("1/6/2021")

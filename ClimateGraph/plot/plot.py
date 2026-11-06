@@ -152,15 +152,12 @@ class Plot(RegistryMixin, ABC):
             _description_
         """
         plot_class = cls.get_plot_class(type)
-        kwargs = plot_config.model_extra if plot_config.model_extra else {}
-
         return plot_class(
             name,
             plot_config=plot_config,
             data_registry=data_registry,
             domain_registry=domain_registry,
             output_path=output_path,
-            **kwargs,
         )
 
     def __init__(
@@ -186,7 +183,10 @@ class Plot(RegistryMixin, ABC):
         self.name = name
         self.data = data_registry
         self.domains = domain_registry
-        self.plot_kwargs = kwargs
+        # The one place the plot config's extras are read; everything
+        # downstream goes through plot_kwargs. Explicit kwargs win, so a
+        # caller can override what the control file declared.
+        self.plot_kwargs = {**(plot_config.model_extra or {}), **kwargs}
 
         self.output_path = Path(output_path / name)
         self.output_path.mkdir(parents=True, exist_ok=True)
@@ -391,6 +391,9 @@ class Plot(RegistryMixin, ABC):
         filename : str
             Filename to be used. Doesn't have to include file format, just name.
         """
-        figure.savefig(self.output_path / filename, **self.savefig_kwargs())
+        target = self.output_path / filename
+        # A filename template may name subdirectories, e.g. "{var}/{domain}".
+        target.parent.mkdir(parents=True, exist_ok=True)
+        figure.savefig(target, **self.savefig_kwargs())
 
         plt.close(fig=figure)
