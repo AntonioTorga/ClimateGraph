@@ -192,6 +192,9 @@ class Plot(RegistryMixin, ABC):
         self.output_path.mkdir(parents=True, exist_ok=True)
 
         self._done = False
+        # Counted here rather than inferred from `expected_figures`, which is a
+        # pre-run estimate: the two differing is itself worth seeing.
+        self.figures_written = 0
 
     @classmethod
     def check_plot_class(cls, type: str) -> bool:
@@ -395,5 +398,7 @@ class Plot(RegistryMixin, ABC):
         # A filename template may name subdirectories, e.g. "{var}/{domain}".
         target.parent.mkdir(parents=True, exist_ok=True)
         figure.savefig(target, **self.savefig_kwargs())
+        self.figures_written += 1
+        log.debug("wrote %s", target)
 
         plt.close(fig=figure)

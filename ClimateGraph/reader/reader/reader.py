@@ -160,7 +160,11 @@ class Reader(ABC):
         the sequence predictable; ``_save`` is queued last so the file on disk
         reflects every adjustment.
         """
-        _record(ds, f"loaded {len(spec.paths)} file(s): {[str(p) for p in spec.paths]}")
+        # Names, and only the ends of the range: the full list of a decadal
+        # read was 31k characters, most of one run's log.
+        names = [path.name for path in spec.paths]
+        span = names[0] if len(names) == 1 else f"{names[0]} .. {names[-1]}"
+        _record(ds, f"loaded {len(names)} file(s): {span}")
         ds = cls._apply_time_offset(ds, spec)
         ds = cls._apply_operations(ds, spec)
         ds = cls._dim_reduce(ds, spec)

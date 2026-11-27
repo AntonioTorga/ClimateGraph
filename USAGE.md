@@ -140,7 +140,7 @@ Every plot supports these **common** fields (from `BasePlotConfig`):
 | `filename` | override the auto-generated output name — see **Naming** below. |
 | plus matplotlib passthroughs: `figsize`, `title`, `xlabel`, `ylabel`, `format`, `dpi`, `linewidth`, `color`, … |
 
-#### Naming (`type: custom`)
+### Naming (`type: custom`)
 
 `filename` and `title` may reference the axes a plot fans out over:
 `{var}`, `{domain}`, `{time}`.

@@ -10,6 +10,7 @@ dispatched today; analysis jobs are the intended next one.
 
 import logging
 import sys
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -22,6 +23,38 @@ log = logging.getLogger(__name__)
 _PLAIN_FORMAT = "%(module)-14s %(message)s"
 # Debug puts every record on one stream, so each needs its full origin.
 _DEBUG_FORMAT = "%(asctime)s %(levelname)-7s %(name)s: %(message)s"
+
+_SGR = {logging.WARNING: "33", logging.ERROR: "31", logging.CRITICAL: "1;31"}
+_BOLD, _RESET = "\033[1m", "\033[0m"
+
+
+def _tty() -> bool:
+    """Whether stdout is a terminal rather than a file or a pipe."""
+    return sys.stdout.isatty()
+
+
+def _bold(text: str) -> str:
+    """Embolden for a terminal, leave untouched for a redirected log."""
+    return f"{_BOLD}{text}{_RESET}" if _tty() else text
+
+
+def _elapsed(seconds: float) -> str:
+    """Render a duration the way a person reads one."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    return f"{int(seconds // 60)}m{int(seconds % 60):02d}s"
+
+
+class _SeverityColour(logging.Formatter):
+    """Tint a record by severity.
+
+    Installed only on a TTY, so a redirected log never receives escape codes.
+    """
+
+    def format(self, record):
+        text = super().format(record)
+        sgr = _SGR.get(record.levelno)
+        return f"\033[{sgr}m{text}{_RESET}" if sgr else text
 
 
 class AppKernel:
@@ -66,10 +99,23 @@ class AppKernel:
             data_obj.load_obj()
 
     def plot(self):
-        """Dispatch one plotting job per registered plot."""
-        for name, plot_obj in self.plots.items():
-            log.info(f"Plotting '{name}'.")
+        """Dispatch one plotting job per registered plot, reporting progress.
+
+        Each job reports what it wrote and how long it took. On a run where
+        reading dominates, the first job carries the whole read and the rest
+        come back in seconds off the resample cache; the timings are what make
+        that visible.
+        """
+        total = len(self.plots)
+        for index, (name, plot_obj) in enumerate(self.plots.items(), start=1):
+            log.info(_bold("[%d/%d] %s"), index, total, name)
+            started = time.perf_counter()
             plot_obj.plot()
+            log.info(
+                "      %d figures in %s",
+                plot_obj.figures_written,
+                _elapsed(time.perf_counter() - started),
+            )
 
     def summary(self):
         """Report the size of the run before any file is opened.
@@ -146,26 +192,36 @@ class AppKernel:
         PIL, …) never spray DEBUG. Only the ``ClimateGraph`` package logger is
         raised; its records still reach the root handler, so our own trace
         shows while the noisy libraries stay quiet.
+
+        ``distributed`` is the exception that needs lowering rather than
+        raising: it logs every nanny and scheduler transition at INFO, which was
+        209 of the 249 lines of a decade-scale run against 12 of our own.
+        WARNING keeps the one thing worth seeing — ``distributed.worker``
+        reporting a task that failed — and drops the rest.
         """
+        formatter = _SeverityColour if _tty() else logging.Formatter
         out = logging.StreamHandler(sys.stdout)
         handlers = [out]
 
         if self.debug:
             out.setLevel(logging.DEBUG)
-            out.setFormatter(logging.Formatter(_DEBUG_FORMAT))
+            out.setFormatter(formatter(_DEBUG_FORMAT))
         else:
             # The split already says what a record is, so routine output needs
             # no prefix and only the stderr side is tagged.
             out.addFilter(lambda record: record.levelno < logging.WARNING)
-            out.setFormatter(logging.Formatter(_PLAIN_FORMAT))
+            out.setFormatter(formatter(_PLAIN_FORMAT))
             err = logging.StreamHandler(sys.stderr)
             err.setLevel(logging.WARNING)
-            err.setFormatter(logging.Formatter(f"%(levelname)s {_PLAIN_FORMAT}"))
+            err.setFormatter(formatter(f"%(levelname)s {_PLAIN_FORMAT}"))
             handlers.append(err)
 
         logging.basicConfig(level=logging.INFO, handlers=handlers, force=True)
         logging.getLogger("ClimateGraph").setLevel(
             logging.DEBUG if (self.debug or self.verbose) else logging.INFO
+        )
+        logging.getLogger("distributed").setLevel(
+            logging.DEBUG if self.debug else logging.WARNING
         )
 
     def run(
@@ -205,10 +261,19 @@ class AppKernel:
         self._configure_logging()
 
         self.summary()
+        started = time.perf_counter()
         # if self.eager : self.load_data()
         with self._dask_client():
             self.plot()
         # self.stats() TODO: add a module for stats
+
+        written = sum(p.figures_written for p in self.plots.values())
+        log.info(
+            _bold("Done: %d figures in %s -> %s"),
+            written,
+            _elapsed(time.perf_counter() - started),
+            self.output_path,
+        )
 
         self.data, self.plots, self.domains = None, None, None
 
@@ -229,11 +294,26 @@ class AppKernel:
             return
         from dask.distributed import Client, LocalCluster
 
+        # Importing distributed runs `initialize_logging`, which sets its own
+        # logger to INFO and undoes `_configure_logging`. Hence here, after the
+        # import, rather than there. `dask.config` is no use: that runs at
+        # import too, so setting it afterwards changes nothing.
+        logging.getLogger("distributed").setLevel(
+            logging.DEBUG if self.debug else logging.WARNING
+        )
         cluster = LocalCluster(n_workers=self.workers, threads_per_worker=1)
         client = Client(cluster)
-        log.info(f"Dask Client started: {self.workers} workers x 1 thread.")
+        log.info("Cluster: %d workers x 1 thread.", self.workers)
         try:
             yield client
         finally:
-            client.close()
-            cluster.close()
+            # Tearing the cluster down raises CommClosedError out of several
+            # loggers at once; the work is already finished, so it is noise.
+            dask_log = logging.getLogger("distributed")
+            level = dask_log.level
+            dask_log.setLevel(logging.CRITICAL)
+            try:
+                client.close()
+                cluster.close()
+            finally:
+                dask_log.setLevel(level)
