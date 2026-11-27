@@ -103,6 +103,63 @@ class TestRawWrfout:
         # The index is usable for label selection, which every plot relies on.
         assert obj.sel(time=slice("2026-07-29", "2026-07-29")).sizes["time"] == 24
 
+    def test_preprocess_reads_no_values(self, tmp_path):
+        """``_preprocess`` must not materialise anything.
+
+        It runs per file while ``open_mfdataset`` is still opening, so building
+        the ``time`` index here would read ``XTIME`` from all 1825 files during
+        the open phase. The index is built once in ``_postprocess`` instead.
+        """
+        path = _raw_wrfout(tmp_path / "a.nc", "2026-07-29")
+        ds = xr.open_dataset(path, chunks=-1)
+        ds = Wrf._preprocess(ds, ReadSpec(paths=[path], vars=VARS))
+
+        assert "time" not in ds.indexes
+        assert ds["time"].chunks is not None
+        assert ds["Temperatura"].chunks is not None
+
+    def test_paths_are_sorted_for_nested_combine(self, tmp_path):
+        """Nested combine concats in path order, so the order must be sorted.
+
+        ``by_coords`` aligned on the time index instead; raw wrfout has none
+        until after the combine, and an unsorted glob would interleave days.
+        """
+        spec = ReadSpec(
+            paths=[tmp_path / "b.nc", tmp_path / "a.nc"],
+            vars=VARS,
+        )
+        _raw_wrfout(tmp_path / "a.nc", "2026-07-29")
+        _raw_wrfout(tmp_path / "b.nc", "2026-07-30")
+
+        assert Wrf.combine_kwargs["combine"] == "nested"
+        assert [p.name for p in Wrf._resolve_paths(spec)] == ["a.nc", "b.nc"]
+
+    @pytest.mark.slow
+    def test_eager_open_under_a_client_matches_the_lazy_path(self, tmp_path):
+        """The worker-per-file path must produce what `open_mfdataset` produces.
+
+        It assembles the Dataset by hand from gathered layouts and futures, so
+        nothing checks the dims, the time order or the lat/lon against the lazy
+        path unless they are compared directly.
+        """
+        pytest.importorskip("distributed")
+        from distributed import Client, LocalCluster
+
+        paths = [
+            _raw_wrfout(tmp_path / "a.nc", "2026-07-29"),
+            _raw_wrfout(tmp_path / "b.nc", "2026-07-30"),
+        ]
+        lazy = Wrf.read(ReadSpec(paths=paths, vars=VARS))
+
+        with LocalCluster(n_workers=2, threads_per_worker=1, processes=True) as cluster:
+            with Client(cluster):
+                eager = Wrf.read(ReadSpec(paths=paths, vars=VARS))
+                xr.testing.assert_allclose(eager.compute(), lazy.compute())
+
+        assert "time" in eager.indexes
+        assert eager.indexes["time"].is_monotonic_increasing
+        assert eager["latitude"].dims == ("y", "x")
+
     def test_latlon_reduced_to_grid(self, tmp_path):
         """3-D lat/lon would produce a SwathDefinition that isn't the grid."""
         obj = Wrf.read(
