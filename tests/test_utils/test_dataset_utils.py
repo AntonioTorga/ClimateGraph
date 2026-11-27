@@ -7,9 +7,13 @@ from ClimateGraph.utils.dataset_utils import (
     apply_operation,
     change_unit,
     dim_reduction,
+    drop_nan_points,
     time_resampling,
 )
-from ClimateGraph.utils.general_utils import ReductionMethodEnum, TimestepEnum
+from ClimateGraph.utils.general_utils import ReductionMethodEnum, TimeUnitEnum
+
+RESAMPLEABLE = [u for u in TimeUnitEnum if u.freq is not None]
+BUCKETS_ONLY = [u for u in TimeUnitEnum if u.freq is None]
 
 
 class TestHistory:
@@ -106,19 +110,21 @@ class TestTimeResampling:
         # What a parsed control file actually supplies. pandas resolves common
         # aliases from a cache that tolerates a str subclass and type-checks
         # strictly otherwise, so passing the member worked only by alias.
-        result = time_resampling(regular_grid_dataset, timestep=TimestepEnum.daily)
+        result = time_resampling(regular_grid_dataset, timestep=TimeUnitEnum.day)
         assert result.sizes["time"] == regular_grid_dataset.sizes["time"]
 
-    @pytest.mark.parametrize("unit", list(TimestepEnum))
-    def test_every_timestep_is_a_valid_pandas_frequency(self, unit):
+    @pytest.mark.parametrize("unit", RESAMPLEABLE)
+    def test_every_resampleable_unit_is_a_valid_pandas_frequency(self, unit):
         # "Q" and "Y" were removed in pandas 3.0 in favour of "QE"/"YE", so a
         # member can be accepted by the config and still fail at resample time.
-        assert to_offset(unit.value) is not None
+        assert to_offset(unit.freq) is not None
+
+    @pytest.mark.parametrize("unit", BUCKETS_ONLY)
+    def test_a_bucket_only_unit_is_not_offered_as_a_frequency(self, unit):
+        assert unit.freq is None
 
     def test_period_start_timestep_labels_bucket_start(self, regular_grid_dataset):
-        result = time_resampling(
-            regular_grid_dataset, timestep=TimestepEnum.monthly_start
-        )
+        result = time_resampling(regular_grid_dataset, timestep=TimeUnitEnum.month)
         first = regular_grid_dataset["time"].values[0]
         assert result["time"].values[0] == first.astype("datetime64[M]")
 
@@ -221,3 +227,28 @@ class TestApplyOperation:
     def test_rejects_non_arithmetic(self, bad):
         with pytest.raises(ValueError):
             apply_operation(bad, self._vars())
+
+
+class TestDropNanPoints:
+    def test_drops_only_nan_valued_entries(self):
+        lons = np.array([1.0, 2.0, 3.0])
+        lats = np.array([10.0, 20.0, 30.0])
+        vals = np.array([5.0, np.nan, 7.0])
+
+        out_lons, out_lats, out_vals = drop_nan_points(lons, lats, vals)
+
+        assert out_lons.tolist() == [1.0, 3.0]
+        assert out_lats.tolist() == [10.0, 30.0]
+        assert out_vals.tolist() == [5.0, 7.0]
+
+    def test_no_nans_returns_everything(self):
+        lons, lats, vals = (np.array([1.0, 2.0]),) * 3
+        out_lons, _, _ = drop_nan_points(lons, lats, vals)
+        assert out_lons.tolist() == [1.0, 2.0]
+
+    def test_all_nan_returns_empty(self):
+        lons = np.array([1.0, 2.0])
+        lats = np.array([3.0, 4.0])
+        vals = np.array([np.nan, np.nan])
+        out_lons, out_lats, out_vals = drop_nan_points(lons, lats, vals)
+        assert out_lons.size == out_lats.size == out_vals.size == 0

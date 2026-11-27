@@ -160,7 +160,11 @@ class Reader(ABC):
         the sequence predictable; ``_save`` is queued last so the file on disk
         reflects every adjustment.
         """
-        _record(ds, f"loaded {len(spec.paths)} file(s): {[str(p) for p in spec.paths]}")
+        # Names, and only the ends of the range: the full list of a decadal
+        # read was 31k characters, most of one run's log.
+        names = [path.name for path in spec.paths]
+        span = names[0] if len(names) == 1 else f"{names[0]} .. {names[-1]}"
+        _record(ds, f"loaded {len(names)} file(s): {span}")
         ds = cls._apply_time_offset(ds, spec)
         ds = cls._apply_operations(ds, spec)
         ds = cls._dim_reduce(ds, spec)
@@ -268,13 +272,13 @@ class Reader(ABC):
         """Turn the user-supplied path spec into a list of local paths.
 
         Default behaviour: glob-expand local paths via ``manage_path``.
-        Sorted lexicographically for the unsafe path (which concats in
-        input order) so an out-of-order glob doesn't silently produce a
-        non-monotonic time axis. Safe path keeps native glob order
-        because ``xr.open_mfdataset``'s ``combine="by_coords"`` aligns
-        on coords anyway.
+        Sorted lexicographically for the unsafe path and for nested combine,
+        both of which concat in input order, so an out-of-order glob doesn't
+        silently produce a non-monotonic time axis. ``combine="by_coords"``
+        keeps native glob order because it aligns on coords anyway.
         """
-        return manage_path(spec.paths, sort=spec.load_mode == "unsafe")
+        nested = cls.combine_kwargs.get("combine") == "nested"
+        return manage_path(spec.paths, sort=spec.load_mode == "unsafe" or nested)
 
     open_engine: str = "netcdf4"
     # One chunk per file, every dim. Chunking runs before `_preprocess`, so dim
@@ -283,6 +287,9 @@ class Reader(ABC):
     # internal layout, is often one timestep per chunk. Override per dataset
     # with `chunks:` in the data block, keyed on the file's own dim names.
     default_chunks: int | dict = -1
+    # Extra `open_mfdataset` arguments. A reader whose files carry no time index
+    # until after the combine sets `combine="nested"` and relies on path order.
+    combine_kwargs: dict = {}
 
     @classmethod
     def _open_many(cls, paths: list[Path], spec: ReadSpec) -> xr.Dataset:
@@ -293,10 +300,10 @@ class Reader(ABC):
         the cross-file combine. Non-NetCDF readers override this entirely.
 
         ``parallel`` is disabled for ``netcdf4`` because libnetcdf is not
-        thread-safe — concurrent opens raise ``NetCDF: HDF error``. Other
-        engines (e.g. ``h5netcdf``) get parallel opens, so a user who
-        opts into a non-default engine via the YAML ``engine:`` knob can
-        try to amortise opens across threads.
+        thread-safe — concurrent opens raise ``NetCDF: HDF error``. Dispatching
+        the opens to worker processes instead fails further in: a lazy handle
+        outlives its task and gets closed unlocked while another thread reads
+        it. ``Wrf._open_many`` reads eagerly per task for that reason.
         """
 
         def per_file(ds: xr.Dataset) -> xr.Dataset:
@@ -311,6 +318,7 @@ class Reader(ABC):
             engine=engine,
             parallel=engine != "netcdf4",
             preprocess=per_file,
+            **cls.combine_kwargs,
         )
 
     @classmethod

@@ -3,13 +3,13 @@ analysis:
   output_path: "./test_data/results/minimal-single/"
 
 data:
-  CHIM:
-    path: "./test_data/data/chim-20*.nc"
-    topology: RegularGrid
-    reader: chimere
+  sinca:
+    path: "./test_data/data/SINCA*.nc"
+    topology: PointSurface
+    reader: sinca
 
 plots:
-  map:
-    type: spatial-map
-    data: CHIM
-    vars: PM25
+  ts:
+    type: timeseries
+    data: sinca
+    vars: PM10_ug|m3

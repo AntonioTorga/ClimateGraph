@@ -1,8 +1,9 @@
 """The concrete plot types and their config models."""
 
 import contextlib
+import logging
 import math
-from typing import Literal
+from typing import ClassVar, Literal
 
 import cartopy.feature as cfeature
 import matplotlib as mpl
@@ -14,49 +15,47 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 mpl.use("Agg")
 
 from ClimateGraph.data import PointSurface, RegularGrid
-from ClimateGraph.utils.dataset_utils import change_unit, dim_reduction, time_resampling
+from ClimateGraph.utils.dataset_utils import (
+    change_unit,
+    dim_reduction,
+    drop_nan_points,
+    time_resampling,
+)
 from ClimateGraph.utils.general_utils import (
+    THETA_POSITIONS,
     CRSEnum,
+    ExpandableModel,
+    ProjectionEnum,
     ReductionMethodEnum,
-    TimeBucketEnum,
-    TimestepEnum,
+    TimeBucket,
+    Timestep,
+    TimeUnitEnum,
+    angular_ticks,
+    expand,
+    interval_stamp,
     manage_time_interval,
     normalize_time,
+    to_angular,
+)
+from ClimateGraph.utils.geo_utils import pad_extent
+from ClimateGraph.utils.plot_utils import (
+    AXIS_TOKENS,
+    compose_filename,
+    unknown_tokens,
 )
 
+from . import decorators as _decorators  # noqa: F401  registers decoration configs
 from . import primitives as _primitives  # noqa: F401  registers primitive configs
+from .decorator import Decorator
 from .plot import Plot
 from .primitive import Primitive
-from .primitives import _drop_nan_points
 
-# Discriminated union over the registered primitive configs (Series/ContourFill/
-# Points). Built here — after importing `primitives` — so every primitive config
-# is registered before CustomPlotConfig references it.
+log = logging.getLogger(__name__)
+
+# Built after the two imports above: every config must be registered before
+# CustomPlotConfig references it, and __init__'s pkgutil loop has no ordering.
 PrimitiveModel = Primitive.build_config_union()
-
-
-def _pad_extent(
-    lon_min: float,
-    lon_max: float,
-    lat_min: float,
-    lat_max: float,
-    padding: float,
-) -> tuple[float, float, float, float]:
-    """Grow a (lon_min, lon_max, lat_min, lat_max) extent outward by
-    ``padding`` (a fraction of each axis span) so auto-computed map bounds don't
-    clip markers sitting on the edge. A zero-width span (e.g. a single point)
-    falls back to a fixed 0.5-degree pad so ``set_extent`` stays valid.
-    """
-    lon_span = lon_max - lon_min
-    lat_span = lat_max - lat_min
-    lon_pad = lon_span * padding if lon_span else 0.5
-    lat_pad = lat_span * padding if lat_span else 0.5
-    return (
-        lon_min - lon_pad,
-        lon_max + lon_pad,
-        lat_min - lat_pad,
-        lat_max + lat_pad,
-    )
+DecorationModel = Decorator.build_config_union()
 
 
 def _unit_label(name: str, unit: str | None) -> str:
@@ -133,7 +132,7 @@ class TimeSeriesConfig(BasePlotConfig):
     type: Literal["timeseries", "ts", "time-series"]
     data: str | list[str]
     time: str | list[str] | None = Field(default=None)
-    timestep: TimestepEnum | None = Field(default=None)
+    timestep: Timestep | None = Field(default=None)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
 
     @field_validator("data", mode="before")
@@ -248,7 +247,7 @@ class ScatterConfig(BasePlotConfig):
     data: list[str]
     time: str | list[str] | None = Field(default=None)
     dimension: str = Field(default="time")
-    timestep: TimestepEnum | None = Field(default=None)
+    timestep: Timestep | None = Field(default=None)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
 
     @field_validator("data")
@@ -485,7 +484,7 @@ class SpatialOverlay(Plot):
                 sup_lats = superposed_var["latitude"].values
                 sup_vals = superposed_var.values
                 if self.plot_config.drop_nans:
-                    sup_lons, sup_lats, sup_vals = _drop_nan_points(
+                    sup_lons, sup_lats, sup_vals = drop_nan_points(
                         sup_lons, sup_lats, sup_vals
                     )
 
@@ -504,7 +503,7 @@ class SpatialOverlay(Plot):
                     lat_max = np.nanmin(
                         [np.nanmax(base_var["latitude"]), np.nanmax(sup_lats)]
                     )
-                    lon_min, lon_max, lat_min, lat_max = _pad_extent(
+                    lon_min, lon_max, lat_min, lat_max = pad_extent(
                         lon_min, lon_max, lat_min, lat_max, self.plot_config.padding
                     )
 
@@ -672,7 +671,7 @@ class SpatialMap(Plot):
                     # Drop stations whose reduced observation is NaN so empty
                     # sites neither draw nor stretch the auto extent.
                     if self.plot_config.drop_nans:
-                        lons, lats, vals = _drop_nan_points(lons, lats, vals)
+                        lons, lats, vals = drop_nan_points(lons, lats, vals)
                     ax.scatter(
                         lons,
                         lats,
@@ -689,7 +688,7 @@ class SpatialMap(Plot):
                 else:
                     lon_min, lon_max = np.nanmin(lons), np.nanmax(lons)
                     lat_min, lat_max = np.nanmin(lats), np.nanmax(lats)
-                    lon_min, lon_max, lat_min, lat_max = _pad_extent(
+                    lon_min, lon_max, lat_min, lat_max = pad_extent(
                         lon_min, lon_max, lat_min, lat_max, self.plot_config.padding
                     )
 
@@ -720,8 +719,8 @@ class TimeCycleConfig(BasePlotConfig):
     # One or more datasets; the first is the reference and gets the ± std band.
     data: str | list[str]
     time: str | list[str] | None = Field(default=None)
-    timestep: TimestepEnum | None = Field(default=None)
-    time_buckets: TimeBucketEnum = Field(default=TimeBucketEnum.day)
+    timestep: Timestep | None = Field(default=None)
+    time_buckets: TimeBucket = Field(default=TimeUnitEnum.day)
     reduction_method: ReductionMethodEnum = Field(default=ReductionMethodEnum.mean)
 
     @field_validator("data", mode="before")
@@ -735,38 +734,11 @@ class TimeCycleConfig(BasePlotConfig):
         """Reject a timestep coarser than the bucket it is grouped into."""
         if self.timestep is None:
             return self
-        # map both to hours for comparison
-        bucket_hours = {
-            "minute": 1 / 60,
-            "hour": 1,
-            "day": 24,
-            "week": 168,
-            "month": 720,
-            "dayofyear": 24,
-            "season": 2160,
-            "quarter": 2160,
-        }
-        timestep_hours = {
-            TimestepEnum.nanoseconds: 1 / 3.6e12,
-            TimestepEnum.microseconds: 1 / 3.6e9,
-            TimestepEnum.milliseconds: 1 / 3.6e6,
-            TimestepEnum.secondly: 1 / 3600,
-            TimestepEnum.minutely: 1 / 60,
-            TimestepEnum.hourly: 1,
-            TimestepEnum.daily: 24,
-            TimestepEnum.business_day: 24,
-            TimestepEnum.weekly: 168,
-            TimestepEnum.monthly: 720,
-            TimestepEnum.monthly_start: 720,
-            TimestepEnum.quarterly: 2160,
-            TimestepEnum.quarterly_start: 2160,
-            TimestepEnum.yearly: 8760,
-            TimestepEnum.yearly_start: 8760,
-        }
-        if timestep_hours[self.timestep] > bucket_hours[self.time_buckets.value]:
+        if self.timestep.hours > self.time_buckets.hours:
             raise ValueError(
-                f"timestep '{self.timestep}' is coarser than "
-                f"time_bucket '{self.time_buckets.value}' — std bands will be meaningless"
+                f"timestep '{self.timestep.value}' is coarser than "
+                f"time_bucket '{self.time_buckets.value}' — std bands will be "
+                "meaningless"
             )
         return self
 
@@ -792,9 +764,9 @@ class TimeCycle(Plot):
         vars = self.plot_config.vars
         domains = self.resolve_domains()
         timestep = self.plot_config.timestep
-        time_bucket = (
-            self.plot_config.time_buckets.value
-        )  # e.g. "hour", "month", "dayofyear"
+        # The xarray .dt name, which a period-start unit spells differently
+        # from its own value.
+        time_bucket = self.plot_config.time_buckets.accessor
         data_names = self.plot_config.data
         first = self.data[data_names[0]]
         reference = data_names[0]  # gets the ± std band
@@ -882,40 +854,165 @@ class TimeCycle(Plot):
                 self._finalize(figure, filename)
 
 
-class CustomPlotConfig(BasePlotConfig):
-    """Free-form composition of primitives on shared axes.
+class AngularSpec(BaseModel):
+    """How a coordinate maps onto a polar plot's angular axis.
 
-    Var-scope is mutually exclusive: EITHER ``vars`` is set at the plot level
-    (the whole composition re-renders once per var, every subplot sees that
-    var) OR each subplot declares its own ``var`` (a fixed composition — e.g. a
-    NO2 contour overlaid with a CO line). Never both.
+    Either ``cycle`` or ``period``. ``cycle`` names a calendar bucket and
+    supplies both the transform and the turn, so a datetime coordinate becomes
+    its day-of-year or hour; ``period`` covers everything else — a wind
+    direction turns at 360, an azimuth at 2pi.
     """
 
+    cycle: TimeBucket | None = Field(default=None)
+    period: float | None = Field(default=None, gt=0)
+
+    zero: Literal[
+        "top",
+        "right",
+        "bottom",
+        "left",
+        "N",
+        "NE",
+        "E",
+        "SE",
+        "S",
+        "SW",
+        "W",
+        "NW",
+    ] = Field(default="top")
+    direction: Literal["clockwise", "counterclockwise"] = Field(default="clockwise")
+    rlabel_position: float | None = Field(default=None)
+
+    @property
+    def theta_zero(self) -> str:
+        """Where theta zero sits, in matplotlib's compass vocabulary."""
+        return THETA_POSITIONS.get(self.zero, self.zero)
+
+    @model_validator(mode="after")
+    def _check_one_turn_source(self) -> "AngularSpec":
+        """A turn comes from a cycle or a period, never both or neither."""
+        if (self.cycle is None) == (self.period is None):
+            raise ValueError(
+                "angular: give either 'cycle' (a calendar bucket) or 'period' "
+                "(units per turn), not both and not neither."
+            )
+        return self
+
+    @property
+    def turn(self) -> float:
+        """Units completing one full turn."""
+        return self.cycle.period if self.cycle is not None else self.period
+
+
+class CustomPlotConfig(BasePlotConfig, ExpandableModel):
+    """Free-form composition of primitives on shared axes."""
+
+    # One figure per point of time x domains x vars.
+    expands: ClassVar[tuple[str, ...]] = ("time", "domains", "vars")
+
     type: Literal["custom"]
-    # Optional here (unlike BasePlotConfig where vars is required): omitted means
-    # every subplot supplies its own var.
+    projection: ProjectionEnum = Field(default=ProjectionEnum.rectilinear)
+    angular: AngularSpec | None = Field(default=None)
+    # vars are opt here because they might be provided by every subplot. Not being provided at the leaf nor here errors out
     vars: list[str] | dict[str, str] | None = Field(default=None)
     time: str | list[str] | None = Field(default=None)
-    timestep: TimestepEnum | None = Field(default=None)
+
+    domains: str | list[str] = Field(default_factory=list)
+    timestep: Timestep | None = Field(default=None)
     subplots: list[PrimitiveModel] = Field(min_length=1)
+    # Annotations drawn over the composition once every primitive is down.
+    decorations: list[DecorationModel] = Field(default_factory=list)
+
+    @field_validator("domains", mode="before")
+    @classmethod
+    def _wrap_single_domain(cls, v):
+        """Coerce ``domains: centro`` into ``["centro"]``."""
+        return [v] if isinstance(v, str) else v
+
+    def expansion_values(self, field: str) -> list:
+        """One unnamed slot for an empty ``domains``, not a slot named ``[]``."""
+        if field == "domains" and not self.domains:
+            return [""]
+        return super().expansion_values(field)
+
+    @model_validator(mode="after")
+    def check_name_templates(self) -> "CustomPlotConfig":
+        """Reject a filename or title naming a token no figure can supply."""
+        available = sorted(AXIS_TOKENS.values())
+        for field, template in (
+            ("filename", self.filename),
+            ("title", (self.model_extra or {}).get("title")),
+        ):
+            if not isinstance(template, str):
+                continue
+            try:
+                unknown = unknown_tokens(template)
+            except ValueError as err:
+                raise ValueError(
+                    f"custom plot: {field} {template!r} is not a usable "
+                    f"template ({err})."
+                ) from err
+            if unknown:
+                raise ValueError(
+                    f"custom plot: {field} references unknown token(s) "
+                    f"{unknown}. Available: {available}."
+                )
+        return self
+
+    @model_validator(mode="after")
+    def check_angular_needs_polar(self) -> "CustomPlotConfig":
+        """An angular axis only exists on a polar projection."""
+        if self.angular is not None and self.projection is not ProjectionEnum.polar:
+            raise ValueError(
+                "custom plot: 'angular' describes a polar plot's angle, so it "
+                f"needs 'projection: polar' (got {self.projection.value!r})."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def check_subplot_projections(self) -> "CustomPlotConfig":
+        """A primitive drawing on special axes needs the matching projection."""
+        for subplot in self.subplots:
+            needs = subplot.requires_projection
+            if needs is not None and self.projection.value != needs:
+                raise ValueError(
+                    f"{subplot.type!r} subplot draws on {needs} axes, so the "
+                    f"plot needs 'projection: {needs}' (got "
+                    f"{self.projection.value!r})."
+                )
+        return self
 
     @model_validator(mode="after")
     def check_var_scope(self) -> "CustomPlotConfig":
-        """Require plot-level ``vars`` or per-subplot ``var``, never both."""
+        """Every subplot must resolve a variable, from itself or the plot.
+
+        A subplot's own ``var`` wins over the plot's ``vars``, so a layer can
+        be pinned to one variable inside a plot that fans out over several.
+        """
         plot_vars_set = self.vars is not None
         subplot_vars = [getattr(sp, "var", None) for sp in self.subplots]
-        any_subplot_var = any(v is not None for v in subplot_vars)
-        all_subplot_vars = all(v is not None for v in subplot_vars)
-        if plot_vars_set and any_subplot_var:
-            raise ValueError(
-                "custom plot: set 'vars' at the plot level OR a 'var' on every "
-                "subplot, not both."
-            )
+        # A subplot whose primitive names its variables by role — arrows' u/v,
+        # a band's two edges — is already scoped and has no use for a `var`.
+        all_subplot_vars = all(
+            v is not None or Primitive.get_primitive_class(sp.type).required_vars(sp)
+            for sp, v in zip(self.subplots, subplot_vars, strict=True)
+        )
         if not plot_vars_set and not all_subplot_vars:
             raise ValueError(
                 "custom plot: when plot-level 'vars' is omitted, every subplot "
                 "must declare its own 'var'."
             )
+        if not plot_vars_set:
+            unscoped = [
+                d.type
+                for d in self.decorations
+                if d.dataset is not None and d.var is None
+            ]
+            if unscoped:
+                raise ValueError(
+                    f"custom plot: decoration(s) {unscoped} name a 'dataset' but no "
+                    "'var', and the plot sets no 'vars' to fall back on."
+                )
         return self
 
 
@@ -933,16 +1030,33 @@ class Custom(Plot):
     config = CustomPlotConfig
     aliases = ["custom"]
 
+    def expected_figures(self) -> int:
+        """One figure per point of the expansion product."""
+        return len(expand(self.plot_config))
+
     def plot(self):
-        """Render one figure per (time, domain, var) context."""
-        domains = self.resolve_domains()
-        plot_vars = self.plot_config.vars
-        # dict form ({var: unit}) fans out over its keys; None → single None slot.
-        var_list = list(plot_vars) if plot_vars is not None else None
-        for time_interval, dom_name, dom, var in self.iterate_contexts(
-            self.plot_config.time, domains, var_list
-        ):
-            self._render_composition(time_interval, dom_name, dom, var)
+        """Render one figure per point of the plot's expansion product."""
+        # The expanded copy goes unused: every field the render path reads is
+        # invariant across copies, so only the slots differ figure to figure.
+        for slots, _ in expand(self.plot_config):
+            log.info(
+                "Rendering '%s' (%s).",
+                self.name,
+                ", ".join(f"{axis}={value}" for axis, value in slots.items() if value),
+            )
+            self._render_composition(slots)
+
+    def _active_axes(self) -> list[str]:
+        """Token names of the axes that fan this plot out.
+
+        An axis contributing one value distinguishes nothing, so a plot that
+        renders once is named exactly as it was written.
+        """
+        return [
+            token
+            for field, token in AXIS_TOKENS.items()
+            if len(self.plot_config.expansion_values(field)) > 1
+        ]
 
     @staticmethod
     def _resolve_keep_dims(data, x: str | None, y: str | None) -> set[str]:
@@ -962,57 +1076,263 @@ class Custom(Plot):
                 keep.add(coord)
         return keep
 
-    def _prepare_subplot_data(self, subplot, dom, var, time_interval):
-        """Full data-prep pipeline for one subplot; returns the drawable DataArray."""
-        data = self.data[subplot.dataset]
+    @staticmethod
+    def _prep_key(cfg, var, dataset):
+        """What distinguishes two prepared variables within one figure.
+
+        Domain, timestep and the plot-level ``dim_reduce`` are fixed for the
+        figure, so they stay out of the key. ``dim_reduce`` values may
+        themselves be dicts, hence the repr; keys are unique strings, so the
+        sort never has to compare two values.
+        """
+        return (
+            dataset,
+            var,
+            cfg.time,
+            cfg.unit,
+            cfg.x,
+            repr(sorted((cfg.dim_reduce or {}).items())),
+        )
+
+    def _prepare_variable(self, cfg, dom, var, time_interval, cache=None, dataset=None):
+        """Domain, time and per-dim reduction for one variable.
+
+        The part of the pipeline both families Subplots and Decorators share, then subp
+        resolves their axis dims and blanket-reduce what is left; decorations do not.
+
+        Memoized for the figure: several subplots and decorations commonly want
+        the same dataset and variable, and without this each one computes an identical set of ops.
+        Sharing the array is safe because every xarray operation downstream returns a new object.
+
+        Returns
+        -------
+        tuple[xr.DataArray, str | None, str | None]
+            The array, its source unit, and the unit it should be shown in.
+        """
+        cache = {} if cache is None else cache
+        dataset = dataset if dataset is not None else cfg.dataset
+        key = self._prep_key(cfg, var, dataset)
+        if key in cache:
+            return cache[key]
+
+        data = self.data[dataset]
         data = dom.apply(data) if dom is not None else data
         da = data.obj[var]
 
-        # Per-subplot time wins over the plot-level iteration time (lets different
+        # A per-entry time wins over the plot-level iteration time (lets different
         # windows overlay on one figure); falls back to the iteration otherwise.
-        effective_time = subplot.time if subplot.time is not None else time_interval
+        effective_time = cfg.time if cfg.time is not None else time_interval
         da = time_resampling(
             da, timestep=self.plot_config.timestep, time_interval=effective_time
         )
 
-        # Per-dim reductions: plot-level defaults merged with subplot overrides.
+        # Per-dim reductions: plot-level defaults merged with per-entry overrides.
         merged_dim_reduce = {}
         if self.plot_config.dim_reduce:
             merged_dim_reduce.update(self.plot_config.dim_reduce)
-        if subplot.dim_reduce:
-            merged_dim_reduce.update(subplot.dim_reduce)
+        if cfg.dim_reduce:
+            merged_dim_reduce.update(cfg.dim_reduce)
         if merged_dim_reduce:
             da = dim_reduction(da, merged_dim_reduce, name=var)
 
-        # Keep the axis dims (resolved after dim_reduce so dim-dropping selections
-        # are reflected); blanket-reduce whatever is left.
+        plot_vars = self.plot_config.vars
+        dst_unit = cfg.unit
+        if dst_unit is None and isinstance(plot_vars, dict):
+            dst_unit = plot_vars.get(var)
+
+        # Applied here rather than per-subplot so decorations inherit it: on
+        # polar axes an hline is a circle at a radius, a vline a radial spoke.
+        angular = self.plot_config.angular
+        if angular is not None:
+            da = to_angular(da, cfg.x, angular.turn, cycle=angular.cycle)
+
+        cache[key] = (da, data.var_unit(var), dst_unit)
+        return cache[key]
+
+    def _reduce_to_axes(self, subplot, da, src_unit, dst_unit):
+        """Collapse everything the subplot does not plot against, then convert.
+
+        Axis dims are resolved after ``dim_reduce`` so a dim-dropping selection
+        is reflected; whatever remains is reduced away.
+        """
         keep = self._resolve_keep_dims(da, subplot.x, subplot.y)
         reduction_dims = [d for d in da.dims if d not in keep]
         if reduction_dims:
             da = da.reduce(subplot.reduction_method.func, reduction_dims)
+        return change_unit(da, src_unit, dst_unit)
 
-        # Unit precedence: subplot.unit wins over a plot-level vars-dict unit.
-        plot_vars = self.plot_config.vars
-        dst_unit = subplot.unit
-        if dst_unit is None and isinstance(plot_vars, dict):
-            dst_unit = plot_vars.get(var)
-        da = change_unit(da, data.var_unit(var), dst_unit)
-        return da, dst_unit
+    def _align_roles(self, fields, subplot):
+        """Put roles drawn from different datasets on one axis.
 
-    def _render_composition(self, time_interval, dom_name, dom, plot_var):
-        """Draw every primitive of the composition onto the shared axes."""
+        Building a Dataset would reconcile them too, but with an *outer* join:
+        the axis silently widens to the union and the gaps fill with NaN. An
+        inner join says the honest thing instead — the figure covers where
+        every role has data — and a dropped point is reported rather than
+        quietly drawn as a hole.
+
+        Auxiliary coords are dropped because they cannot be reconciled at all:
+        ``latitude`` over ``site`` and ``latitude`` over ``(y, x)`` are
+        different quantities under one name. Index coords, which define the
+        axis, survive.
+
+        Parameters
+        ----------
+        fields : dict
+            Role name to prepared ``xr.DataArray``.
+        subplot : BaseModel
+            The subplot config, for the log message.
+
+        Returns
+        -------
+        dict
+            The same roles, aligned and stripped of auxiliary coords.
+        """
+        bare = {role: da.reset_coords(drop=True) for role, da in fields.items()}
+        before = {role: da.sizes for role, da in bare.items()}
+        aligned = dict(zip(bare, xr.align(*bare.values(), join="inner"), strict=True))
+        for role, da in aligned.items():
+            dropped = {
+                dim: size - da.sizes[dim]
+                for dim, size in before[role].items()
+                if size != da.sizes[dim]
+            }
+            if dropped:
+                log.warning(
+                    "%r subplot: role %r lost %s to the overlap between "
+                    "datasets; the figure covers where every role has data.",
+                    subplot.type,
+                    role,
+                    ", ".join(f"{n} of {dim}" for dim, n in dropped.items()),
+                )
+        return aligned
+
+    def _prepare_subplot_data(self, subplot, dom, var, time_interval, cache=None):
+        """Full data-prep pipeline for one subplot; returns the drawable data.
+        A primitive declaring ``required_vars`` gets a Dataset keyed by those
+        roles, every other primitive gets the plot's variable as a darray
+        """
+        primitive = Primitive.get_primitive_class(subplot.type)
+        roles = primitive.required_vars(subplot, var)
+        if roles:
+            # Roles from one dataset already share an axis and keep every
+            # coord, since a role may be bound to a 2-D one.
+            across_datasets = len({ds for ds, _ in roles.values()}) > 1
+            fields, units = {}, {}
+            for role, (role_dataset, role_var) in roles.items():
+                da, src_unit, dst_unit = self._prepare_variable(
+                    subplot, dom, role_var, time_interval, cache, role_dataset
+                )
+                fields[role] = (
+                    self._reduce_to_axes(subplot, da, src_unit, dst_unit)
+                    if primitive.reduces_to_axes
+                    else change_unit(da, src_unit, dst_unit)
+                )
+                units[role] = dst_unit
+
+            if across_datasets:
+                fields = self._align_roles(fields, subplot)
+            # The roles are different quantities, so only the colour role
+            # names a unit, carried along for a primitive that labels it
+            # itself rather than through the figure's colorbar.
+            attrs = (
+                {"value_label": _unit_label(var, units["value"])}
+                if "value" in units
+                else {}
+            )
+            return xr.Dataset(fields, attrs=attrs), units.get("value")
+
+        da, src_unit, dst_unit = self._prepare_variable(
+            subplot, dom, var, time_interval, cache
+        )
+        return self._reduce_to_axes(subplot, da, src_unit, dst_unit), dst_unit
+
+    def _prepare_decoration_data(self, decoration, dom, var, time_interval, cache=None):
+        """Data for one decoration — unreduced, since it reduces itself."""
+        da, src_unit, dst_unit = self._prepare_variable(
+            decoration, dom, var, time_interval, cache
+        )
+        return change_unit(da, src_unit, dst_unit)
+
+    def _decorate(self, ax, dom, plot_var, time_interval, cache) -> bool:
+        """Draw the decorations over the finished composition.
+
+        A second pass, so an annotation always lands on top of the primitives
+        and over axes whose limits are already settled. Each block expands
+        first — ``at: [50, p95]`` is two lines — and a label may name the
+        position it was expanded to, as ``label: "Norma {at}"``.
+
+        Returns
+        -------
+        bool
+            Whether anything drawn here wants a legend entry.
+        """
+        wants_legend = False
+        for decoration in self.plot_config.decorations:
+            for slots, one in expand(decoration):
+                da = None
+                if one.dataset is not None:
+                    var = one.var if one.var is not None else plot_var
+                    da = self._prepare_decoration_data(
+                        one, dom, var, time_interval, cache
+                    )
+                if one.label is not None:
+                    with contextlib.suppress(KeyError, IndexError, ValueError):
+                        one = one.model_copy(
+                            update={"label": one.label.format(**slots)}
+                        )
+
+                decorator = Decorator.get_decorator_class(one.type)(self.name, one)
+                decorator.draw(ax, da)
+                wants_legend = wants_legend or decorator.wants_legend
+        return wants_legend
+
+    def _setup_angular_axis(self, ax):
+        """Orient a polar axes and label its angle in the source units."""
+        spec = self.plot_config.angular
+        if spec is None:
+            return
+        ax.set_theta_zero_location(spec.theta_zero)
+        ax.set_theta_direction(-1 if spec.direction == "clockwise" else 1)
+        positions, labels = angular_ticks(
+            spec.turn, zero=spec.theta_zero, direction=spec.direction
+        )
+        ax.set_xticks(positions)
+        ax.set_xticklabels(labels)
+        if spec.rlabel_position is not None:
+            ax.set_rlabel_position(spec.rlabel_position)
+
+    def _render_composition(self, slots):
+        """Draw every primitive of the composition onto the shared axes.
+
+        ``slots`` is this figure's point of the plot's expansion product, keyed
+        by the expanding field. A decoration's own slots are a separate dict.
+        """
+        time_interval = slots["time"]
+        dom_name = slots["domains"]
+        plot_var = slots["vars"]
+        dom = self.domains.get(dom_name)
         figure = plt.figure(**self.figure_kwargs())
-        ax = figure.add_subplot(1, 1, 1)
+        ax = figure.add_subplot(1, 1, 1, projection=self.plot_config.projection.mpl)
+        self._setup_angular_axis(ax)
 
         colorbar = None  # (mappable, label) for the first colour primitive
         has_legend = False
         used_vars = []
+        # cache
+        prepared: dict = {}
 
         for subplot in self.plot_config.subplots:
-            var = plot_var if plot_var is not None else subplot.var
-            used_vars.append(var)
+            # The subplot's own var wins: it pins one layer inside a plot that
+            # fans out over several.
+            var = subplot.var if subplot.var is not None else plot_var
+            # A role primitive names its own variables and may carry no `var`;
+            # it contributes nothing to the figure's variable token.
+            if var is not None:
+                used_vars.append(var)
 
-            da, dst_unit = self._prepare_subplot_data(subplot, dom, var, time_interval)
+            da, dst_unit = self._prepare_subplot_data(
+                subplot, dom, var, time_interval, prepared
+            )
 
             primitive = Primitive.get_primitive_class(subplot.type)(self.name, subplot)
             label = subplot.label if subplot.label is not None else var
@@ -1023,6 +1343,9 @@ class Custom(Plot):
             if primitive.wants_legend:
                 has_legend = True
 
+        if self._decorate(ax, dom, plot_var, time_interval, prepared):
+            has_legend = True
+
         if colorbar is not None:
             mappable, clabel = colorbar
             figure.colorbar(mappable, ax=ax, orientation="vertical", label=clabel)
@@ -1030,19 +1353,15 @@ class Custom(Plot):
             ax.legend()
 
         # Label the y axis with the variable, as every other plot type does.
-        # Only when nothing drew a colorbar: for contourf/points the unit lives
-        # on the colorbar and y is a real coordinate (z, latitude, ...), so
-        # naming it after the variable would be wrong.
-        if colorbar is None:
+        # Only when nothing drew a colorbar, and not over a primitive that
+        # labelled the axis with a quantity of its own.
+        if colorbar is None and not ax.get_ylabel():
             ylabel = self.plot_kwargs.get("ylabel")
             if ylabel is None:
                 names = "+".join(dict.fromkeys(str(v) for v in used_vars))
                 ylabel = _unit_label(names, dst_unit)
             ax.set_ylabel(ylabel)
 
-        start, end = manage_time_interval(time_interval)
-        start = "start" if start is None else start.strftime("%d-%m-%Y")
-        end = "end" if end is None else end.strftime("%d-%m-%Y")
         fmt = self.plot_kwargs.get("format", "jpg")
         # var token: the single plot-level var, or the distinct subplot vars
         # (declaration order) joined with "+", e.g. "NO2+CO".
@@ -1051,18 +1370,22 @@ class Custom(Plot):
             if plot_var is not None
             else "+".join(dict.fromkeys(str(v) for v in used_vars))
         )
+        # One vocabulary for both a title and a filename, singular because
+        # each names one figure.
+        tokens = {
+            "time": interval_stamp(time_interval),
+            "domain": dom_name,
+            "var": var_token,
+        }
 
-        # A title may reference the fan-out context it is rendered for, e.g.
-        # "Temperatura en {domain}". Titles without placeholders pass through
-        # untouched, and an unknown or malformed one is left as written rather
-        # than aborting the render.
-        title = self.plot_kwargs.get("title", self.name)
-        with contextlib.suppress(KeyError, IndexError, ValueError):
-            title = title.format(domain=dom_name, var=var_token)
-        figure.suptitle(title)
+        # No suppression: check_name_templates already rejected a token this
+        # cannot supply, so a failure here is worth seeing.
+        figure.suptitle(self.plot_kwargs.get("title", self.name).format(**tokens))
+
+        template = self.plot_config.filename
         filename = (
-            f"custom-{dom_name}-{var_token}-{start}_{end}.{fmt}"
-            if self.plot_config.filename is None
-            else self.plot_config.filename
+            f"custom-{dom_name}-{var_token}-{tokens['time']}.{fmt}"
+            if template is None
+            else compose_filename(template, tokens, self._active_axes(), fmt)
         )
         self._finalize(figure, filename)

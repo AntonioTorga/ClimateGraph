@@ -1,0 +1,41 @@
+# Arrows along the gradient of the field being drawn.
+#
+# `gradient` needs no second variable — it differentiates the variable already
+# on the figure, so the arrows point up the slope of the concentration itself.
+# Spacing comes from the coordinates, so on this grid's two-dimensional
+# latitude/longitude the result is per metre rather than per cell index.
+# `normalize` drops magnitude and shows direction alone.
+analysis:
+  output_path: "./docs/examples/output"
+
+data:
+  MODEL:
+    path: "./docs/examples/data/model.nc"
+    topology: RegularGrid
+    reader: defaultgrid
+    vars:
+      PM25: {name: pm25, unit: "ug/m**3"}
+
+plots:
+  gradient:
+    type: custom
+    time: "8/6/2021"
+    vars: {PM25: "ug/m**3"}
+    title: "Where PM2.5 climbs: the gradient of the field"
+    figsize: [7.5, 5.5]
+    dpi: 110
+    format: png
+    subplots:
+      - type: contourf
+        dataset: MODEL
+        x: longitude
+        y: latitude
+        levels: 14
+        cmap: YlOrBr
+      - type: gradient
+        dataset: MODEL
+        x: longitude
+        y: latitude
+        thin: 3
+        normalize: true
+        color: "0.15"

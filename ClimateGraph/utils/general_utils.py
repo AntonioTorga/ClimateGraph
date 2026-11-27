@@ -1,20 +1,24 @@
-"""Enums, path expansion and time parsing.
+"""Enums, path expansion, time parsing and config expansion.
 
 The leaf utilities: how the control file's string values become real objects,
-and how paths and dates are interpreted.
+how paths and dates are interpreted, and how a block naming several values fans
+out into one config per value.
 """
 
 import datetime
 import glob
+import itertools
 import logging
 import re
 from enum import Enum
 from pathlib import Path
+from typing import Annotated, ClassVar
 
 import cartopy.crs as ccrs
 import numpy as np
 import pandas as pd
 from dateutil import parser
+from pydantic import AfterValidator, BaseModel
 
 log = logging.getLogger(__name__)
 
@@ -22,37 +26,104 @@ CRS_TYPES = {"platecarree": ccrs.PlateCarree}
 TIME_INTERVAL_FORMAT = r"^(.+?)\s*(?:-|to)\s*(.+)$"  # Accepts "date - date" or "date to date" and a date should be in dayfirst format.
 
 
-class TimestepEnum(str, Enum):
-    """Enum used for timestep handling. Keeps consistent timestep values."""
+class TimeUnitEnum(str, Enum):
+    """A unit of time, with what each stage of the pipeline needs of it.
 
-    business_day = "B"
-    daily = "D"
-    weekly = "W"
-    monthly = "ME"
-    # Period-end spellings: pandas 2.2 deprecated "Q"/"Y" and 3.0 removed them.
-    quarterly = "QE"
-    yearly = "YE"
-    # Period-start spellings: label each bucket with its first instant.
-    monthly_start = "MS"
-    quarterly_start = "QS"
-    yearly_start = "YS"
-    hourly = "h"
-    minutely = "min"
-    secondly = "s"
-    milliseconds = "ms"
-    microseconds = "us"
-    nanoseconds = "ns"
+    ``freq`` is the pandas frequency a resample takes, ``accessor`` the xarray
+    ``.dt`` name behind ``groupby("time.<x>")``, ``hours`` the span one unit
+    covers, and ``period`` how many units complete the enclosing cycle — what
+    an angular axis divides by. A unit carries None where it does not support
+    that use, and the field annotations below reject those cases by name.
+
+    A resampled month, quarter or year is labelled with its first instant.
+    The ``_end`` members label it with its last instead.
+    """
+
+    def __new__(cls, value, freq, accessor, hours, period):
+        obj = str.__new__(cls, value)
+        obj._value_ = value
+        obj.freq = freq
+        obj.accessor = accessor
+        obj.hours = hours
+        obj.period = period
+        return obj
+
+    @classmethod
+    def _missing_(cls, value):
+        """Resolve a pandas frequency or an ``-ly`` spelling to a member."""
+        if not isinstance(value, str):
+            return None
+        for member in cls:
+            if member.freq == value:
+                return member
+        return cls.__members__.get(TIME_UNIT_ALIASES.get(value, ""))
+
+    #                  value           freq  accessor     hours      period
+    nanosecond = ("nanosecond", "ns", None, 1 / 3.6e12, None)
+    microsecond = ("microsecond", "us", None, 1 / 3.6e9, None)
+    millisecond = ("millisecond", "ms", None, 1 / 3.6e6, None)
+    second = ("second", "s", None, 1 / 3600, None)
+    minute = ("minute", "min", "minute", 1 / 60, 60)
+    hour = ("hour", "h", "hour", 1, 24)
+    day = ("day", "D", "day", 24, 31)
+    business_day = ("business_day", "B", None, 24, None)
+    weekday = ("weekday", None, "weekday", 24, 7)
+    dayofyear = ("dayofyear", None, "dayofyear", 24, 366)
+    week = ("week", "W", "week", 168, 53)
+    month = ("month", "MS", "month", 720, 12)
+    month_end = ("month_end", "ME", "month", 720, 12)
+    quarter = ("quarter", "QS", "quarter", 2160, 4)
+    quarter_end = ("quarter_end", "QE", "quarter", 2160, 4)
+    season = ("season", None, "season", 2160, 4)
+    year = ("year", "YS", None, 8760, None)
+    year_end = ("year_end", "YE", None, 8760, None)
 
 
-class TimeBucketEnum(str, Enum):
-    """Enum used for timestep handling. Keeps consistent timestep values."""
+# Spellings a control file may use for a unit, beyond its value and its
+# pandas frequency.
+TIME_UNIT_ALIASES = {
+    "secondly": "second",
+    "minutely": "minute",
+    "hourly": "hour",
+    "daily": "day",
+    "weekly": "week",
+    "monthly": "month",
+    "monthly_end": "month_end",
+    "quarterly": "quarter",
+    "quarterly_end": "quarter_end",
+    "yearly": "year",
+    "yearly_end": "year_end",
+    "annual": "year",
+}
 
-    minute = "minute"
-    hour = "hour"
-    day = "day"
-    season = "season"
-    weekly = "week"
-    monthly = "quarter"
+
+def _spellings(predicate) -> str:
+    """The units satisfying ``predicate``, as a quoted list for an error."""
+    return ", ".join(repr(u.value) for u in TimeUnitEnum if predicate(u))
+
+
+def resampleable(unit: TimeUnitEnum) -> TimeUnitEnum:
+    """Reject a unit pandas has no resample frequency for."""
+    if unit.freq is None:
+        raise ValueError(
+            f"{unit.value!r} is a calendar bucket, not a resample frequency. "
+            f"Use one of {_spellings(lambda u: u.freq is not None)}."
+        )
+    return unit
+
+
+def groupable(unit: TimeUnitEnum) -> TimeUnitEnum:
+    """Reject a unit xarray has no ``.dt`` accessor for."""
+    if unit.accessor is None:
+        raise ValueError(
+            f"{unit.value!r} is a resample frequency, not a calendar bucket. "
+            f"Use one of {_spellings(lambda u: u.accessor is not None)}."
+        )
+    return unit
+
+
+Timestep = Annotated[TimeUnitEnum, AfterValidator(resampleable)]
+TimeBucket = Annotated[TimeUnitEnum, AfterValidator(groupable)]
 
 
 class ReductionMethodEnum(str, Enum):
@@ -67,6 +138,45 @@ class ReductionMethodEnum(str, Enum):
     mean = ("mean", np.nanmean)
     min = ("min", np.nanmin)
     max = ("max", np.nanmax)
+
+
+class ReferenceEnum(str, Enum):
+    """Statistics a reference line can be placed at, computed from the data.
+
+    ``argmax``/``argmin`` are the odd ones out: they resolve to the *coordinate*
+    at which the extreme occurs rather than the extreme itself, which is what a
+    vertical line wants.
+    """
+
+    mean = "mean"
+    median = "median"
+    min = "min"
+    max = "max"
+    p10 = "p10"
+    p25 = "p25"
+    p75 = "p75"
+    p90 = "p90"
+    p95 = "p95"
+    p99 = "p99"
+    argmax = "argmax"
+    argmin = "argmin"
+
+
+class ProjectionEnum(str, Enum):
+    """Axes types a composition can be drawn on.
+
+    ``mpl`` is what ``add_subplot(projection=...)`` takes; None is matplotlib's
+    default rectilinear axes.
+    """
+
+    def __new__(cls, value, mpl):
+        obj = str.__new__(cls, value)
+        obj._value_ = value
+        obj.mpl = mpl
+        return obj
+
+    rectilinear = ("rectilinear", None)
+    polar = ("polar", "polar")
 
 
 class CRSEnum(str, Enum):
@@ -190,10 +300,10 @@ def _bucket_end(value: pd.Timestamp, resolution: str) -> pd.Timestamp:
     return value + offset - pd.Timedelta(1, "ns")
 
 
-def manage_time_interval(
-    time_interval: str,
-) -> tuple[pd.Timestamp, pd.Timestamp]:
-    """Turn a time-interval string into (start, end).
+def _resolve_interval(
+    time_interval: str | None,
+) -> tuple[pd.Timestamp | None, pd.Timestamp | None, str | None]:
+    """Turn a time-interval string into (start, end, resolution).
 
     Accepts either a single date or a "start - (or to) end" range. Each endpoint is treated
     as an *interval covering its own resolution* when that resolution is coarser
@@ -209,9 +319,11 @@ def manage_time_interval(
 
     Returns
     -------
-    tuple[pd.Timestamp, pd.Timestamp]
-        Start (bucket start of the first endpoint) and end (bucket end of the
-        last endpoint).
+    tuple[pd.Timestamp | None, pd.Timestamp | None, str | None]
+        Start (bucket start of the first endpoint), end (bucket end of the
+        last endpoint), and the resolution the endpoints were written at.
+        A timestamp does not record how precise the string it came from was,
+        so naming code that wants it has to take it from here.
 
     Raises
     ------
@@ -219,7 +331,7 @@ def manage_time_interval(
         If an endpoint isn't a parseable date.
     """
     if time_interval is None:
-        return None, None
+        return None, None, None
     time_interval = time_interval.strip()
 
     # A separator splits a range; otherwise the whole string is a single date
@@ -241,7 +353,68 @@ def manage_time_interval(
             end_res,
         )
 
-    return start_val, _bucket_end(end_val, end_res)
+    return start_val, _bucket_end(end_val, end_res), end_res
+
+
+def manage_time_interval(
+    time_interval: str | None,
+) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
+    """Turn a time-interval string into (start, end).
+
+    Accepts either a single date or a ``"start [-|to] end"`` range. Each
+    endpoint is treated as an *interval covering its own resolution* when that
+    resolution is coarser than hourly.
+
+    Parameters
+    ----------
+    time_interval : str | None
+        A single date or a ``"start [-|to] end"`` range in dayfirst format.
+
+    Returns
+    -------
+    tuple[pd.Timestamp | None, pd.Timestamp | None]
+        Start and end, both None when no interval was given.
+    """
+    start, end, _ = _resolve_interval(time_interval)
+    return start, end
+
+
+# How a stamp is written at each resolution, so two windows a reader can tell
+# apart get filenames they can tell apart.
+_STAMP_FORMATS = {
+    "year": "%Y",
+    "month": "%m-%Y",
+    "day": "%d-%m-%Y",
+    "hour": "%d-%m-%Y_%Hh",
+    "minute": "%d-%m-%Y_%Hh%M",
+    "second": "%d-%m-%Y_%Hh%M%S",
+}
+
+
+def interval_stamp(time_interval: str | None) -> str:
+    """``start_end`` written at the resolution the interval was given in.
+
+    Two hourly windows on one day used to format identically at day
+    resolution, so the second figure overwrote the first.
+
+    Parameters
+    ----------
+    time_interval : str | None
+        A single date or a ``"start [-|to] end"`` range in dayfirst format.
+
+    Returns
+    -------
+    str
+        A filename-safe stamp, ``"start_end"`` when there is no interval.
+    """
+    start, end, resolution = _resolve_interval(time_interval)
+    if start is None or end is None:
+        return "start_end"
+    fmt = _STAMP_FORMATS[resolution]
+    first, last = start.strftime(fmt), end.strftime(fmt)
+    # A single date expands to a bucket whose ends stamp alike; one is enough,
+    # and no other interval stamps the same way.
+    return first if first == last else f"{first}_{last}"
 
 
 def normalize_time(time: str | list[str] | None) -> list[str | None]:
@@ -262,3 +435,199 @@ def normalize_time(time: str | list[str] | None) -> list[str | None]:
     if isinstance(time, list):
         return time
     return [time]
+
+
+COMPASS_POINTS = ("N", "NE", "E", "SE", "S", "SW", "W", "NW")
+
+# Where theta zero sits on screen. matplotlib names the eight positions after
+# compass points, which only reads correctly when the angle is a bearing.
+THETA_POSITIONS = {"top": "N", "right": "E", "bottom": "S", "left": "W"}
+
+
+def to_angular(da, coord, period, cycle=None):
+    """Put a coordinate's values on an angular axis, in radians.
+
+    Parameters
+    ----------
+    da : xr.DataArray
+        Array to transform.
+    coord : str | None
+        Coordinate to convert. None, or a name the array does not carry,
+        returns the array untouched.
+    period : float
+        How many of the coordinate's own units complete one turn.
+    cycle : TimeUnitEnum | None
+        Reads the cycle off a datetime coordinate first, so a timestamp
+        becomes its day-of-year, hour or weekday.
+
+    Returns
+    -------
+    xr.DataArray
+        The array with ``coord`` replaced by radians.
+    """
+    if coord is None or coord not in da.coords:
+        return da
+    values = da[coord]
+    if cycle is not None:
+        values = getattr(values.dt, cycle.accessor)
+        if values.dtype.kind not in "iuf":
+            raise ValueError(
+                f"cycle {cycle.value!r} is categorical, so it has no position "
+                "on an angular axis. Use a numeric cycle such as 'month'."
+            )
+    return da.assign_coords({coord: 2 * np.pi * (values / period)})
+
+
+def _tick_count(period, preferred: int = 8) -> int:
+    """A tick count dividing the period, so labels land on whole units.
+
+    Eight ticks over a period of seven would label weekdays 0, 0.875, 1.75.
+    """
+    if float(period).is_integer():
+        divisors = [n for n in range(3, 13) if int(period) % n == 0]
+        if divisors:
+            return min(divisors, key=lambda n: (abs(n - preferred), -n))
+    return preferred
+
+
+def angular_ticks(
+    period,
+    count: int | None = None,
+    zero: str = "E",
+    direction: str = "counterclockwise",
+):
+    """Tick positions in radians, labelled in the coordinate's own units.
+
+    Without this a polar axis labels itself in radians, so a wind rose reads
+    ``0.785`` where it should read ``NE``.
+
+    Compass labels need the axis to be a meteorological bearing — degrees,
+    north at zero, winding clockwise. Under any other origin or winding the
+    same positions fall on different bearings, so the labels stay numeric.
+
+    Parameters
+    ----------
+    period : float
+        Units completing one turn.
+    count : int | None
+        How many ticks to place. None picks a count that divides the period.
+    zero : str
+        Where the axes puts theta zero: ``N``, ``E``, ``S`` or ``W``.
+    direction : str
+        ``clockwise`` or ``counterclockwise``.
+
+    Returns
+    -------
+    tuple[list[float], list[str]]
+        Positions in radians, and their labels.
+    """
+    if count is None:
+        count = _tick_count(period)
+    positions = [2 * np.pi * i / count for i in range(count)]
+    is_bearing = (
+        period == 360
+        and zero == "N"
+        and direction == "clockwise"
+        and count == len(COMPASS_POINTS)
+    )
+    if is_bearing:
+        return positions, list(COMPASS_POINTS)
+    step = period / count
+    return positions, [f"{i * step:g}" for i in range(count)]
+
+
+class ExpandableModel(BaseModel):
+    """A config whose expanding fields fan out into sibling copies.
+
+    Several control-file blocks mean "do this once per value" — a plot's
+    ``time``, ``domains``, ``vars`` ... :func:`expand` takes the product of the fields named
+    in ``expands`` and emits one copy per point.
+
+    An expanded copy holds a **single value** per axis, not a one-element
+    container, so code consuming one has no loop left to run. Its annotation
+    has to admit that value, which is why the plot configs declare ``time``
+    and ``domains`` as ``str | list[str]``.
+
+    ``expansion_values`` and ``expansion_gate`` cover the axes that are not
+    simply "the list in that field": a Points domain fans over names that are
+    not a declared list, and an Attribute domain fans only when
+    ``one_for_each`` is set.
+    """
+
+    expands: ClassVar[tuple[str, ...]] = ()
+
+    def expansion_values(self, field: str) -> list:
+        """The per-copy values for ``field``, one per sibling.
+
+        A list contributes its items; anything else contributes itself. A
+        mapping contributes one-entry slices, because a
+        ``vars: {PM25: "ug/m**3"}`` block carries the unit alongside the name
+        and ``expansion_token`` recovers the name for labelling.
+
+        An empty collection is not an axis and passes through whole, so
+        ``domains: []`` still renders once rather than zero times.
+
+        Parameters
+        ----------
+        field : str
+            Name of the expanding field.
+
+        Returns
+        -------
+        list
+            One value per sibling copy.
+        """
+        value = getattr(self, field, None)
+        if isinstance(value, list) and value:
+            return list(value)
+        if isinstance(value, dict) and value:
+            return [{key: item} for key, item in value.items()]
+        return [value]
+
+    @staticmethod
+    def expansion_token(value):
+        """The name of a slot value, for filenames and titles.
+
+        A one-entry mapping gives up its key, and an enum its value — a bare
+        ``format()`` of an enum renders ``ReferenceEnum.mean`` rather than
+        ``mean``. Every other axis value is already its own name.
+        """
+        if isinstance(value, dict) and len(value) == 1:
+            return next(iter(value))
+        if isinstance(value, Enum):
+            return value.value
+        return value
+
+    def expansion_gate(self, field: str) -> bool:
+        """Whether ``field`` fans out at all. True unless overridden."""
+        return True
+
+
+def expand(model: ExpandableModel) -> list[tuple[dict, ExpandableModel]]:
+    """Fan a config out into one copy per point of its expansion product.
+
+    Parameters
+    ----------
+    model : ExpandableModel
+        The config to expand.
+
+    Returns
+    -------
+    list[tuple[dict, ExpandableModel]]
+        ``(slots, copy)`` pairs. ``copy`` stands for one output, with every
+        axis pinned to a single value; ``slots`` maps each axis to that value's
+        name, which is what naming and templating read.
+
+        A config with no active axes yields exactly one pair, so callers never
+        have to special-case the un-expanded form.
+    """
+    axes = [field for field in model.expands if model.expansion_gate(field)]
+    if not axes:
+        return [({}, model)]
+
+    expanded = []
+    for combo in itertools.product(*(model.expansion_values(f) for f in axes)):
+        update = dict(zip(axes, combo, strict=True))
+        slots = {field: model.expansion_token(v) for field, v in update.items()}
+        expanded.append((slots, model.model_copy(update=update)))
+    return expanded

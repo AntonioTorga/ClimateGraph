@@ -107,8 +107,8 @@ def test_default_open_many_wires_per_file_pipeline(monkeypatch):
     behaviour (the callback actually renaming and dropping) is covered by
     the slow safe-vs-unsafe equivalence tests on real files.
 
-    Parallel opens are disabled by default because libnetcdf (the netcdf4
-    engine) is not thread-safe.
+    Parallel opens are disabled for netcdf4 because libnetcdf is not
+    thread-safe; `Wrf._open_many` parallelises by reading eagerly per task.
     """
     import xarray as xr
 

@@ -1,0 +1,43 @@
+# Wind over a concentration field — the figure that shows transport.
+#
+# `arrows` is the only primitive that needs two variables. It names them by
+# role, so the model's components (u10/v10) and a station network's speed and
+# direction are the same primitive spelled two ways. Here the evening hour is
+# chosen, when the valley breeze has collapsed and the pollution builds.
+analysis:
+  output_path: "./docs/examples/output"
+
+data:
+  MODEL:
+    path: "./docs/examples/data/model.nc"
+    topology: RegularGrid
+    reader: defaultgrid
+    vars:
+      PM25: {name: pm25, unit: "ug/m**3"}
+      U10: {name: u10, unit: "m/s"}
+      V10: {name: v10, unit: "m/s"}
+
+plots:
+  arrows:
+    type: custom
+    time: "8/6/2021"
+    vars: {PM25: "ug/m**3"}
+    title: "PM2.5 and the 10 m wind"
+    figsize: [7.5, 5.5]
+    dpi: 110
+    format: png
+    subplots:
+      - type: contourf
+        dataset: MODEL
+        x: longitude
+        y: latitude
+        levels: 14
+        cmap: YlOrBr
+      - type: arrows
+        dataset: MODEL
+        x: longitude
+        y: latitude
+        u: U10
+        v: V10
+        thin: 3
+        color: "0.15"

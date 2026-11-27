@@ -1,0 +1,88 @@
+# Bands: the filled area between two edges.
+#
+# Two spellings. `spread` derives the edges from the dims the layer does not
+# plot against — here the stations averaged away by a plain line. `lower`/
+# `upper` name the edges outright, and each may qualify its own dataset with
+# `DATASET::VAR`, which is how one band spans two of them.
+#
+# A centre line is a `series` layer drawn over the top, not a field on the band.
+analysis:
+  output_path: "./docs/examples/output"
+
+data:
+  STATIONS:
+    path: "./docs/examples/data/stations.nc"
+    topology: PointSurface
+    reader: defaultpointsurface
+    vars:
+      PM25: {name: pm25, unit: "ug/m**3"}
+  MODEL:
+    path: "./docs/examples/data/model.nc"
+    topology: RegularGrid
+    reader: defaultgrid
+    vars:
+      PM25: {name: pm25, unit: "ug/m**3"}
+
+plots:
+  # Spread across the station network, with the network mean over it.
+  spread-band:
+    type: custom
+    time: "1/6/2021 - 10/6/2021"
+    vars: {PM25: "ug/m**3"}
+    title: "PM2.5 across the station network"
+    ylabel: "PM2.5 [ug/m3]"
+    figsize: [10, 4]
+    dpi: 110
+    format: png
+    grid: true
+    subplots:
+      - type: band
+        dataset: STATIONS
+        x: time
+        spread: minmax
+        color: "tab:blue"
+        alpha: 0.15
+        label: "station range"
+      - type: band
+        dataset: STATIONS
+        x: time
+        spread: std
+        color: "tab:blue"
+        alpha: 0.3
+        label: "+/- 1 std"
+      - type: series
+        dataset: STATIONS
+        x: time
+        color: "tab:blue"
+        label: "network mean"
+
+  # Edges from two different datasets, each qualified.
+  across-datasets:
+    type: custom
+    time: "1/6/2021 - 10/6/2021"
+    title: "Observations against model"
+    ylabel: "PM2.5 [ug/m3]"
+    figsize: [10, 4]
+    dpi: 110
+    format: png
+    grid: true
+    subplots:
+      - type: band
+        x: time
+        lower: STATIONS::PM25
+        upper: MODEL::PM25
+        dim_reduce: {site: {reduce: mean}, x: {reduce: mean}, y: {reduce: mean}}
+        color: "tab:purple"
+        label: "observed-to-modelled range"
+      - type: series
+        x: time
+        var: STATIONS::PM25
+        dim_reduce: {site: {reduce: mean}}
+        color: "tab:red"
+        label: Observations
+      - type: series
+        x: time
+        var: MODEL::PM25
+        dim_reduce: {x: {reduce: mean}, y: {reduce: mean}}
+        color: "tab:green"
+        label: Model

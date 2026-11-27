@@ -68,7 +68,9 @@ def test_debug_flag_passed_through(tmp_path):
     with patch("ClimateGraph.cli.AppKernel.run") as mock_run:
         result = runner.invoke(app, ["run", str(f), "--debug"])
         assert result.exit_code == 0
-        mock_run.assert_called_once_with(f.resolve(), debug_override=True)
+        mock_run.assert_called_once_with(
+            f.resolve(), debug_override=True, verbose_override=False
+        )
 
 
 def test_debug_flag_omitted_defaults_false(tmp_path):
@@ -78,4 +80,6 @@ def test_debug_flag_omitted_defaults_false(tmp_path):
     with patch("ClimateGraph.cli.AppKernel.run") as mock_run:
         result = runner.invoke(app, ["run", str(f)])
         assert result.exit_code == 0
-        mock_run.assert_called_once_with(f.resolve(), debug_override=False)
+        mock_run.assert_called_once_with(
+            f.resolve(), debug_override=False, verbose_override=False
+        )

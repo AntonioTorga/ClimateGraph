@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 mpl.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.projections.polar import PolarAxes
 
 from ClimateGraph.data import Data
 from ClimateGraph.domain import Domain
@@ -22,6 +23,16 @@ from ClimateGraph.utils.general_utils import normalize_time
 from ClimateGraph.utils.registry import RegistryMixin
 
 log = logging.getLogger(__name__)
+
+
+def _grid_style(grid) -> dict:
+    """Matplotlib line kwargs for the reference lines."""
+    return {
+        "color": grid.color,
+        "alpha": grid.alpha,
+        "linestyle": grid.linestyle,
+        "linewidth": grid.linewidth,
+    }
 
 
 def _grid_positions(
@@ -141,15 +152,12 @@ class Plot(RegistryMixin, ABC):
             _description_
         """
         plot_class = cls.get_plot_class(type)
-        kwargs = plot_config.model_extra if plot_config.model_extra else {}
-
         return plot_class(
             name,
             plot_config=plot_config,
             data_registry=data_registry,
             domain_registry=domain_registry,
             output_path=output_path,
-            **kwargs,
         )
 
     def __init__(
@@ -175,12 +183,18 @@ class Plot(RegistryMixin, ABC):
         self.name = name
         self.data = data_registry
         self.domains = domain_registry
-        self.plot_kwargs = kwargs
+        # The one place the plot config's extras are read; everything
+        # downstream goes through plot_kwargs. Explicit kwargs win, so a
+        # caller can override what the control file declared.
+        self.plot_kwargs = {**(plot_config.model_extra or {}), **kwargs}
 
         self.output_path = Path(output_path / name)
         self.output_path.mkdir(parents=True, exist_ok=True)
 
         self._done = False
+        # Counted here rather than inferred from `expected_figures`, which is a
+        # pre-run estimate: the two differing is itself worth seeing.
+        self.figures_written = 0
 
     @classmethod
     def check_plot_class(cls, type: str) -> bool:
@@ -215,41 +229,23 @@ class Plot(RegistryMixin, ABC):
         }
         return domains or {"": None}
 
-    def iterate_contexts(
-        self,
-        times,
-        domains: dict[str, Domain | None],
-        vars: list[str] | None,
-    ):
-        """Yield the (time, domain, var) render contexts.
+    def expected_figures(self) -> int:
+        """How many figures this plot will write, read off the config alone.
 
-        Centralizes the time x domain x var nesting duplicated across the plot
-        classes. Time is normalized here (a single date, an interval, or a list
-        fanning out into N entries). When ``vars`` is ``None`` a single ``None``
-        var slot is yielded per (time, domain) pair — the per-subplot-var-scope
-        case where the var is decided downstream.
+        Every plot type nests time x domains x vars, so the product is exact.
+        It opens no file, which is what lets a run report its size up front.
 
-        Parameters
-        ----------
-        times : str | list[str] | None
-            The plot's ``time`` field (raw), normalized internally.
-        domains : dict[str, Domain | None]
-            Resolved domains (see ``resolve_domains``).
-        vars : list[str] | None
-            Variable names to fan out over, or ``None`` for a single ``None`` slot.
-
-        Yields
-        ------
-        tuple[str | None, str, Domain | None, str | None]
-            ``(time_interval, domain_name, domain, var)`` tuples.
+        Returns
+        -------
+        int
+            Number of figures, at least one.
         """
-        for time_interval in normalize_time(times):
-            for dom_name, dom in domains.items():
-                if vars is None:
-                    yield time_interval, dom_name, dom, None
-                else:
-                    for var in vars:
-                        yield time_interval, dom_name, dom, var
+        plot_vars = self.plot_config.vars
+        return (
+            len(normalize_time(getattr(self.plot_config, "time", None)))
+            * len(self.resolve_domains())
+            * (len(plot_vars) if plot_vars else 1)
+        )
 
     def figure_kwargs(self, **defaults) -> dict:
         """Build the kwargs for ``plt.figure`` from ``plot_kwargs``.
@@ -315,12 +311,18 @@ class Plot(RegistryMixin, ABC):
             if ax.get_label() == "<colorbar>":
                 continue
             is_geo = hasattr(ax, "projection")
+            # On polar axes a vline is a radial spoke and an hline a circle,
+            # so the computed Cartesian positions mean nothing.
+            is_polar = isinstance(ax, PolarAxes)
 
             if grid is not None:
-                self._apply_grid(ax, grid, is_geo)
+                if is_polar:
+                    ax.grid(True, **_grid_style(grid))
+                else:
+                    self._apply_grid(ax, grid, is_geo)
 
             if xticks or yticks:
-                if is_geo:
+                if is_geo or is_polar:
                     log.debug(
                         "Named ticks are not applied to map axes (they need an "
                         "explicit CRS transform); skipping for %r.",
@@ -336,12 +338,7 @@ class Plot(RegistryMixin, ABC):
 
     def _apply_grid(self, ax, grid, is_geo: bool):
         """Draw the dashed reference lines on one axes."""
-        style = {
-            "color": grid.color,
-            "alpha": grid.alpha,
-            "linestyle": grid.linestyle,
-            "linewidth": grid.linewidth,
-        }
+        style = _grid_style(grid)
         positions = {}
         for axis, spec in (("x", grid.x), ("y", grid.y)):
             if spec is None:
@@ -397,6 +394,11 @@ class Plot(RegistryMixin, ABC):
         filename : str
             Filename to be used. Doesn't have to include file format, just name.
         """
-        figure.savefig(self.output_path / filename, **self.savefig_kwargs())
+        target = self.output_path / filename
+        # A filename template may name subdirectories, e.g. "{var}/{domain}".
+        target.parent.mkdir(parents=True, exist_ok=True)
+        figure.savefig(target, **self.savefig_kwargs())
+        self.figures_written += 1
+        log.debug("wrote %s", target)
 
         plt.close(fig=figure)

@@ -40,6 +40,9 @@ class Primitive(RegistryMixin, ABC):
     required_coords: ClassVar[frozenset[str]] = frozenset()
     wants_colorbar: ClassVar[bool] = False
     wants_legend: ClassVar[bool] = False
+    # False when the primitive draws from samples rather than an axis-shaped
+    # grid, so the dims the x/y coordinates do not name must survive.
+    reduces_to_axes: ClassVar[bool] = True
 
     def __init__(self, name: str, subplot_config: BaseModel, **kwargs):
         """Primitive initialization.
@@ -66,24 +69,62 @@ class Primitive(RegistryMixin, ABC):
         """Return True if ``type`` names a registered primitive."""
         return cls.check_class(name)
 
+    @classmethod
+    def required_vars(
+        cls, subplot_config: BaseModel, var: str | None = None
+    ) -> dict[str, str]:
+        """Variables this primitive needs beyond the plot's own, by role.
+
+        Empty for the single-variable primitives, which read the plot's or the
+        subplot's ``var``. When it is non-empty the orchestrator prepares each
+        named variable through the same pipeline and hands ``render`` an
+        ``xr.Dataset`` keyed by role rather than a lone array. The ``value``
+        role is reserved for the quantity a colorbar labels.
+
+        A classmethod taking the config, not a class attribute, because a
+        primitive may accept alternative spellings of the same requirement —
+        ``arrows`` takes either ``u``/``v`` or ``speed``/``direction``, so the
+        answer depends on what was written.
+
+        Parameters
+        ----------
+        subplot_config : BaseModel
+            The subplot config to read the variable names off.
+        var : str | None
+            The variable in effect for the subplot, for a primitive that takes
+            roles *and* colours by it. None where no variable is resolved yet,
+            as in config validation.
+
+        Returns
+        -------
+        dict[str, tuple[str | None, str]]
+            Role name to ``(dataset, variable)``. The dataset is resolved
+            here, so a role may name its own and the rest of the pipeline
+            never sees the ``DATASET::VAR`` shorthand.
+        """
+        return {}
+
     @abstractmethod
     def render(
         self,
         ax: "mpl.axes.Axes",
-        data: "xr.DataArray",
+        data: "xr.DataArray | xr.Dataset",
         *,
         x: str | None,
         y: str | None,
         label: str | None,
     ) -> "mpl.artist.Artist":
         """Draw the prepared data onto ``ax`` and return the artist.
+        Data could be a datarray if a two or more arrays are needed. E.G. wind arrows
 
         Parameters
         ----------
         ax : matplotlib Axes
             The shared axes to draw on.
-        data : xr.DataArray
+        data : xr.DataArray | xr.Dataset
             Fully prepared data (domain/time/dim-reduce/unit already applied).
+            A Dataset keyed by role when the primitive declares
+            ``required_vars``, the plot's variable as a lone array otherwise.
         x : str | None
             Coordinate name bound to the x axis.
         y : str | None

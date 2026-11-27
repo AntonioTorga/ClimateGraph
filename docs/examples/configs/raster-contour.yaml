@@ -1,0 +1,39 @@
+# The raw field, cell for cell, with unfilled contour lines over it.
+#
+# `raster` draws one quadrilateral per grid cell at the position its
+# coordinates actually give it — no contouring, no interpolation. `contour` is
+# single-coloured on purpose: its values ride on inline labels, which leaves
+# the figure's one colour scale to the raster underneath.
+analysis:
+  output_path: "./docs/examples/output"
+
+data:
+  MODEL:
+    path: "./docs/examples/data/model.nc"
+    topology: RegularGrid
+    reader: defaultgrid
+    vars:
+      PM25: {name: pm25, unit: "ug/m**3"}
+
+plots:
+  raster-contour:
+    type: custom
+    time: "8/6/2021"
+    vars: {PM25: "ug/m**3"}
+    title: "Modelled PM2.5: every cell, with contour lines"
+    figsize: [7.5, 5.5]
+    dpi: 110
+    format: png
+    subplots:
+      - type: raster
+        dataset: MODEL
+        x: longitude
+        y: latitude
+        cmap: YlOrBr
+      - type: contour
+        dataset: MODEL
+        x: longitude
+        y: latitude
+        levels: 7
+        colors: "0.25"
+        linewidths: 0.8

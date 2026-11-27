@@ -1,0 +1,58 @@
+# Annotations over a finished composition.
+#
+# `decorations:` is a second block, drawn after every primitive, so a line
+# always lands on top of axes the data has already settled. A decoration needs
+# no dataset when its position is written down — a regulatory norm is just a
+# number — and reads one when the position is a statistic of the data.
+#
+# `at` takes a list, which fans out into one line per position, and the label
+# can name the position it was expanded to.
+analysis:
+  output_path: "./docs/examples/output"
+
+data:
+  STATIONS:
+    path: "./docs/examples/data/stations.nc"
+    topology: PointSurface
+    reader: defaultpointsurface
+    vars:
+      PM25: {name: pm25, unit: "ug/m**3"}
+
+plots:
+  reference-lines:
+    type: custom
+    time: "1/6/2021 - 10/6/2021"
+    vars: {PM25: "ug/m**3"}
+    title: "Observed PM2.5 against the daily norm"
+    figsize: [10, 4]
+    dpi: 110
+    format: png
+    subplots:
+      - type: series
+        dataset: STATIONS
+        x: time
+        label: Observations
+        color: "0.2"
+    decorations:
+      # Written down: the Chilean 24-hour PM2.5 norm.
+      - type: hline
+        at: 50
+        label: "Norma diaria (50)"
+        color: "tab:red"
+        linestyle: "--"
+      # Computed from the data, one line per statistic.
+      - type: hline
+        dataset: STATIONS
+        at: [mean, p95]
+        label: "Observado {at}"
+        color: "tab:blue"
+        linestyle: ":"
+      # Where the worst hour fell.
+      - type: vline
+        dataset: STATIONS
+        x: time
+        at: argmax
+        dim_reduce: {site: mean}
+        label: "Peak"
+        color: "tab:green"
+        linestyle: "-."

@@ -106,6 +106,40 @@ def _make_point_surface_dataset(
     return ds
 
 
+def _make_wind_station_dataset(
+    n_time: int = 240,
+    n_site: int = 3,
+    start: str = "2019-01-01",
+    freq: str = "h",
+) -> xr.Dataset:
+    """Build a PointSurface-shaped dataset carrying wind and a concentration.
+
+    Dims: (time, site). Vars: WS (m/s), WD (degree), PM25 (ug/m**3). WD covers
+    the full turn and PM25 rises as WS falls, so a rose over it is not flat.
+    """
+    times = pd.date_range(start, periods=n_time, freq=freq)
+    sites = np.arange(n_site)
+    rng = np.random.default_rng(seed=7)
+
+    wd = rng.uniform(0.0, 360.0, size=(n_time, n_site))
+    ws = rng.uniform(0.2, 8.0, size=(n_time, n_site))
+    pm25 = 40.0 - 3.0 * ws + rng.normal(scale=2.0, size=(n_time, n_site))
+
+    return xr.Dataset(
+        data_vars={
+            "WS": (("time", "site"), ws),
+            "WD": (("time", "site"), wd),
+            "PM25": (("time", "site"), pm25),
+        },
+        coords={
+            "time": times,
+            "site": sites,
+            "latitude": ("site", np.linspace(-35.5, -33.5, n_site)),
+            "longitude": ("site", np.linspace(-72.0, -70.0, n_site)),
+        },
+    )
+
+
 @pytest.fixture
 def regular_grid_dataset() -> xr.Dataset:
     return _make_regular_grid_dataset()
@@ -182,6 +216,33 @@ def point_surface_data(point_surface_dataset):
         crs=ccrs.PlateCarree(),
     )
     instance.obj = point_surface_dataset
+    return instance
+
+
+@pytest.fixture
+def wind_station_data():
+    """A PointSurface Data instance carrying WS/WD/PM25."""
+    from ClimateGraph.data import PointSurface
+
+    dataset = _make_wind_station_dataset()
+
+    class _StubReader:
+        @staticmethod
+        def read(spec):
+            return dataset
+
+    instance = PointSurface(
+        name="wind_stub",
+        path=Path("memory://wind"),
+        vars={
+            "WS": {"name": "WS", "unit": "m/s"},
+            "WD": {"name": "WD", "unit": "degree"},
+            "PM25": {"name": "PM25", "unit": "ug/m**3"},
+        },
+        reader=_StubReader,
+        crs=ccrs.PlateCarree(),
+    )
+    instance.obj = dataset
     return instance
 
 

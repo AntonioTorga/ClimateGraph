@@ -9,12 +9,52 @@ dispatched today; analysis jobs are the intended next one.
 """
 
 import logging
+import sys
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
 from ClimateGraph.utils.parser import Parser
 
 log = logging.getLogger(__name__)
+
+# ``module`` is the calling file's bare name, so the origin shows without the
+# dotted path. The severity is already implied by which stream a record is on.
+_PLAIN_FORMAT = "%(module)-14s %(message)s"
+# Debug puts every record on one stream, so each needs its full origin.
+_DEBUG_FORMAT = "%(asctime)s %(levelname)-7s %(name)s: %(message)s"
+
+_SGR = {logging.WARNING: "33", logging.ERROR: "31", logging.CRITICAL: "1;31"}
+_BOLD, _RESET = "\033[1m", "\033[0m"
+
+
+def _tty() -> bool:
+    """Whether stdout is a terminal rather than a file or a pipe."""
+    return sys.stdout.isatty()
+
+
+def _bold(text: str) -> str:
+    """Embolden for a terminal, leave untouched for a redirected log."""
+    return f"{_BOLD}{text}{_RESET}" if _tty() else text
+
+
+def _elapsed(seconds: float) -> str:
+    """Render a duration the way a person reads one."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    return f"{int(seconds // 60)}m{int(seconds % 60):02d}s"
+
+
+class _SeverityColour(logging.Formatter):
+    """Tint a record by severity.
+
+    Installed only on a TTY, so a redirected log never receives escape codes.
+    """
+
+    def format(self, record):
+        text = super().format(record)
+        sgr = _SGR.get(record.levelno)
+        return f"\033[{sgr}m{text}{_RESET}" if sgr else text
 
 
 class AppKernel:
@@ -28,6 +68,7 @@ class AppKernel:
         self.plots = None
 
         self.debug = None
+        self.verbose = None
         self.output_path = None
         self.workers = None
 
@@ -58,10 +99,61 @@ class AppKernel:
             data_obj.load_obj()
 
     def plot(self):
-        """Dispatch one plotting job per registered plot."""
-        for name, plot_obj in self.plots.items():
-            log.info(f"Plotting '{name}'.")
+        """Dispatch one plotting job per registered plot, reporting progress.
+
+        Each job reports what it wrote and how long it took. On a run where
+        reading dominates, the first job carries the whole read and the rest
+        come back in seconds off the resample cache; the timings are what make
+        that visible.
+        """
+        total = len(self.plots)
+        for index, (name, plot_obj) in enumerate(self.plots.items(), start=1):
+            log.info(_bold("[%d/%d] %s"), index, total, name)
+            started = time.perf_counter()
             plot_obj.plot()
+            log.info(
+                "      %d figures in %s",
+                plot_obj.figures_written,
+                _elapsed(time.perf_counter() - started),
+            )
+
+    def summary(self):
+        """Report the size of the run before any file is opened.
+
+        Every count comes from the parsed config, so this costs no IO. Paths
+        are already glob-expanded by ``DataModel.val_file_path``, and
+        ``Plot.expected_figures`` reads the fan-out off the plot config.
+        """
+        datasets, plots = self.data or {}, self.plots or {}
+        width = max((len(n) for n in (*datasets, *plots)), default=0)
+
+        log.info("Run summary")
+        for name, dataset in datasets.items():
+            paths = dataset.path if isinstance(dataset.path, list) else [dataset.path]
+            log.info(
+                "  data  %-*s  %4d files  %s via %s",
+                width,
+                name,
+                len(paths),
+                type(dataset).__name__,
+                # The reader is held as a class, not an instance.
+                getattr(dataset.reader, "__name__", dataset.reader),
+            )
+        if self.domains:
+            log.info("  domains  %s", ", ".join(self.domains))
+
+        total = 0
+        for name, plot_obj in plots.items():
+            figures = plot_obj.expected_figures()
+            total += figures
+            log.info(
+                "  plot  %-*s  %4d figures  %s",
+                width,
+                name,
+                figures,
+                plot_obj.plot_config.type,
+            )
+        log.info("  total %d figures -> %s", total, self.output_path)
 
     def set_analysis_data(self, analysis: dict | None = None):
         """Promote the control file's ``analysis`` block to kernel settings.
@@ -76,32 +168,73 @@ class AppKernel:
             analysis = self.analysis
 
         self.debug = analysis.get("debug", False)
+        self.verbose = analysis.get("verbose", False)
         self.output_path = analysis.get("output_path", Path("./"))
         self.workers = analysis.get("workers")
 
     def _configure_logging(self):
-        """Scope ``--debug`` to ClimateGraph's own logger.
+        """Route records to stdout or stderr by severity, and set verbosity.
+
+        Three levels. ``normal`` reports what is being rendered; ``verbose``
+        adds per-stage detail; ``debug`` additionally puts everything on one
+        stream so a trace reads in order.
+
+        Routine output goes to **stdout**. A scheduler that splits the streams
+        (``#SBATCH -o out.log -e err.log``) then leaves the error file empty on
+        a clean run, instead of filling it with INFO and reading as a failure.
 
         The only place in the codebase that calls ``logging.basicConfig``.
-        ``force=True`` so this always wins regardless of import order, even if
-        some other library configured logging before this runs.
+        ``force=True`` so this always wins regardless of import order, and so
+        it can be called twice — once on the CLI flags before the control file
+        is read, once more with the file's own settings.
 
-        The root logger stays at INFO so third-party libraries (matplotlib, PIL,
-        …) never spray DEBUG. ``--debug`` only raises the ``ClimateGraph`` package
-        logger to DEBUG; its records still reach the root handler (NOTSET, emits
-        everything), so ClimateGraph's own operation traceback shows while the
-        noisy libraries stay quiet.
+        The root logger stays at INFO so third-party libraries (matplotlib,
+        PIL, …) never spray DEBUG. Only the ``ClimateGraph`` package logger is
+        raised; its records still reach the root handler, so our own trace
+        shows while the noisy libraries stay quiet.
+
+        ``distributed`` is the exception that needs lowering rather than
+        raising: it logs every nanny and scheduler transition at INFO, which was
+        209 of the 249 lines of a decade-scale run against 12 of our own.
+        WARNING keeps the one thing worth seeing — ``distributed.worker``
+        reporting a task that failed — and drops the rest.
         """
-        logging.basicConfig(level=logging.INFO, force=True)
+        formatter = _SeverityColour if _tty() else logging.Formatter
+        out = logging.StreamHandler(sys.stdout)
+        handlers = [out]
+
+        if self.debug:
+            out.setLevel(logging.DEBUG)
+            out.setFormatter(formatter(_DEBUG_FORMAT))
+        else:
+            # The split already says what a record is, so routine output needs
+            # no prefix and only the stderr side is tagged.
+            out.addFilter(lambda record: record.levelno < logging.WARNING)
+            out.setFormatter(formatter(_PLAIN_FORMAT))
+            err = logging.StreamHandler(sys.stderr)
+            err.setLevel(logging.WARNING)
+            err.setFormatter(formatter(f"%(levelname)s {_PLAIN_FORMAT}"))
+            handlers.append(err)
+
+        logging.basicConfig(level=logging.INFO, handlers=handlers, force=True)
         logging.getLogger("ClimateGraph").setLevel(
-            logging.DEBUG if self.debug else logging.INFO
+            logging.DEBUG if (self.debug or self.verbose) else logging.INFO
+        )
+        logging.getLogger("distributed").setLevel(
+            logging.DEBUG if self.debug else logging.WARNING
         )
 
-    def run(self, control_path: Path, debug_override: bool = False):
+    def run(
+        self,
+        control_path: Path,
+        debug_override: bool = False,
+        verbose_override: bool = False,
+    ):
         """Run the ClimateGraph routine.
 
-        Reads the control file, sets up the run-scoped settings, dispatches the
-        plotting jobs, then clears the registries.
+        Reads the control file, sets up the run-scoped settings, reports the
+        size of the run, dispatches the plotting jobs, then clears the
+        registries.
 
         Parameters
         ----------
@@ -110,18 +243,37 @@ class AppKernel:
         debug_override : bool, optional
             CLI ``--debug`` flag. ORed with the control file's ``debug`` value:
             either source enables DEBUG, neither disables it. Default False.
+        verbose_override : bool, optional
+            CLI ``--verbose`` flag, ORed with the control file the same way.
         """
+        # Configured twice: once on the CLI flags so parsing errors are covered
+        # at the requested level, once more with the control file's own values.
+        self.debug, self.verbose = debug_override, verbose_override
+        self._configure_logging()
+
         self.analysis, self.data, self.plots, self.domains = self.read_control(
             control_path
         )
 
         self.set_analysis_data()
         self.debug = debug_override or self.debug
+        self.verbose = verbose_override or self.verbose
         self._configure_logging()
+
+        self.summary()
+        started = time.perf_counter()
         # if self.eager : self.load_data()
         with self._dask_client():
             self.plot()
         # self.stats() TODO: add a module for stats
+
+        written = sum(p.figures_written for p in self.plots.values())
+        log.info(
+            _bold("Done: %d figures in %s -> %s"),
+            written,
+            _elapsed(time.perf_counter() - started),
+            self.output_path,
+        )
 
         self.data, self.plots, self.domains = None, None, None
 
@@ -142,11 +294,26 @@ class AppKernel:
             return
         from dask.distributed import Client, LocalCluster
 
+        # Importing distributed runs `initialize_logging`, which sets its own
+        # logger to INFO and undoes `_configure_logging`. Hence here, after the
+        # import, rather than there. `dask.config` is no use: that runs at
+        # import too, so setting it afterwards changes nothing.
+        logging.getLogger("distributed").setLevel(
+            logging.DEBUG if self.debug else logging.WARNING
+        )
         cluster = LocalCluster(n_workers=self.workers, threads_per_worker=1)
         client = Client(cluster)
-        log.info(f"Dask Client started: {self.workers} workers x 1 thread.")
+        log.info("Cluster: %d workers x 1 thread.", self.workers)
         try:
             yield client
         finally:
-            client.close()
-            cluster.close()
+            # Tearing the cluster down raises CommClosedError out of several
+            # loggers at once; the work is already finished, so it is noise.
+            dask_log = logging.getLogger("distributed")
+            level = dask_log.level
+            dask_log.setLevel(logging.CRITICAL)
+            try:
+                client.close()
+                cluster.close()
+            finally:
+                dask_log.setLevel(level)

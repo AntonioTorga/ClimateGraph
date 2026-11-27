@@ -8,7 +8,7 @@ from ClimateGraph.plot.plots import (
     TimeCycleConfig,
     TimeSeriesConfig,
 )
-from ClimateGraph.utils.general_utils import TimeBucketEnum, TimestepEnum
+from ClimateGraph.utils.general_utils import TimeUnitEnum
 
 
 class TestTimeSeriesConfig:
@@ -185,8 +185,12 @@ class TestTimeCycleConfig:
                 time_buckets="hour",
             )
 
-    @pytest.mark.parametrize("timestep", list(TimestepEnum))
-    @pytest.mark.parametrize("bucket", list(TimeBucketEnum))
+    @pytest.mark.parametrize(
+        "timestep", [u for u in TimeUnitEnum if u.freq is not None]
+    )
+    @pytest.mark.parametrize(
+        "bucket", [u for u in TimeUnitEnum if u.accessor is not None]
+    )
     def test_every_timestep_and_bucket_is_checked(self, timestep, bucket):
         # A pair missing from the hour tables raised KeyError instead of
         # validating; every pair must now either pass or fail as "coarser".

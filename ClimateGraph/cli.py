@@ -34,7 +34,15 @@ def run(
         bool,
         typer.Option(
             "--debug",
-            help="Force DEBUG-level logging. Override with the control file's debug setting.",
+            help="Force DEBUG-level logging, all of it on stdout. ORed with the control file's debug setting.",
+        ),
+    ] = False,
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose",
+            "-v",
+            help="Per-stage detail on stdout, warnings and errors on stderr. ORed with the control file's verbose setting.",
         ),
     ] = False,
 ):
@@ -47,10 +55,15 @@ def run(
         the analysis. Typer checks that it exists and is a file, and resolves it
         to an absolute path, before this function runs.
     debug : bool, optional
-        Force DEBUG-level logging on ClimateGraph's own logger. If either the config states debug mode or this flag is on, debug mode is on.
+        Force DEBUG-level logging on ClimateGraph's own logger, with every
+        record on stdout. If either the config states debug mode or this flag
+        is on, debug mode is on.
+    verbose : bool, optional
+        Per-stage detail on stdout, keeping warnings and errors on stderr.
+        ORed with the control file the same way. Implied by ``--debug``.
     """
     appK = AppKernel()
-    appK.run(control_file, debug_override=debug)
+    appK.run(control_file, debug_override=debug, verbose_override=verbose)
 
 
 @app.command()
